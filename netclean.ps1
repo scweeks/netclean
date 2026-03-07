@@ -20,6 +20,9 @@ param(
             [switch]$RebootNow
         )
 
+# Import module with core helpers
+Import-Module -Name (Join-Path $PSScriptRoot 'Netclean.psm1') -Force -ErrorAction Stop
+
         # Logging helpers
         $script:LogFile = $null
         function Start-Log {
@@ -278,73 +281,8 @@ param(
             return $false
         }
 
-        function Normalize-RegKeyPath($path) {
-            if (-not $path) { return $null }
-            $p = $path.ToString()
-            # Remove provider prefix if present
-            $p = $p -replace 'Microsoft\.PowerShell\.Core\\Registry::',''
-            # Normalize HKLM: prefix (allow optional trailing backslash) to reg.exe style HKLM\
-            $p = $p -replace '^HKLM:\\?','HKLM\\'
-            # Trim any trailing backslash
-            $p = $p -replace '\\$',''
-            return $p
-        }
-
-        function Backup-ProtectedRegistryKeys($paths, $dest) {
-            $exported = @()
-            if (-not $paths) { return $exported }
-            if (-not (Test-Path $dest)) { New-Item -Path $dest -ItemType Directory -Force | Out-Null }
-            foreach ($p in $paths) {
-                if (-not $p) { continue }
-                $key = Normalize-RegKeyPath $p
-                if (-not $key) { continue }
-                $safe = ($key -replace '[^a-zA-Z0-9_.-]','_')
-                $file = Join-Path $dest ("reg_backup_${safe}_$(Get-Date -Format yyyyMMdd_HHmmss).reg")
-                $regArgs = @('export',$key,$file,'/y')
-                if ($DryRun) { Write-NetcleanLog 'INFO' "DRYRUN: reg $($regArgs -join ' ')"; $exported += $file }
-                else {
-                    try {
-                        Start-Process -FilePath 'reg' -ArgumentList $regArgs -NoNewWindow -Wait -ErrorAction Stop
-                        Write-NetcleanLog 'INFO' "Exported registry key $key -> $file"
-                        $exported += $file
-                    } catch {
-                        Write-NetcleanLog 'WARN' ("Failed to export registry key " + $key + ": " + $_)
-                    }
-                }
-            }
-            return $exported
-        }
-
-        function Backup-NetworkList($dest) {
-            $key = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList'
-            $file = Join-Path $dest "NetworkList_$(Get-Date -Format yyyyMMdd_HHmmss).reg"
-            $args = @('export',$key,$file,'/y')
-            if ($DryRun) { Write-Host "DRYRUN: reg $($args -join ' ')" } else {
-                try { Start-Process -FilePath 'reg' -ArgumentList $args -NoNewWindow -Wait -ErrorAction Stop; Write-Host "Backed up NetworkList registry to $file" -ForegroundColor Gray } catch { Write-Warning ("Failed to export registry: " + $_) }
-            }
-                Write-Log 'INFO' "NetworkList registry exported to: $file"
-        }
-
-        function Backup-WiFiProfiles($dest) {
-            $listFile = Join-Path $dest "WiFiProfiles_$(Get-Date -Format yyyyMMdd_HHmmss).txt"
-            try {
-                $profiles = netsh wlan show profiles | Select-String 'All User Profile' | ForEach-Object { ($_ -split ':')[1].Trim() }
-                if ($profiles) {
-                    if ($DryRun) { Write-Host "DRYRUN: would write Wi-Fi profile list to $listFile" -ForegroundColor Gray }
-                    else { $profiles | Out-File -FilePath $listFile -Encoding UTF8; Write-Host "Saved Wi-Fi profile names to $listFile" -ForegroundColor Gray }
-                    # Export each profile to XML so it can be restored later
-                    foreach ($p in $profiles) {
-                        $out = Join-Path $dest ("WiFiProfile_$([System.Uri]::EscapeDataString($p)).xml")
-                        $cmdArgs = @('wlan','export','profile','name="' + $p + '"','folder="' + $dest + '"')
-                        if ($DryRun) { Write-Host "DRYRUN: netsh $($cmdArgs -join ' ')" -ForegroundColor Gray }
-                        else {
-                            try { netsh wlan export profile name="$p" folder="$dest" | Out-Null; Write-Log 'INFO' ("Exported Wi-Fi profile '" + $p + "' to " + $dest) } catch { Write-Warning ("Failed exporting profile " + $p + ": " + $_) }
-                        }
-                    }
-                }
-            } catch { Write-Warning ("Failed to save Wi-Fi profiles: " + $_) }
-            Write-Log 'INFO' "Wi-Fi profile list saved to: $listFile; individual profiles exported to: $dest"
-        }
+        # The registry and Wi-Fi backup helpers are provided by the Netclean module
+        # Backup-ProtectedRegistryKeys, Backup-NetworkList, and Backup-WiFiProfiles
 
         function Remove-WiFiProfilesSafe {
             Write-Host "Preparing to remove Wi-Fi profiles (preview)..." -ForegroundColor Yellow

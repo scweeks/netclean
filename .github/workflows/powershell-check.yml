@@ -8,36 +8,42 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install PSScriptAnalyzer (non-interactive)
+      - name: Install PSScriptAnalyzer and Pester (non-interactive)
         shell: pwsh
         run: |
           try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue } catch { }
           Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -AllowClobber -ErrorAction Stop
+          Install-Module -Name Pester -Force -Scope CurrentUser -AllowClobber -ErrorAction Stop
 
-      - name: Run PSScriptAnalyzer on PowerShell files (fail only on Errors)
+      - name: Run PSScriptAnalyzer (fail on any findings)
         shell: pwsh
         run: |
-          # Limit analysis to .ps1 files and exclude the .ai folder to avoid scanning large/local-only artifacts
+          $settings = Join-Path $PWD 'PSScriptAnalyzerSettings.psd1'
+          if (-not (Test-Path $settings)) { Write-Host 'No PSScriptAnalyzer settings found; using defaults.' }
+          # Exclude .ai folder and any large artifacts
           $files = Get-ChildItem -Path . -Include *.ps1 -Recurse -File -ErrorAction SilentlyContinue |
-                   Where-Object { $_.FullName -notmatch '\\.ai\\' } |
+                   Where-Object { $_.FullName -notmatch '\.ai\\' } |
                    Select-Object -ExpandProperty FullName
           if (-not $files) { Write-Host 'No PowerShell files found for analysis.'; exit 0 }
 
-          $results = Invoke-ScriptAnalyzer -Path $files -Severity Warning,Error -Recurse -ErrorAction SilentlyContinue
+          if (Test-Path $settings) { $results = Invoke-ScriptAnalyzer -Path $files -SettingsPath $settings -Recurse -ErrorAction SilentlyContinue }
+          else { $results = Invoke-ScriptAnalyzer -Path $files -Recurse -ErrorAction SilentlyContinue }
+
           if ($results) {
               $results | ForEach-Object { Write-Host "[$($_.Severity)] $($_.ScriptName):$($_.Line) $($_.RuleName) - $($_.Message)" }
-              $errors = $results | Where-Object { $_.Severity -eq 'Error' }
-              if ($errors) {
-                  Write-Host 'Errors found by PSScriptAnalyzer. Failing CI.'
-                  $errors | ForEach-Object { Write-Error "ERROR: $($_.ScriptName):$($_.Line) $($_.RuleName) - $($_.Message)" }
-                  exit 1
-              } else {
-                  Write-Host 'Analyzer completed with warnings only.'
-              }
+              Write-Error "PSScriptAnalyzer found $($results.Count) issue(s). Failing CI."
+              exit 1
           } else { Write-Host 'No findings from PSScriptAnalyzer.' }
+
+      - name: Run Pester tests
+        shell: pwsh
+        run: |
+          $testFolder = Join-Path $PWD 'tests'
+          if (-not (Test-Path $testFolder)) { Write-Host 'No tests directory found.'; exit 0 }
+          $res = Invoke-Pester -Script $testFolder -PassThru
+          if ($res.FailedCount -gt 0) { Write-Error "Pester tests failed: $($res.FailedCount) failing"; exit 1 } else { Write-Host 'Pester tests passed.' }
 
       - name: Report summary
         shell: pwsh
         run: |
-          Write-Host 'PSScriptAnalyzer step completed. Warnings are reported but do not fail CI; errors will fail the job.'
+          Write-Host 'Analyzer + tests completed. Any findings or failing tests fail CI.'
