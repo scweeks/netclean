@@ -1,6 +1,6 @@
 # netclean
 
-[![CI](https://github.com/<owner>/<repo>/actions/workflows/powershell-check.yml/badge.svg)](https://github.com/<owner>/<repo>/actions/workflows/powershell-check.yml) [![License](https://img.shields.io/badge/license-See%20LICENSE-lightgrey.svg)](LICENSE)
+[![CI](https://github.com/scweeks/netclean/actions/workflows/powershell-check.yml/badge.svg)](https://github.com/scweeks/netclean/actions/workflows/powershell-check.yml) [![License](https://img.shields.io/badge/license-See%20LICENSE-lightgrey.svg)](LICENSE)
 
 netclean is an aggressive-but-safe Windows network and log cleaner designed to prepare a Windows system for attending a conference, workshop, or participating in a Capture The Flag (CTF) event. The script helps remove identifying network traces (Wi‑Fi profiles, NetworkList entries, logs, caches) while providing safe backups and protections for security products and virtual adapters.
 
