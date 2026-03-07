@@ -1,0 +1,24 @@
+# Ignore common AI/chat artifacts and local assistant data
+# Adjust these patterns to match your editor/assistant storage locations
+
+# Copilot / assistant caches
+.copilot/
+.copilot/*
+
+# ChatGPT / other chat logs
+.chat/
+.chat*
+chatgpt/
+openai_chat_logs/
+ai_outputs/
+
+# Local assistant session files
+*.chat
+*.assistant
+*.ai
+
+# VS Code workspace storage for chat (if present)
+.vscode/.chat/*
+
+# Node/npm lockfiles or others you might not want to commit (optional)
+# package-lock.json

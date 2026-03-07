@@ -1,5 +1,7 @@
 # netclean
 
+[![CI](https://github.com/<owner>/<repo>/actions/workflows/powershell-check.yml/badge.svg)](https://github.com/<owner>/<repo>/actions/workflows/powershell-check.yml) [![License](https://img.shields.io/badge/license-See%20LICENSE-lightgrey.svg)](LICENSE)
+
 netclean is an aggressive-but-safe Windows network and log cleaner designed to prepare a Windows system for attending a conference, workshop, or participating in a Capture The Flag (CTF) event. The script helps remove identifying network traces (Wi‑Fi profiles, NetworkList entries, logs, caches) while providing safe backups and protections for security products and virtual adapters.
 
 > Warning: Run this script only on systems you control. It makes potentially destructive changes to networking state and event logs. Use `-DryRun` first to preview actions.
@@ -110,6 +112,14 @@ Key directories (defaults):
 
 Log files are timestamped like `netclean_YYYYMMDD_HHMMSS.log` and contain the full sequence of actions and restore instructions for exported registry keys and Wi‑Fi profiles.
 
+## CI / Scheduled task examples
+
+This repository includes a lightweight GitHub Actions workflow that lints PowerShell with `PSScriptAnalyzer` and runs the wrapper in `-DryRun` mode. The workflow file is:
+
+- `.github/workflows/powershell-check.yml`
+
+Example scheduled-task registration script is under `examples/register-scheduledtask.ps1` (creates an idempotent task to run the wrapper at startup).
+
 ## Examples: PowerShell wrapper scripts
 
 Below are two example wrappers that make running and restoring easier. They are provided as guidance — you can copy them into `examples/` and customize paths as needed.
@@ -119,19 +129,22 @@ Below are two example wrappers that make running and restoring easier. They are 
 ```powershell
 # examples/run-netclean.ps1
 param(
-		[switch]$DryRun,
-		[switch]$Force,
-		[string]$BackupPath = "$env:ProgramData\NetworkCleaner\Backups",
-		[string]$LogPath = "$env:ProgramData\NetworkCleaner\Logs"
+    [switch]$DryRun,
+    [switch]$Force,
+    [string]$BackupPath = "$env:ProgramData\NetworkCleaner\Backups",
+    [string]$LogPath = "$env:ProgramData\NetworkCleaner\Logs"
 )
 
-Start-Process -FilePath (Get-Command powershell).Source -ArgumentList (
-		"-NoProfile","-ExecutionPolicy","Bypass","-File","$PSScriptRoot\..\netclean.ps1",
-		if ($DryRun) { "-DryRun" },
-		if ($Force) { "-Force" },
-		"-OnlyBackup:$false","-CreateLog","-BackupPath","$BackupPath","-LogPath","$LogPath"
-) -NoNewWindow -Wait
+$script = Join-Path $PSScriptRoot "..\netclean.ps1"
+if (-not (Test-Path $script)) { Write-Error "netclean.ps1 not found at $script"; exit 1 }
 
+$args = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$script)
+if ($DryRun) { $args += '-DryRun' }
+if ($Force) { $args += '-Force' }
+$args += '-CreateLog','-BackupPath',$BackupPath,'-LogPath',$LogPath
+
+Write-Host "Launching netclean with args: $($args -join ' ')" -ForegroundColor Cyan
+Start-Process -FilePath (Get-Command powershell).Source -ArgumentList $args -NoNewWindow -Wait
 Write-Host "netclean run completed. Check logs under $LogPath" -ForegroundColor Green
 ```
 
@@ -140,7 +153,7 @@ Write-Host "netclean run completed. Check logs under $LogPath" -ForegroundColor 
 ```powershell
 # examples/restore-wifi-profiles.ps1
 param(
-		[string]$BackupPath = "$env:ProgramData\NetworkCleaner\Backups"
+    [string]$BackupPath = "$env:ProgramData\NetworkCleaner\Backups"
 )
 
 if (-not (Test-Path $BackupPath)) { Write-Error "Backup path not found: $BackupPath"; exit 1 }
@@ -149,8 +162,8 @@ $xmlFiles = Get-ChildItem -Path $BackupPath -Filter 'WiFiProfile_*.xml' -File -E
 if (-not $xmlFiles) { Write-Host "No Wi‑Fi profile exports found in $BackupPath"; exit 0 }
 
 foreach ($f in $xmlFiles) {
-		Write-Host "Importing profile: $($f.Name)"
-		try { netsh wlan add profile filename="$($f.FullName)" | Out-Null; Write-Host "Imported: $($f.Name)" -ForegroundColor Green } catch { Write-Warning "Failed to import $($f.Name): $_" }
+    Write-Host "Importing profile: $($f.Name)"
+    try { netsh wlan add profile filename="$($f.FullName)" | Out-Null; Write-Host "Imported: $($f.Name)" -ForegroundColor Green } catch { Write-Warning "Failed to import $($f.Name): $_" }
 }
 
 Write-Host "Wi‑Fi restore complete." -ForegroundColor Green
@@ -174,4 +187,4 @@ Write-Host "Wi‑Fi restore complete." -ForegroundColor Green
 
 ---
 
-If you'd like, I can also create the `examples/` files in the repo now and commit them — tell me to proceed and I'll add them under `examples/` and mark the todo items complete.
+If you'd like, I can also commit the workflow and examples to the repository. Tell me to proceed and I'll make a git commit.

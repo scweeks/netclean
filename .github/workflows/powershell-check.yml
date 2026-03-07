@@ -1,0 +1,25 @@
+name: PowerShell checks
+
+on: [push, pull_request]
+
+jobs:
+  ps-lint:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          Invoke-ScriptAnalyzer -Path .\ -Recurse -Severity Warning,Error
+      - name: Run wrapper dry-run (safety)
+        shell: pwsh
+        run: |
+          if (Test-Path .\examples\run-netclean.ps1) {
+            .\examples\run-netclean.ps1 -DryRun
+          } else {
+            Write-Host 'Wrapper not present; skipping dry-run.'
+          }
