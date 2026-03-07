@@ -14,7 +14,7 @@ try {
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction SilentlyContinue
     }
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -RunLevel Highest -User 'SYSTEM' -Description 'Run netclean wrapper at startup' -Force
-    Write-Host "Scheduled task '$TaskName' registered to run $WrapperPath at startup." -ForegroundColor Green
+    Write-Output "Scheduled task '$TaskName' registered to run $WrapperPath at startup."
 } catch {
     Write-Error "Failed to register scheduled task: $_"
     exit 1

@@ -8,8 +8,11 @@ function Convert-RegKeyPath {
     if (-not $Path) { return $null }
     $p = $Path.ToString()
     $p = $p -replace 'Microsoft\.PowerShell\.Core\\Registry::',''
-    $p = $p -replace '^HKLM:\\?','HKLM\\'
-    $p = $p -replace '\\$',''
+    # Remove a colon after HKLM if present and normalize separators
+    $p = $p -replace '^HKLM:','HKLM'
+    $p = $p -replace '/','\\'
+    while ($p -match '\\\\') { $p = $p -replace '\\\\','\\' }
+    $p = $p.TrimEnd('\')
     return $p
 }
 

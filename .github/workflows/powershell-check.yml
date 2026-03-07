@@ -43,6 +43,21 @@ jobs:
           $res = Invoke-Pester -Script $testFolder -PassThru
           if ($res.FailedCount -gt 0) { Write-Error "Pester tests failed: $($res.FailedCount) failing"; exit 1 } else { Write-Host 'Pester tests passed.' }
 
+      - name: Run Pester with coverage (best-effort)
+        shell: pwsh
+        run: |
+          try {
+              $testFolder = Join-Path $PWD 'tests'
+              if (-not (Test-Path $testFolder)) { Write-Host 'No tests directory found; skipping coverage.'; exit 0 }
+              Import-Module Pester -ErrorAction Stop
+              # Attempt to run Pester with coverage; if the runner doesn't support this, continue without failing CI.
+              Invoke-Pester -Script $testFolder -PassThru -EnableCodeCoverage -ErrorAction Stop | Out-Null
+              Write-Host 'Coverage run completed.'
+          }
+          catch {
+              Write-Host "Coverage run skipped or not supported in this environment: $($_.Exception.Message)"
+          }
+
       - name: Report summary
         shell: pwsh
         run: |
