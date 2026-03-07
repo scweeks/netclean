@@ -8,3 +8,9 @@
 [3/7/2026, 12:27:18 PM] info: Starting backend. Execution by exe
 [3/7/2026, 12:27:18 PM] info: Command: C:\Users\seanw\AppData\Local\Application Inspector Analyzer\AI.PluginsBackend.exe --port 8000 --log-level Error --logs-dir e:\DevRepos\NetworkCleaner\netclean\.ai\Logs\Infrastructure\2026-03-07-12-27-18 --light-mode false
 [3/7/2026, 12:27:18 PM] info: Backend process started with PID 136864
+[3/7/2026, 12:27:26 PM] info: Infrastructure initialized in heavy mode
+[3/7/2026, 12:27:26 PM] info: Initialize aie integration isn't initialized
+[3/7/2026, 12:27:26 PM] info: Infrastructure was initialized
+[3/7/2026, 12:27:26 PM] info: Infrastructure Installer was deleted
+[3/7/2026, 12:27:26 PM] info: Clean up logs files was started
+[3/7/2026, 12:27:26 PM] info: Clean up logs files was finished
