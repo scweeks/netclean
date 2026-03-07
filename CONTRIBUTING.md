@@ -5,7 +5,7 @@ Thanks for considering contributing to `netclean` — your help improves the too
 Please follow these guidelines for a smooth collaboration:
 
 - Fork the repository and open a feature branch from `main`.
-- Keep commits small and focused; use clear commit messages (avoid `chore(docs):`).
+- Keep commits small and focused; use clear commit messages.
 - Run `PSScriptAnalyzer` locally and fix warnings where practical.
 
 Suggested checks before opening a pull request:

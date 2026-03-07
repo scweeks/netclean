@@ -21,22 +21,21 @@ param(
         )
 
         # Logging helpers
-        $global:LogFile = $null
+        $script:LogFile = $null
         function Start-Log {
             param($logDir)
             if (-not $logDir) { $logDir = "$env:ProgramData\NetworkCleaner\Logs" }
             if (-not (Test-Path $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
-            $global:LogFile = Join-Path $logDir "netclean_$(Get-Date -Format yyyyMMdd_HHmmss).log"
-            "$((Get-Date).ToString('s')) - INFO - Log started" | Out-File -FilePath $global:LogFile -Encoding UTF8
+            $script:LogFile = Join-Path $logDir "netclean_$(Get-Date -Format yyyyMMdd_HHmmss).log"
+            "$((Get-Date).ToString('s')) - INFO - Log started" | Out-File -FilePath $script:LogFile -Encoding UTF8
         }
-
-        function Write-Log {
+        function Write-NetcleanLog {
             param(
                 [string]$Level = 'INFO',
                 [string]$Message
             )
             $line = "$(Get-Date -Format s) - $Level - $Message"
-            if ($global:LogFile) { $line | Out-File -FilePath $global:LogFile -Encoding UTF8 -Append }
+            if ($script:LogFile) { $line | Out-File -FilePath $script:LogFile -Encoding UTF8 -Append }
             # Also write a short host message for interactive feedback
             # Only show WARN and ERROR on the console to reduce duplicate/info clutter; INFO goes to the log file.
             if ($Level -in @('ERROR','WARN')) {
@@ -83,15 +82,15 @@ param(
             }
             # Restrict backups to Administrators and SYSTEM
             try {
-                $args = @($path,'/inheritance:r','/grant','Administrators:(OI)(CI)F','/grant','SYSTEM:(OI)(CI)F','/C')
-                if ($DryRun) { Write-Host "DRYRUN: icacls $($args -join ' ')" -ForegroundColor Gray }
+                $icaclsArgs = @($path,'/inheritance:r','/grant','Administrators:(OI)(CI)F','/grant','SYSTEM:(OI)(CI)F','/C')
+                if ($DryRun) { Write-Host "DRYRUN: icacls $($icaclsArgs -join ' ')" -ForegroundColor Gray }
                 else {
-                    try { Start-Process -FilePath 'icacls' -ArgumentList $args -NoNewWindow -Wait -ErrorAction Stop | Out-Null } catch { throw }
+                    try { Start-Process -FilePath 'icacls' -ArgumentList $icaclsArgs -NoNewWindow -Wait -ErrorAction Stop | Out-Null } catch { throw }
                 }
             } catch {
                     Write-Warning ("Failed to set ACL on backup folder: " + $_)
             }
-            Write-Log 'INFO' "Backup folder prepared: $path"
+            Write-NetcleanLog 'INFO' "Backup folder prepared: $path"
         }
 
         function Prompt-YesNo($msg, $defaultNo=$true) {
@@ -117,17 +116,17 @@ param(
                         ($_.InterfaceDescription -match 'VMware|VirtualBox|Hyper-V|HyperV|Parallels|Virtual Adapter|Virtual Ethernet|vEthernet|VirtualBox') -or
                         ($_.Name -match 'VMware|VMnet|vbox|VMSwitch|vEthernet')
                     }
-            } catch {
-                Write-Warning ("Get-NetAdapter failed: " + $_)
-            }
-            $guids = @()
-            foreach ($a in $adapters) {
-                if ($a.InterfaceGuid) { $guids += Normalize-Guid($a.InterfaceGuid.ToString()) }
-            }
-            return $guids | Sort-Object -Unique
-        }
-
-        # Backwards-compatible wrapper
+                $wlanArgs = @('wlan','export','profile','name='+$p,'key=clear','folder='+$dest)
+                if ($DryRun) { Write-NetcleanLog 'INFO' "DRYRUN: netsh $($wlanArgs -join ' ')"; $exported += $file }
+                else {
+                    try {
+                        Start-Process -FilePath 'netsh' -ArgumentList $wlanArgs -NoNewWindow -Wait -ErrorAction Stop
+                        Write-NetcleanLog 'INFO' "Exported Wi-Fi profile $p -> $file"
+                        $exported += $file
+                    } catch {
+                        Write-NetcleanLog 'WARN' ("Failed to export wifi profile " + $p + ": " + $_)
+                    }
+                }
         function Get-VMwareGuids { return Get-HypervisorGuids }
 
         function Get-DetectedHypervisors {
@@ -301,15 +300,15 @@ param(
                 if (-not $key) { continue }
                 $safe = ($key -replace '[^a-zA-Z0-9_.-]','_')
                 $file = Join-Path $dest ("reg_backup_${safe}_$(Get-Date -Format yyyyMMdd_HHmmss).reg")
-                $args = @('export',$key,$file,'/y')
-                if ($DryRun) { Write-Log 'INFO' "DRYRUN: reg $($args -join ' ')"; $exported += $file }
+                $regArgs = @('export',$key,$file,'/y')
+                if ($DryRun) { Write-NetcleanLog 'INFO' "DRYRUN: reg $($regArgs -join ' ')"; $exported += $file }
                 else {
                     try {
-                        Start-Process -FilePath 'reg' -ArgumentList $args -NoNewWindow -Wait -ErrorAction Stop
-                        Write-Log 'INFO' "Exported registry key $key -> $file"
+                        Start-Process -FilePath 'reg' -ArgumentList $regArgs -NoNewWindow -Wait -ErrorAction Stop
+                        Write-NetcleanLog 'INFO' "Exported registry key $key -> $file"
                         $exported += $file
                     } catch {
-                        Write-Log 'WARN' ("Failed to export registry key " + $key + ": " + $_)
+                        Write-NetcleanLog 'WARN' ("Failed to export registry key " + $key + ": " + $_)
                     }
                 }
             }
@@ -357,11 +356,18 @@ param(
                 if (-not (Prompt-YesNo "Delete all above Wi-Fi profiles?")) { Write-Host "Skipping Wi-Fi deletion." -ForegroundColor Yellow; return }
             }
                 foreach ($p in $profiles) {
-                $cmd = "netsh wlan delete profile name=`"$p`""
-                if ($DryRun) { Write-Host "DRYRUN: $cmd" } else {
-                    try { iex $cmd | Out-Null; Write-Host "Deleted profile: $p" -ForegroundColor Gray; Write-Log 'INFO' "Deleted Wi-Fi profile: $p" } catch { Write-Warning ("Failed to delete " + ${p} + ": " + $_); Write-Log 'ERROR' ("Failed to delete Wi-Fi profile: " + $p + " - " + $_) }
+                    $delArgs = @('wlan','delete','profile','name="' + $p + '"')
+                    if ($DryRun) { Write-Host "DRYRUN: netsh $($delArgs -join ' ')" } else {
+                        try {
+                            Start-Process -FilePath 'netsh' -ArgumentList $delArgs -NoNewWindow -Wait -ErrorAction Stop
+                            Write-Host "Deleted profile: $p" -ForegroundColor Gray
+                            Write-NetcleanLog 'INFO' "Deleted Wi-Fi profile: $p"
+                        } catch {
+                            Write-Warning ("Failed to delete " + ${p} + ": " + $_)
+                            Write-NetcleanLog 'ERROR' ("Failed to delete Wi-Fi profile: " + $p + " - " + $_)
+                        }
+                    }
                 }
-            }
         }
 
         function Safe-RemoveNetworkListProfiles($vmwareGuids, $dest) {
