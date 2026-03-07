@@ -1,0 +1,18 @@
+2026-03-07T17:27:27.285-05:00 ERROR @Processor: unhandled exception got in transport
+––– details ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+Transport.Exceptions.Be4PTransportException: no project
+   at Transport.Controllers.ProjectController.GetProject(Empty request, ServerCallContext context)
+   at Grpc.Shared.Server.UnaryServerMethodInvoker`3.ResolvedInterceptorInvoker(TRequest resolvedRequest, ServerCallContext resolvedContext)
+   at Grpc.Shared.Server.UnaryServerMethodInvoker`3.ResolvedInterceptorInvoker(TRequest resolvedRequest, ServerCallContext resolvedContext)
+   at Transport.Interceptors.ExceptionsMapperInterceptor.UnaryServerHandler[TRequest,TResponse](TRequest request, ServerCallContext context, UnaryServerMethod`2 continuation)
+––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+2026-03-07T17:27:27.808-05:00 ERROR @Processor: unhandled exception got in transport
+––– details ––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
+
+Transport.Exceptions.Be4PTransportException: no last scan
+   at Transport.Controllers.ScanResultController.GetLastScanResult(Empty request, ServerCallContext context)
+   at Grpc.Shared.Server.UnaryServerMethodInvoker`3.ResolvedInterceptorInvoker(TRequest resolvedRequest, ServerCallContext resolvedContext)
+   at Grpc.Shared.Server.UnaryServerMethodInvoker`3.ResolvedInterceptorInvoker(TRequest resolvedRequest, ServerCallContext resolvedContext)
+   at Transport.Interceptors.ExceptionsMapperInterceptor.UnaryServerHandler[TRequest,TResponse](TRequest request, ServerCallContext context, UnaryServerMethod`2 continuation)
+––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––––
