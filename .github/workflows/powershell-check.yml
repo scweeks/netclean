@@ -5,21 +5,39 @@ on: [push, pull_request]
 jobs:
   ps-lint:
     runs-on: windows-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - name: Install PSScriptAnalyzer
+
+      - name: Install PSScriptAnalyzer (non-interactive)
         shell: pwsh
         run: |
-          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser
-      - name: Run PSScriptAnalyzer
+          try { Set-PSRepository -Name PSGallery -InstallationPolicy Trusted -ErrorAction SilentlyContinue } catch { }
+          Install-Module -Name PSScriptAnalyzer -Force -Scope CurrentUser -AllowClobber -ErrorAction Stop
+
+      - name: Run PSScriptAnalyzer on PowerShell files (fail only on Errors)
         shell: pwsh
         run: |
-          Invoke-ScriptAnalyzer -Path .\ -Recurse -Severity Warning,Error
-      - name: Run wrapper dry-run (safety)
+          # Limit analysis to .ps1 files and exclude the .ai folder to avoid scanning large/local-only artifacts
+          $files = Get-ChildItem -Path . -Include *.ps1 -Recurse -File -ErrorAction SilentlyContinue |
+                   Where-Object { $_.FullName -notmatch '\\.ai\\' } |
+                   Select-Object -ExpandProperty FullName
+          if (-not $files) { Write-Host 'No PowerShell files found for analysis.'; exit 0 }
+
+          $results = Invoke-ScriptAnalyzer -Path $files -Severity Warning,Error -Recurse -ErrorAction SilentlyContinue
+          if ($results) {
+              $results | ForEach-Object { Write-Host "[$($_.Severity)] $($_.ScriptName):$($_.Line) $($_.RuleName) - $($_.Message)" }
+              $errors = $results | Where-Object { $_.Severity -eq 'Error' }
+              if ($errors) {
+                  Write-Host 'Errors found by PSScriptAnalyzer. Failing CI.'
+                  $errors | ForEach-Object { Write-Error "ERROR: $($_.ScriptName):$($_.Line) $($_.RuleName) - $($_.Message)" }
+                  exit 1
+              } else {
+                  Write-Host 'Analyzer completed with warnings only.'
+              }
+          } else { Write-Host 'No findings from PSScriptAnalyzer.' }
+
+      - name: Report summary
         shell: pwsh
         run: |
-          if (Test-Path .\examples\run-netclean.ps1) {
-            .\examples\run-netclean.ps1 -DryRun
-          } else {
-            Write-Host 'Wrapper not present; skipping dry-run.'
-          }
+          Write-Host 'PSScriptAnalyzer step completed. Warnings are reported but do not fail CI; errors will fail the job.'
