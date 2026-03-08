@@ -679,7 +679,7 @@ function Invoke-NetCleanLauncher {
 
     Write-NetCleanLog -Level INFO -Message "NetClean starting. Mode=$selectedMode DryRun=$($options.DryRun)"
 
-    Ensure-Directory -Path $BackupPath
+    New-DirectoryIfNotExist -Path $BackupPath
 
     if ($selectedMode -eq 'Preview') {
         $ctx = Invoke-NetCleanPhase1Detect

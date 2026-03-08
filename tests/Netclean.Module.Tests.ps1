@@ -1,16 +1,21 @@
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
-$ModulePath  = Join-Path $ProjectRoot 'NetClean.psm1'
-$ModuleName  = 'NetClean'
+BeforeAll {
+    $modulePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'NetClean.psm1'
 
-Import-Module $ModulePath -Force -ErrorAction Stop
+    if (-not (Test-Path $modulePath)) {
+        throw "NetClean.psm1 not found at path: $modulePath"
+    }
+
+    Import-Module $modulePath -Force -ErrorAction Stop
+}
 
 Describe 'NetClean.psm1 import/export surface' {
     It 'imports the module without throwing' {
-        { Import-Module $ModulePath -Force } | Should -Not -Throw
+        $modulePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'NetClean.psm1'
+        { Import-Module $modulePath -Force } | Should -Not -Throw
     }
 
     It 'exports the expected primary phase functions' {
-        $module = Get-Module $ModuleName
+        $module = Get-Module 'NetClean'
         $module | Should -Not -BeNullOrEmpty
 
         $expected = @(
@@ -27,8 +32,8 @@ Describe 'NetClean.psm1 import/export surface' {
     }
 }
 
-DDescribe 'NetClean.psm1 utility helpers' {
-    InModuleScope NetClean {
+Describe 'NetClean.psm1 utility helpers' {
+    InModuleScope 'NetClean' {
         It 'Convert-RegKeyPath normalizes registry provider paths' {
             Convert-RegKeyPath -Path 'Microsoft.PowerShell.Core\Registry::HKLM:\SOFTWARE\Test' |
                 Should -Be 'HKLM\SOFTWARE\Test'
@@ -37,11 +42,7 @@ DDescribe 'NetClean.psm1 utility helpers' {
 }
 
 Describe 'NetClean.psm1 external command helper' {
-    BeforeAll {
-        Import-Module $ModulePath -Force
-    }
-
-    InModuleScope NetClean {
+    InModuleScope 'NetClean' {
         It 'Invoke-ExternalCommandSafe returns a successful dry-run result' {
             $r = Invoke-ExternalCommandSafe -Name Test -FilePath cmd.exe -ArgumentList '/c','echo ok' -DryRun
             $r.Succeeded | Should -BeTrue
@@ -67,11 +68,7 @@ Describe 'NetClean.psm1 external command helper' {
 }
 
 Describe 'NetClean.psm1 phase orchestration' {
-    BeforeAll {
-        Import-Module $ModulePath -Force
-    }
-
-    InModuleScope NetClean {
+    InModuleScope 'NetClean' {
         Context 'Phase 1 detect' {
             BeforeEach {
                 Mock Get-ProtectionInventory {
@@ -132,7 +129,7 @@ Describe 'NetClean.psm1 phase orchestration' {
                 Mock Export-FirewallPolicy { 'C:\backup\FirewallPolicy.wfw' }
                 Mock Export-ProtectedRegistryKey { @('C:\backup\CrowdStrike.reg') }
                 Mock Export-NetCleanManifest { 'C:\backup\Manifest.json' }
-                Mock Ensure-Directory {}
+                Mock New-DirectoryIfNotExist {}
             }
 
             It 'returns a protect context with manifest and summary' {

@@ -294,7 +294,7 @@ function Get-UniqueNonEmptyString {
 .OUTPUTS
     System.Void
 .NOTES
-    The function uses the Get-UniqueNonEmptyStrings function to normalize the input arrays.
+    The function uses the Get-UniqueNonEmptyString function to normalize the input arrays.
 #>
 function Add-HashSetValue {
     [CmdletBinding()]
@@ -340,7 +340,7 @@ function Add-HashSetValue {
 .OUTPUTS
     System.Management.Automation.PSCustomObject - A custom object containing the comparison results.
 .NOTES
-    The function uses the Get-UniqueNonEmptyStrings function to normalize the input arrays.
+    The function uses the Get-UniqueNonEmptyString function to normalize the input arrays.
 #>
 function Compare-StringSet {
     [CmdletBinding()]
@@ -355,8 +355,8 @@ function Compare-StringSet {
         [string[]]$After
     )
 
-    $beforeSet = @(Get-UniqueNonEmptyStrings -InputObject $Before)
-    $afterSet  = @(Get-UniqueNonEmptyStrings -InputObject $After)
+    $beforeSet = @(Get-UniqueNonEmptyString -InputObject $Before)
+    $afterSet  = @(Get-UniqueNonEmptyString -InputObject $After)
 
     return [pscustomobject]@{
         Before  = $beforeSet
@@ -394,10 +394,6 @@ function New-DirectoryIfNotExist {
         }
     }
 }
-
-# Alias for backwards compatibility
-Set-Alias -Name Ensure-Directory -Value New-DirectoryIfNotExist -Force
-Set-Alias -Name Get-UniqueNonEmptyStrings -Value Get-UniqueNonEmptyString -Force
 
 <#
 .SYNOPSIS
@@ -635,7 +631,7 @@ function Get-VendorRootsFromInstallPath {
         Write-Verbose "Ignored error: $_"
     }
 
-    [string[]]$result = @(Get-UniqueNonEmptyStrings -InputObject $roots)
+    [string[]]$result = @(Get-UniqueNonEmptyString -InputObject $roots)
     return [string[]] $result
 }
 
@@ -2463,7 +2459,7 @@ function Export-ProtectedRegistryKey {
     )
 
     $exported = New-Object System.Collections.Generic.List[string]
-    Ensure-Directory -Path $Dest
+    New-DirectoryIfNotExist -Path $Dest
 
     foreach ($pathItem in @($Paths)) {
         if ([string]::IsNullOrWhiteSpace($pathItem)) { continue }
@@ -2503,7 +2499,7 @@ function Export-NetworkList {
         [switch]$DryRun
     )
 
-    Ensure-Directory -Path $Dest
+    New-DirectoryIfNotExist -Path $Dest
     $key = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList'
     $file = Join-Path $Dest ("NetworkList_{0}.reg" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 
@@ -2578,7 +2574,7 @@ function Export-WiFiProfile {
     )
 
     $exported = New-Object System.Collections.Generic.List[string]
-    Ensure-Directory -Path $Dest
+    New-DirectoryIfNotExist -Path $Dest
 
     $listFile = Join-Path $Dest ("WiFiProfiles_{0}.txt" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
     $profiles = @(Get-WiFiProfileName)
@@ -2634,7 +2630,7 @@ function Export-FirewallPolicy {
         [switch]$DryRun
     )
 
-    Ensure-Directory -Path $Dest
+    New-DirectoryIfNotExist -Path $Dest
     $file = Join-Path $Dest ("FirewallPolicy_{0}.wfw" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 
     $result = Invoke-ExternalCommandSafe -Name 'Export firewall policy' -FilePath 'netsh.exe' -ArgumentList @('advfirewall', 'export', "`"$file`"") -DryRun:$DryRun
@@ -2671,7 +2667,7 @@ function Export-ProtectionInventory {
         [switch]$DryRun
     )
 
-    Ensure-Directory -Path $Dest
+    New-DirectoryIfNotExist -Path $Dest
 
     if ($null -eq $Inventory -or @($Inventory).Count -eq 0) {
         $Inventory = @(Get-ProtectionInventory)
@@ -2714,7 +2710,7 @@ function Export-ProtectionRegistryMap {
         [switch]$DryRun
     )
 
-    Ensure-Directory -Path $Dest
+    New-DirectoryIfNotExist -Path $Dest
 
     $map = @(Get-ProtectionRegistryMap -Inventory $Inventory)
     $file = Join-Path $Dest ("ProtectionRegistryMap_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
@@ -2754,7 +2750,7 @@ function Export-SanitizableNetworkArtifact {
         [switch]$DryRun
     )
 
-    Ensure-Directory -Path $Dest
+    New-DirectoryIfNotExist -Path $Dest
 
     $artifacts = @(Get-SanitizableNetworkArtifact -Inventory $Inventory)
     $file = Join-Path $Dest ("SanitizableNetworkArtifact_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
@@ -2799,7 +2795,7 @@ function Export-NetCleanManifest {
         [switch]$DryRun
     )
 
-    Ensure-Directory -Path $Dest
+    New-DirectoryIfNotExist -Path $Dest
     $file = Join-Path $Dest ("RestoreManifest_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 
     if (-not $DryRun) {
@@ -2837,7 +2833,7 @@ function Invoke-NetCleanPhase2Protect {
         [switch]$SkipFirewallBackup
     )
 
-    Ensure-Directory -Path $BackupPath
+    New-DirectoryIfNotExist -Path $BackupPath
 
     $inventory = @($Context.Inventory)
     $protectedPaths = @($Context.ProtectedRegistryPaths | Sort-Object -Unique)
@@ -3579,8 +3575,8 @@ function Test-NetCleanPostState {
     $preGuids = @(Get-ProtectedInterfaceGuidSet -Inventory $preInventory)
     $postGuids = @(Get-ProtectedInterfaceGuidSet -Inventory $postInventory)
 
-    $vendorComparison = Compare-StringSets -Before $preVendors -After $postVendors
-    $guidComparison   = Compare-StringSets -Before $preGuids -After $postGuids
+    $vendorComparison = Compare-StringSet -Before $preVendors -After $postVendors
+    $guidComparison   = Compare-StringSet -Before $preGuids -After $postGuids
 
     $preServices = @(
         $preInventory |
@@ -3596,7 +3592,7 @@ function Test-NetCleanPostState {
         Sort-Object -Unique
     )
 
-    $serviceComparison = Compare-StringSets -Before $preServices -After $postServices
+    $serviceComparison = Compare-StringSet -Before $preServices -After $postServices
 
     return [pscustomobject]@{
         PreInventory        = $preInventory
@@ -3780,7 +3776,7 @@ function Get-InstalledAV {
         }
     }
 
-    [string[]]$out = @(Get-UniqueNonEmptyStrings -InputObject $results)
+    [string[]]$out = @(Get-UniqueNonEmptyString -InputObject $results)
     if (@($out).Count -eq 0) { return [string[]]@() }
     return $out
 }
@@ -3833,7 +3829,7 @@ function Get-AVServicePattern {
         }
     }
 
-    return Get-UniqueNonEmptyStrings -InputObject $patterns
+    return Get-UniqueNonEmptyString -InputObject $patterns
 }
 
 
@@ -3877,10 +3873,10 @@ function Get-ProtectionList {
     }
 
     return @{
-        Services = @(Get-UniqueNonEmptyStrings -InputObject $services)
-        Drivers  = @(Get-UniqueNonEmptyStrings -InputObject $drivers)
-        Adapters = @(Get-UniqueNonEmptyStrings -InputObject $adapters)
-        Registry = @(Get-UniqueNonEmptyStrings -InputObject $registryPaths)
+        Services = @(Get-UniqueNonEmptyString -InputObject $services)
+        Drivers  = @(Get-UniqueNonEmptyString -InputObject $drivers)
+        Adapters = @(Get-UniqueNonEmptyString -InputObject $adapters)
+        Registry = @(Get-UniqueNonEmptyString -InputObject $registryPaths)
     }
 }
 
