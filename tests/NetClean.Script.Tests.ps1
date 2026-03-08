@@ -1,6 +1,13 @@
-$here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$root = Split-Path -Parent $here
-$scriptPath = Join-Path $root 'NetClean.ps1'
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+$ScriptPath  = Join-Path $ProjectRoot 'NetClean.ps1'
+$ModulePath  = Join-Path $ProjectRoot 'NetClean.psm1'
+
+Import-Module $ModulePath -Force -ErrorAction Stop
+
+function Load-NetCleanScriptFunctions {
+    $script:NetCleanTestMode = $true
+    . $ScriptPath
+}
 
 function Load-NetCleanScriptFunctions {
     $content = Get-Content -LiteralPath $scriptPath -Raw

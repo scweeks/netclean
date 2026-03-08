@@ -710,6 +710,6 @@ function Invoke-NetCleanLauncher {
     Invoke-PostRunAction -Action $postRunAction -DryRunMode:$options.DryRun
 }
 
-if ($MyInvocation.InvocationName -ne '.') {
+if (-not $script:NetCleanTestMode -and $MyInvocation.InvocationName -ne '.') {
     Invoke-NetCleanLauncher
 }

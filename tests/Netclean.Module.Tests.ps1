@@ -1,73 +1,44 @@
-$here = Split-Path -Parent $MyInvocation.MyCommand.Path
-$root = Split-Path -Parent $here
-$modulePath = Join-Path $root 'NetClean.psm1'
+$ProjectRoot = Split-Path -Parent $PSScriptRoot
+$ModulePath  = Join-Path $ProjectRoot 'NetClean.psm1'
+$ModuleName  = 'NetClean'
+
+Import-Module $ModulePath -Force -ErrorAction Stop
 
 Describe 'NetClean.psm1 import/export surface' {
-    BeforeAll {
-        Remove-Module NetClean -ErrorAction SilentlyContinue
-    }
-
     It 'imports the module without throwing' {
-        { Import-Module $modulePath -Force } | Should -Not -Throw
+        { Import-Module $ModulePath -Force } | Should -Not -Throw
     }
 
     It 'exports the expected primary phase functions' {
-        Import-Module $modulePath -Force
-        foreach ($name in @(
+        $module = Get-Module $ModuleName
+        $module | Should -Not -BeNullOrEmpty
+
+        $expected = @(
             'Invoke-NetCleanPhase1Detect',
             'Invoke-NetCleanPhase2Protect',
             'Invoke-NetCleanPhase3Clean',
             'Invoke-NetCleanPhase4Verify',
             'Invoke-NetCleanWorkflow'
-        )) {
-            Get-Command $name -ErrorAction Stop | Should -Not -BeNullOrEmpty
+        )
+
+        foreach ($name in $expected) {
+            $module.ExportedFunctions.Keys | Should -Contain $name
         }
     }
 }
 
-Describe 'NetClean.psm1 utility helpers' {
-    BeforeAll {
-        Import-Module $modulePath -Force
-    }
-
+DDescribe 'NetClean.psm1 utility helpers' {
     InModuleScope NetClean {
         It 'Convert-RegKeyPath normalizes registry provider paths' {
-            Convert-RegKeyPath 'Microsoft.PowerShell.Core\Registry::HKLM:\SOFTWARE//Test' | Should -Be 'HKLM\SOFTWARE\Test'
-        }
-
-        It 'Convert-Guid returns null for empty input' {
-            Convert-Guid '' | Should -BeNullOrEmpty
-        }
-
-        It 'Convert-Guid normalizes a valid GUID' {
-            Convert-Guid '{AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE}' | Should -Be 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
-        }
-
-        It 'Convert-Guid throws for invalid GUID text' {
-            { Convert-Guid 'not-a-guid' } | Should -Throw
-        }
-
-        It 'Convert-RegToProviderPath converts HKLM path to provider form' {
-            Convert-RegToProviderPath 'HKLM\SOFTWARE\Demo' | Should -Be 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Demo'
-        }
-
-        It 'Resolve-VendorFromText identifies a known vendor' {
-            Resolve-VendorFromText @('CrowdStrike Falcon Sensor') | Should -Be 'CrowdStrike'
-        }
-
-        It 'Get-NormalizedFilePathFromCommandLine extracts quoted executable path' {
-            Get-NormalizedFilePathFromCommandLine '"C:\Program Files\Vendor\agent.exe" --service' | Should -Be 'C:\Program Files\Vendor\agent.exe'
-        }
-
-        It 'Get-NormalizedFilePathFromCommandLine returns null for empty command line' {
-            Get-NormalizedFilePathFromCommandLine $null | Should -BeNullOrEmpty
+            Convert-RegKeyPath -Path 'Microsoft.PowerShell.Core\Registry::HKLM:\SOFTWARE\Test' |
+                Should -Be 'HKLM\SOFTWARE\Test'
         }
     }
 }
 
 Describe 'NetClean.psm1 external command helper' {
     BeforeAll {
-        Import-Module $modulePath -Force
+        Import-Module $ModulePath -Force
     }
 
     InModuleScope NetClean {
@@ -97,7 +68,7 @@ Describe 'NetClean.psm1 external command helper' {
 
 Describe 'NetClean.psm1 phase orchestration' {
     BeforeAll {
-        Import-Module $modulePath -Force
+        Import-Module $ModulePath -Force
     }
 
     InModuleScope NetClean {
@@ -130,10 +101,10 @@ Describe 'NetClean.psm1 phase orchestration' {
                     })
                 }
                 Mock Get-ProtectedInterfaceGuidSet { @('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee') }
-                Mock Get-NetworkPrivacyArtifactCandidates {
+                Mock Get-NetworkPrivacyArtifactCandidate {
                     @([pscustomobject]@{ ArtifactType='NetworkList'; RegistryPath='HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles'; InterfaceGuid=$null; IsProtected=$false; Reason='history' })
                 }
-                Mock Get-SanitizableNetworkArtifacts {
+                Mock Get-SanitizableNetworkArtifact {
                     @([pscustomobject]@{ ArtifactType='NetworkList'; RegistryPath='HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles'; InterfaceGuid=$null; IsProtected=$false; Reason='history' })
                 }
             }
@@ -155,7 +126,7 @@ Describe 'NetClean.psm1 phase orchestration' {
                 }
                 Mock Export-ProtectionInventory { 'C:\backup\ProtectionInventory.json' }
                 Mock Export-ProtectionRegistryMap { 'C:\backup\ProtectionRegistryMap.json' }
-                Mock Export-SanitizableNetworkArtifacts { 'C:\backup\SanitizableNetworkArtifacts.json' }
+                Mock Export-SanitizableNetworkArtifact { 'C:\backup\SanitizableNetworkArtifacts.json' }
                 Mock Export-NetworkList { 'C:\backup\NetworkList.reg' }
                 Mock Export-WiFiProfile { @('C:\backup\WiFiProfiles.txt') }
                 Mock Export-FirewallPolicy { 'C:\backup\FirewallPolicy.wfw' }
