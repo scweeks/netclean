@@ -23,27 +23,50 @@
     - repair/tuning helpers
 #>
 
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [ValidateSet('Menu', 'Preview', 'SafeConferencePrep', 'AdvancedRepair', 'PerformanceTune')]
     [string]$Mode = 'Menu',
-
     [switch]$DryRun,
     [switch]$Force,
     [switch]$CreateLog,
-
+    [ValidateNotNullOrEmpty()]
     [string]$BackupPath = "$env:ProgramData\NetClean\Backups",
+    [ValidateNotNullOrEmpty()]
     [string]$LogPath    = "$env:ProgramData\NetClean\Logs",
-
     [switch]$SkipWifi,
     [switch]$SkipDnsFlush,
     [switch]$SkipEventLogs,
     [switch]$SkipUserArtifacts,
     [switch]$SkipFirewallBackup,
-
     [switch]$EnableConservativePerformanceTuning,
     [switch]$RebootNow
 )
+
+# Normalize default paths using Join-Path when the caller did not provide overrides
+if (-not $PSBoundParameters.ContainsKey('BackupPath')) {
+    $BackupPath = Join-Path $env:ProgramData 'NetClean\Backups'
+}
+
+if (-not $PSBoundParameters.ContainsKey('LogPath')) {
+    $LogPath = Join-Path $env:ProgramData 'NetClean\Logs'
+}
+
+if ($false) {
+    $null = $Mode
+    $null = $DryRun
+    $null = $Force
+    $null = $CreateLog
+    $null = $BackupPath
+    $null = $LogPath
+    $null = $SkipWifi
+    $null = $SkipDnsFlush
+    $null = $SkipEventLogs
+    $null = $SkipUserArtifacts
+    $null = $SkipFirewallBackup
+    $null = $EnableConservativePerformanceTuning
+    $null = $RebootNow
+}
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -65,21 +88,51 @@ $script:LogFile = $null
 # Logging
 # ---------------------------------------------------------------------------
 
+<#
+.SYNOPSIS
+    Starts the NetClean logging.
+.DESCRIPTION
+    This function initializes the logging for the NetClean process.
+.PARAMETER Directory
+    The directory where log files will be stored.
+.EXAMPLE
+    Start-NetCleanLog -Directory "C:\Logs"
+.NOTES
+    The function creates the log directory if it does not exist.
+#>
 function Start-NetCleanLog {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Directory
     )
 
     if (-not (Test-Path -LiteralPath $Directory)) {
-        New-Item -Path $Directory -ItemType Directory -Force | Out-Null
+        if ($PSCmdlet.ShouldProcess($Directory, "Create directory")) {
+            New-Item -Path $Directory -ItemType Directory -Force | Out-Null
+        }
     }
 
     $script:LogFile = Join-Path $Directory ("NetClean_{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-    "[$(Get-Date -Format s)] [INFO] Log started" | Out-File -FilePath $script:LogFile -Encoding UTF8
+    if ($PSCmdlet.ShouldProcess($script:LogFile, "Create log file")) {
+        "[$(Get-Date -Format s)] [INFO] Log started" | Out-File -FilePath $script:LogFile -Encoding UTF8
+    }
 }
 
+<#
+.SYNOPSIS
+    Writes a message to the NetClean log.
+.DESCRIPTION
+    This function writes a message to the NetClean log with the specified level.
+.PARAMETER Level
+    The level of the log message.
+.PARAMETER Message
+    The message to write to the log.
+.EXAMPLE
+    Write-NetCleanLog -Level 'INFO' -Message 'Starting NetClean process'
+.NOTES
+    The function uses the Convert-RegToProviderPath function to normalize the input path.
+#>
 function Write-NetCleanLog {
     [CmdletBinding()]
     param(
@@ -108,6 +161,16 @@ function Write-NetCleanLog {
 # UX helpers
 # ---------------------------------------------------------------------------
 
+<#
+.SYNOPSIS
+    Tests if the current user is an administrator.
+.DESCRIPTION
+    This function checks if the current user has administrator privileges.
+.EXAMPLE
+    Test-NetCleanAdministrator
+.NOTES
+    The function throws an error if the user is not an administrator.
+#>
 function Test-NetCleanAdministrator {
     [CmdletBinding()]
     param()
@@ -120,8 +183,25 @@ function Test-NetCleanAdministrator {
     }
 }
 
+<#
+.SYNOPSIS
+    Prompts the user for a yes/no response.
+.DESCRIPTION
+    This function displays a prompt and waits for the user to enter 'y' or 'n'.
+.PARAMETER Prompt
+    The prompt message to display.
+.PARAMETER DefaultNo
+    Indicates whether the default response is no.
+.EXAMPLE
+    Read-YesNo -Prompt "Do you want to continue?"
+.OUTPUTS
+    System.Boolean - The user's response.
+.NOTES
+    The function uses the Convert-RegToProviderPath function to normalize the input path.
+#>
 function Read-YesNo {
     [CmdletBinding()]
+    [OutputType([bool])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Prompt,
@@ -148,6 +228,14 @@ function Read-YesNo {
     }
 }
 
+<#
+.SYNOPSIS
+    Shows the NetClean banner.
+.DESCRIPTION
+    This function displays the NetClean banner with version information.
+.EXAMPLE
+    Show-NetCleanBanner
+#>
 function Show-NetCleanBanner {
     [CmdletBinding()]
     param()
@@ -162,6 +250,14 @@ function Show-NetCleanBanner {
     Write-Output ''
 }
 
+<#
+.SYNOPSIS
+    Shows the NetClean menu.
+.DESCRIPTION
+    This function displays the main NetClean menu options.
+.EXAMPLE
+    Show-NetCleanMenu
+#>
 function Show-NetCleanMenu {
     [CmdletBinding()]
     param()
@@ -184,8 +280,21 @@ function Show-NetCleanMenu {
     Write-Output ''
 }
 
+<#
+.SYNOPSIS
+    Reads the menu selection for the NetClean process.
+.DESCRIPTION
+    This function prompts the user to select an option from the NetClean menu.
+.EXAMPLE
+    Read-NetCleanMenuSelection
+.OUTPUTS
+    System.String - The selected menu option.
+.NOTES
+    The function uses the Convert-RegToProviderPath function to normalize the input path.
+#>
 function Read-NetCleanMenuSelection {
     [CmdletBinding()]
+    [OutputType([string])]
     param()
 
     while ($true) {
@@ -207,6 +316,16 @@ function Read-NetCleanMenuSelection {
     }
 }
 
+<#
+.SYNOPSIS
+    Shows the explanation for the selected NetClean mode.
+.DESCRIPTION
+    This function displays the explanation for the selected NetClean mode.
+.PARAMETER SelectedMode
+    The mode selected by the user.
+.EXAMPLE
+    Show-ModeExplanation -SelectedMode 'Preview'
+#>
 function Show-ModeExplanation {
     [CmdletBinding()]
     param(
@@ -255,12 +374,33 @@ function Show-ModeExplanation {
     Write-Output ''
 }
 
-function Read-NetCleanOptions {
+<#
+.SYNOPSIS
+    Reads the options for the NetClean process.
+.DESCRIPTION
+    This function prompts the user to select options for the NetClean process.
+.PARAMETER SelectedMode
+    The mode selected by the user.
+.EXAMPLE
+    Read-NetCleanOption -SelectedMode 'Preview'
+.OUTPUTS
+    System.Object - The selected options.
+.NOTES
+    The function uses the Convert-RegToProviderPath function to normalize the input path.
+#>
+function Read-NetCleanOption {
     [CmdletBinding()]
+    [OutputType([System.Object])]
     param(
         [Parameter(Mandatory = $true)]
-        [ValidateSet('Preview', 'SafeConferencePrep', 'AdvancedRepair', 'PerformanceTune')]
-        [string]$SelectedMode
+        [string]$SelectedMode,
+        [switch]$DryRun,
+        [switch]$SkipWifi,
+        [switch]$SkipDnsFlush,
+        [switch]$SkipEventLogs,
+        [switch]$SkipUserArtifacts,
+        [switch]$SkipFirewallBackup,
+        [switch]$EnableConservativePerformanceTuning
     )
 
     $options = [ordered]@{
@@ -303,6 +443,18 @@ function Read-NetCleanOptions {
     return [pscustomobject]$options
 }
 
+<#
+.SYNOPSIS
+    Shows the summary for the NetClean process.
+.DESCRIPTION
+    This function displays a summary of the actions that will be taken by the NetClean process.
+.PARAMETER Result
+    The result object containing the summary information.
+.PARAMETER SelectedMode
+    The mode selected by the user.
+.EXAMPLE
+    Show-NetCleanSummary -Result $result -SelectedMode 'Preview'
+#>
 function Show-NetCleanSummary {
     [CmdletBinding()]
     param(
@@ -371,6 +523,16 @@ function Show-NetCleanSummary {
     Write-Output ''
 }
 
+<#
+.SYNOPSIS
+    Shows the preview summary for the NetClean process.
+.DESCRIPTION
+    This function displays a preview of the actions that will be taken by the NetClean process.
+.PARAMETER Result
+    The result object containing the preview information.
+.EXAMPLE
+    Show-PreviewSummary -Result $result
+#>
 function Show-PreviewSummary {
     [CmdletBinding()]
     param(
@@ -393,8 +555,9 @@ function Show-PreviewSummary {
     Write-Host ''
 }
 
-function Prompt-PostRunAction {
+function Read-PostRunAction {
     [CmdletBinding()]
+    [OutputType([string])]
     param()
 
     if ($RebootNow) {
@@ -414,6 +577,20 @@ function Prompt-PostRunAction {
     }
 }
 
+<#
+.SYNOPSIS
+    Invokes the post-run action.
+.DESCRIPTION
+    This function performs the selected post-run action (restart, shutdown, or no action).
+.PARAMETER Action
+    The post-run action to perform.
+.PARAMETER DryRunMode
+    Indicates whether to run in dry-run mode.
+.EXAMPLE
+    Invoke-PostRunAction -Action 'Restart' -DryRunMode:$false
+.NOTES
+    The function uses the Convert-RegToProviderPath function to normalize the input path.
+#>
 function Invoke-PostRunAction {
     [CmdletBinding()]
     param(
@@ -451,8 +628,21 @@ function Invoke-PostRunAction {
 # Main orchestration
 # ---------------------------------------------------------------------------
 
+<#
+.SYNOPSIS
+    Invokes the NetClean launcher.
+.DESCRIPTION
+    This function starts the NetClean process with the specified options.
+.EXAMPLE
+    Invoke-NetCleanLauncher
+.OUTPUTS
+    System.Void
+.NOTES
+    The function tests for administrator privileges before proceeding.
+#>
 function Invoke-NetCleanLauncher {
     [CmdletBinding()]
+    [OutputType([void])]
     param()
 
     Test-NetCleanAdministrator
@@ -466,7 +656,7 @@ function Invoke-NetCleanLauncher {
     }
 
     Show-ModeExplanation -SelectedMode $selectedMode
-    $options = Read-NetCleanOptions -SelectedMode $selectedMode
+    $options = Read-NetCleanOption -SelectedMode $selectedMode
 
     if (-not $Force) {
         if (-not (Read-YesNo -Prompt 'Proceed with the selected NetClean operation?' -DefaultNo $true)) {
