@@ -422,6 +422,7 @@ function Get-VendorRootsFromInstallPath {
         }
     }
     catch {
+        Write-Verbose "Ignored error: $_"
     }
 
     return Get-UniqueNonEmptyStrings -InputObject $roots
@@ -683,7 +684,7 @@ function Get-WfpStateEvidence {
     $tempFile = Join-Path $env:TEMP ("netclean_wfp_{0}.xml" -f ([guid]::NewGuid().Guid))
 
     try {
-        $null = & netsh wfp show state file="$tempFile" 2>$null
+        & netsh wfp show state file="$tempFile" 2>$null | Out-Null
 
         if (-not (Test-Path -LiteralPath $tempFile)) {
             return @()
@@ -738,6 +739,7 @@ function Get-WfpStateEvidence {
         }
     }
     catch {
+        Write-Verbose "Ignored error: $_"
     }
     finally {
         if (Test-Path -LiteralPath $tempFile) {
@@ -811,14 +813,21 @@ function Get-NdisServiceBindingEvidence {
         $linkage = Get-RegistryValuesSafe -RegistryPath "$svcPath\Linkage"
         $props   = Get-RegistryValuesSafe -RegistryPath $svcPath
 
-        $tokens = @(
-            $svcName,
-            if ($props)   { $props.DisplayName },
-            if ($props)   { $props.Group },
-            if ($linkage) { $linkage.Bind },
-            if ($linkage) { $linkage.Export },
-            if ($linkage) { $linkage.Route }
-        ) | Where-Object { $_ }
+        $tokens = New-Object System.Collections.Generic.List[string]
+        $tokens.Add($svcName)
+
+        if ($props) {
+            if ($props.DisplayName) { $tokens.Add($props.DisplayName) }
+            if ($props.Group)       { $tokens.Add($props.Group) }
+        }
+
+        if ($linkage) {
+            if ($linkage.Bind)   { $tokens.Add($linkage.Bind) }
+            if ($linkage.Export) { $tokens.Add($linkage.Export) }
+            if ($linkage.Route)  { $tokens.Add($linkage.Route) }
+        }
+
+        $tokens = @($tokens | Where-Object { $_ })
 
         if (@($tokens).Count -eq 0) { continue }
 
@@ -1018,6 +1027,7 @@ function Get-ScheduledTaskEvidence {
         }
     }
     catch {
+        Write-Verbose "Ignored error: $_"
     }
 
     return @($results)
@@ -1062,6 +1072,7 @@ function Get-AppxPackageEvidence {
         }
     }
     catch {
+        Write-Verbose "Ignored error: $_"
     }
 
     return @($results)
@@ -1097,6 +1108,7 @@ function Get-ProtectionEvidence {
         }
     }
     catch {
+        Write-Verbose "Ignored error: $_"
     }
 
     try {
@@ -1123,6 +1135,7 @@ function Get-ProtectionEvidence {
         }
     }
     catch {
+        Write-Verbose "Ignored error: $_"
     }
 
     try {
@@ -1152,6 +1165,7 @@ function Get-ProtectionEvidence {
         }
     }
     catch {
+        Write-Verbose "Ignored error: $_"
     }
 
     try {
@@ -1181,6 +1195,7 @@ function Get-ProtectionEvidence {
         }
     }
     catch {
+        Write-Verbose "Ignored error: $_"
     }
 
     foreach ($root in @(
@@ -1266,6 +1281,7 @@ function Get-ProtectionEvidence {
         }
     }
     catch {
+        Write-Verbose "Ignored error: $_"
     }
 
     try {
@@ -1300,6 +1316,7 @@ function Get-ProtectionEvidence {
         }
     }
     catch {
+        Write-Verbose "Ignored error: $_"
     }
 
     $servicesRoot = 'HKLM\SYSTEM\CurrentControlSet\Services'
@@ -1337,6 +1354,7 @@ function Get-ProtectionEvidence {
         }
     }
     catch {
+        Write-Verbose "Ignored error: $_"
     }
 
     foreach ($item in @(Get-WfpStateEvidence))           { $evidence.Add($item) }
@@ -1986,7 +2004,7 @@ function Export-ProtectedRegistryKey {
         [void]$exported.Add($result)
     }
 
-    return @($exported)
+    return @($exported.ToArray())
 }
 
 function Export-NetworkList {
@@ -2062,7 +2080,7 @@ function Export-WiFiProfile {
 
     foreach ($profile in $profiles) {
         $before = @(Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
-        $null = netsh wlan export profile name="$profile" folder="$Dest" key=clear 2>&1
+        & netsh wlan export profile name="$profile" folder="$Dest" key=clear 2>&1 | Out-Null
         $after = @(Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
         $newFiles = @($after | Where-Object { $_ -notin $before })
 
@@ -2271,7 +2289,7 @@ function Invoke-NetCleanPhase2Protect {
 # ---------------------------------------------------------------------------
 
 function Remove-WiFiProfilesSafe {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [switch]$DryRun
     )
@@ -2281,7 +2299,12 @@ function Remove-WiFiProfilesSafe {
     $operations = New-Object System.Collections.Generic.List[object]
 
     foreach ($profile in $profiles) {
-        $result = Invoke-ExternalCommandSafe -Name "Delete Wi-Fi profile $profile" -FilePath 'netsh.exe' -ArgumentList @('wlan', 'delete', 'profile', "name=""$profile""") -DryRun:$DryRun
+        if (-not ($DryRun -or $PSCmdlet.ShouldProcess("Wi-Fi profile '$profile'", 'Delete'))) {
+            $operations.Add([pscustomobject]@{ Name = $profile; Succeeded = $false; Skipped = $true; Reason = 'WhatIf' })
+            continue
+        }
+
+        $result = Invoke-ExternalCommandSafe -Name "Delete Wi-Fi profile $profile" -FilePath 'netsh.exe' -ArgumentList @('wlan', 'delete', 'profile', ('name="' + $profile + '"')) -DryRun:$DryRun
         $operations.Add($result)
 
         if ($result.Succeeded) {
@@ -2297,25 +2320,33 @@ function Remove-WiFiProfilesSafe {
 }
 
 function Clear-DnsCacheSafe {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [switch]$DryRun
     )
+
+    if (-not ($DryRun -or $PSCmdlet.ShouldProcess('DNS cache', 'Flush'))) {
+        return [pscustomobject]@{ Name = 'Flush DNS cache'; Succeeded = $false; Skipped = $true; Reason = 'WhatIf' }
+    }
 
     return Invoke-ExternalCommandSafe -Name 'Flush DNS cache' -FilePath 'ipconfig.exe' -ArgumentList @('/flushdns') -DryRun:$DryRun
 }
 
 function Clear-ArpCacheSafe {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [switch]$DryRun
     )
+
+    if (-not ($DryRun -or $PSCmdlet.ShouldProcess('ARP cache', 'Clear'))) {
+        return [pscustomobject]@{ Name = 'Clear ARP cache'; Succeeded = $false; Skipped = $true; Reason = 'WhatIf' }
+    }
 
     return Invoke-ExternalCommandSafe -Name 'Clear ARP cache' -FilePath 'arp.exe' -ArgumentList @('-d', '*') -DryRun:$DryRun -IgnoreExitCode
 }
 
 function Remove-RegistryPathSafe {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [string]$RegistryPath,
@@ -2370,6 +2401,16 @@ function Remove-RegistryPathSafe {
         }
     }
 
+    if (-not $PSCmdlet.ShouldProcess($RegistryPath, 'Remove registry path')) {
+        return [pscustomobject]@{
+            RegistryPath = $RegistryPath
+            Removed      = $false
+            Skipped      = $true
+            Reason       = 'WhatIf'
+            DryRun       = $false
+        }
+    }
+
     try {
         Remove-Item -LiteralPath $providerPath -Recurse -Force -ErrorAction Stop
         return [pscustomobject]@{
@@ -2392,7 +2433,7 @@ function Remove-RegistryPathSafe {
 }
 
 function Remove-NetworkPrivacyArtifactsSafe {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [Parameter(Mandatory = $true)]
         [pscustomobject]$Context,
@@ -2417,7 +2458,7 @@ function Remove-NetworkPrivacyArtifactsSafe {
 }
 
 function Clear-NlaProbeStateSafe {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [switch]$DryRun
     )
@@ -2441,6 +2482,18 @@ function Clear-NlaProbeStateSafe {
                 Removed   = $true
                 DryRun    = $true
                 Succeeded = $true
+            })
+            continue
+        }
+
+        if (-not $PSCmdlet.ShouldProcess("$nlaInternetPath\$property", 'Remove property')) {
+            $results.Add([pscustomobject]@{
+                Path      = $nlaInternetPath
+                Property  = $property
+                Removed   = $false
+                DryRun    = $false
+                Succeeded = $false
+                Error     = 'WhatIf'
             })
             continue
         }
@@ -2790,35 +2843,51 @@ function Invoke-NetCleanWorkflow {
 
 function Get-InstalledAV {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory = $false)]
+        [object[]]$Inventory
+    )
 
-    $inventory = @(Get-ProtectionInventory)
+    if ($PSBoundParameters.ContainsKey('Inventory')) { $inventory = @($Inventory) }
+    else { $inventory = @(Get-ProtectionInventory) }
+
+    if (@($inventory).Count -eq 0) { return @() }
+
     $securityCategories = @('AV', 'EDR', 'XDR', 'Firewall')
 
     $results = foreach ($item in $inventory) {
-        if ($item.Categories | Where-Object { $_ -in $securityCategories }) {
+        if (@($item.Categories) | Where-Object { $_ -in $securityCategories }) {
             $item.Vendor
         }
     }
 
-    return Get-UniqueNonEmptyStrings -InputObject $results
+    $out = @(Get-UniqueNonEmptyStrings -InputObject $results)
+    if (@($out).Count -eq 0) { return @() }
+    return $out
 }
 
 function Get-AVServicePattern {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [string[]]$AvList
+        [string[]]$AvList,
+
+        [Parameter(Mandatory = $false)]
+        [object[]]$Inventory
     )
 
-    $inventory = @(Get-ProtectionInventory)
+    if ($PSBoundParameters.ContainsKey('Inventory')) { $inventory = @($Inventory) }
+    else { $inventory = @(Get-ProtectionInventory) }
+
     $patterns = New-Object System.Collections.Generic.List[string]
 
     foreach ($name in $AvList) {
+        $nameLower = $name.ToLowerInvariant()
         foreach ($item in $inventory) {
-            if ($item.Vendor -eq $name -or $item.Vendor.ToLowerInvariant() -like "*$($name.ToLowerInvariant())*") {
-                foreach ($svc in $item.Services) {
-                    [void]$patterns.Add($svc)
+            $vendorName = if ($null -ne $item.Vendor) { [string]$item.Vendor } else { '' }
+            if ($vendorName -eq $name -or ($vendorName.ToLowerInvariant() -like "*$nameLower*")) {
+                foreach ($svc in @($item.Services)) {
+                    if ($svc) { [void]$patterns.Add($svc) }
                 }
             }
         }
@@ -2829,9 +2898,13 @@ function Get-AVServicePattern {
 
 function Get-ProtectionList {
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory = $false)]
+        [object[]]$Inventory
+    )
 
-    $inventory = @(Get-ProtectionInventory)
+    if ($PSBoundParameters.ContainsKey('Inventory')) { $inventory = @($Inventory) }
+    else { $inventory = @(Get-ProtectionInventory) }
 
     $services = New-Object System.Collections.Generic.List[string]
     $drivers = New-Object System.Collections.Generic.List[string]
@@ -2839,10 +2912,10 @@ function Get-ProtectionList {
     $registryPaths = New-Object System.Collections.Generic.List[string]
 
     foreach ($item in $inventory) {
-        foreach ($svc in $item.Services)   { [void]$services.Add($svc) }
-        foreach ($drv in $item.Drivers)    { [void]$drivers.Add($drv) }
-        foreach ($adp in $item.Adapters)   { [void]$adapters.Add($adp) }
-        foreach ($reg in $item.RegistryKeys){ [void]$registryPaths.Add($reg) }
+        foreach ($svc in @($item.Services))   { if ($svc) { [void]$services.Add($svc) } }
+        foreach ($drv in @($item.Drivers))    { if ($drv) { [void]$drivers.Add($drv) } }
+        foreach ($adp in @($item.Adapters))   { if ($adp) { [void]$adapters.Add($adp) } }
+        foreach ($reg in @($item.RegistryKeys)) { if ($reg) { [void]$registryPaths.Add($reg) } }
     }
 
     return @{
@@ -2872,61 +2945,62 @@ Set-Alias -Name Export-ProtectedRegistryKeys -Value Export-ProtectedRegistryKey 
 # Module exports
 # ---------------------------------------------------------------------------
 
-Export-ModuleMember -Function `
-    Convert-RegKeyPath, `
-    Convert-Guid, `
-    Convert-RegToProviderPath, `
-    Resolve-VendorFromText, `
-    Get-VendorSignatures, `
-    Get-WfpStateEvidence, `
-    Get-NdisFilterClassEvidence, `
-    Get-NdisServiceBindingEvidence, `
-    Get-MsiRegistryEvidence, `
-    Get-InfFileEvidence, `
-    Get-ScheduledTaskEvidence, `
-    Get-AppxPackageEvidence, `
-    Get-ProtectionEvidence, `
-    Get-ProtectionInventory, `
-    Get-ProtectionRegistryMap, `
-    Get-ProtectedInterfaceGuidSet, `
-    Get-NetworkPrivacyArtifactCandidates, `
-    Get-SanitizableNetworkArtifacts, `
-    Invoke-NetCleanPhase1Detect, `
-    Export-ProtectedRegistryKey, `
-    Export-NetworkList, `
-    Get-WiFiProfileNames, `
-    Export-WiFiProfile, `
-    Export-FirewallPolicy, `
-    Export-ProtectionInventory, `
-    Export-ProtectionRegistryMap, `
-    Export-SanitizableNetworkArtifacts, `
-    Export-NetCleanManifest, `
-    Invoke-NetCleanPhase2Protect, `
-    Remove-WiFiProfilesSafe, `
-    Clear-DnsCacheSafe, `
-    Clear-ArpCacheSafe, `
-    Remove-RegistryPathSafe, `
-    Remove-NetworkPrivacyArtifactsSafe, `
-    Clear-NlaProbeStateSafe, `
-    Clear-NetworkEventLogsSafe, `
-    Clear-UserNetworkArtifactsSafe, `
-    Invoke-AdvancedNetworkRepair, `
-    Invoke-ConservativePerformanceTune, `
-    Invoke-NetCleanPhase3Clean, `
-    Test-NetCleanPostState, `
-    Invoke-NetCleanPhase4Verify, `
-    Invoke-NetCleanWorkflow, `
-    Get-InstalledAV, `
-    Get-AVServicePattern, `
-    Get-ProtectionList `
-    -Alias `
-    Convert-NormalizeGuid, `
-    Normalize-Guid, `
-    Derive-AVServicePatterns, `
-    Build-ProtectionLists, `
-    Backup-ProtectedRegistryKeys, `
-    Backup-NetworkList, `
-    Backup-WiFiProfiles, `
-    Get-ProtectionLists, `
-    Get-AVServicePatterns, `
-    Export-ProtectedRegistryKeys
+Export-ModuleMember -Function @(
+    'Convert-RegKeyPath',
+    'Convert-Guid',
+    'Convert-RegToProviderPath',
+    'Resolve-VendorFromText',
+    'Get-VendorSignatures',
+    'Get-WfpStateEvidence',
+    'Get-NdisFilterClassEvidence',
+    'Get-NdisServiceBindingEvidence',
+    'Get-MsiRegistryEvidence',
+    'Get-InfFileEvidence',
+    'Get-ScheduledTaskEvidence',
+    'Get-AppxPackageEvidence',
+    'Get-ProtectionEvidence',
+    'Get-ProtectionInventory',
+    'Get-ProtectionRegistryMap',
+    'Get-ProtectedInterfaceGuidSet',
+    'Get-NetworkPrivacyArtifactCandidates',
+    'Get-SanitizableNetworkArtifacts',
+    'Invoke-NetCleanPhase1Detect',
+    'Export-ProtectedRegistryKey',
+    'Export-NetworkList',
+    'Get-WiFiProfileNames',
+    'Export-WiFiProfile',
+    'Export-FirewallPolicy',
+    'Export-ProtectionInventory',
+    'Export-ProtectionRegistryMap',
+    'Export-SanitizableNetworkArtifacts',
+    'Export-NetCleanManifest',
+    'Invoke-NetCleanPhase2Protect',
+    'Remove-WiFiProfilesSafe',
+    'Clear-DnsCacheSafe',
+    'Clear-ArpCacheSafe',
+    'Remove-RegistryPathSafe',
+    'Remove-NetworkPrivacyArtifactsSafe',
+    'Clear-NlaProbeStateSafe',
+    'Clear-NetworkEventLogsSafe',
+    'Clear-UserNetworkArtifactsSafe',
+    'Invoke-AdvancedNetworkRepair',
+    'Invoke-ConservativePerformanceTune',
+    'Invoke-NetCleanPhase3Clean',
+    'Test-NetCleanPostState',
+    'Invoke-NetCleanPhase4Verify',
+    'Invoke-NetCleanWorkflow',
+    'Get-InstalledAV',
+    'Get-AVServicePattern',
+    'Get-ProtectionList'
+) -Alias @(
+    'Convert-NormalizeGuid',
+    'Normalize-Guid',
+    'Derive-AVServicePatterns',
+    'Build-ProtectionLists',
+    'Backup-ProtectedRegistryKeys',
+    'Backup-NetworkList',
+    'Backup-WiFiProfiles',
+    'Get-ProtectionLists',
+    'Get-AVServicePatterns',
+    'Export-ProtectedRegistryKeys'
+)

@@ -144,7 +144,7 @@ function Read-YesNo {
         if ($answer -match '^[Yy]') { return $true }
         if ($answer -match '^[Nn]') { return $false }
 
-        Write-Host 'Please enter Y or N.' -ForegroundColor Yellow
+        Write-Output 'Please enter Y or N.'
     }
 }
 
@@ -152,14 +152,14 @@ function Show-NetCleanBanner {
     [CmdletBinding()]
     param()
 
-    Write-Host ''
-    Write-Host '==========================================' -ForegroundColor Cyan
-    Write-Host ' NetClean - Conference / CTF Prep Tool' -ForegroundColor Cyan
-    Write-Host '==========================================' -ForegroundColor Cyan
-    Write-Host ''
-    Write-Host 'This tool helps remove network history and metadata while preserving'
-    Write-Host 'security products, firewalls, hypervisors, and protected adapters.'
-    Write-Host ''
+    Write-Output ''
+    Write-Output '=========================================='
+    Write-Output ' NetClean - Conference / CTF Prep Tool'
+    Write-Output '=========================================='
+    Write-Output ''
+    Write-Output 'This tool helps remove network history and metadata while preserving'
+    Write-Output 'security products, firewalls, hypervisors, and protected adapters.'
+    Write-Output ''
 }
 
 function Show-NetCleanMenu {
@@ -168,20 +168,20 @@ function Show-NetCleanMenu {
 
     Show-NetCleanBanner
 
-    Write-Host '1. Preview only'
-    Write-Host '   Detect and show what would be cleaned. No changes made.'
-    Write-Host ''
-    Write-Host '2. Safe conference prep'
-    Write-Host '   Backup, remove network history, preserve security and virtualization tools.'
-    Write-Host ''
-    Write-Host '3. Advanced repair'
-    Write-Host '   Includes deeper network reset actions. May affect installed software.'
-    Write-Host ''
-    Write-Host '4. Performance tuning'
-    Write-Host '   Apply conservative network performance tuning.'
-    Write-Host ''
-    Write-Host '5. Exit'
-    Write-Host ''
+    Write-Output '1. Preview only'
+    Write-Output '   Detect and show what would be cleaned. No changes made.'
+    Write-Output ''
+    Write-Output '2. Safe conference prep'
+    Write-Output '   Backup, remove network history, preserve security and virtualization tools.'
+    Write-Output ''
+    Write-Output '3. Advanced repair'
+    Write-Output '   Includes deeper network reset actions. May affect installed software.'
+    Write-Output ''
+    Write-Output '4. Performance tuning'
+    Write-Output '   Apply conservative network performance tuning.'
+    Write-Output ''
+    Write-Output '5. Exit'
+    Write-Output ''
 }
 
 function Read-NetCleanMenuSelection {
@@ -199,9 +199,9 @@ function Read-NetCleanMenuSelection {
             '4' { return 'PerformanceTune' }
             '5' { return 'Exit' }
             default {
-                Write-Host ''
-                Write-Host 'Invalid selection. Please choose 1 through 5.' -ForegroundColor Yellow
-                Write-Host ''
+                Write-Output ''
+                Write-Output 'Invalid selection. Please choose 1 through 5.'
+                Write-Output ''
             }
         }
     }
@@ -215,44 +215,44 @@ function Show-ModeExplanation {
         [string]$SelectedMode
     )
 
-    Write-Host ''
+    Write-Output ''
     switch ($SelectedMode) {
         'Preview' {
-            Write-Host 'You selected: Preview'
-            Write-Host ''
-            Write-Host 'This will:'
-            Write-Host '  - detect protection software and protected adapters'
-            Write-Host '  - build a protected registry map'
-            Write-Host '  - export backup/restore metadata'
-            Write-Host '  - make no cleanup changes'
+            Write-Output 'You selected: Preview'
+            Write-Output ''
+            Write-Output 'This will:'
+            Write-Output '  - detect protection software and protected adapters'
+            Write-Output '  - build a protected registry map'
+            Write-Output '  - export backup/restore metadata'
+            Write-Output '  - make no cleanup changes'
         }
         'SafeConferencePrep' {
-            Write-Host 'You selected: Safe conference prep'
-            Write-Host ''
-            Write-Host 'This will:'
-            Write-Host '  - detect protection software and protected adapters'
-            Write-Host '  - back up protected registry, firewall policy, and Wi-Fi profiles'
-            Write-Host '  - remove saved Wi-Fi profiles'
-            Write-Host '  - flush DNS cache'
-            Write-Host '  - remove non-protected network history and metadata'
-            Write-Host '  - verify protected products remain present'
+            Write-Output 'You selected: Safe conference prep'
+            Write-Output ''
+            Write-Output 'This will:'
+            Write-Output '  - detect protection software and protected adapters'
+            Write-Output '  - back up protected registry, firewall policy, and Wi-Fi profiles'
+            Write-Output '  - remove saved Wi-Fi profiles'
+            Write-Output '  - flush DNS cache'
+            Write-Output '  - remove non-protected network history and metadata'
+            Write-Output '  - verify protected products remain present'
         }
         'AdvancedRepair' {
-            Write-Host 'You selected: Advanced repair'
-            Write-Host ''
-            Write-Host 'This will do everything in Safe conference prep, plus:'
-            Write-Host '  - run advanced network repair/reset actions'
-            Write-Host '  - this may affect installed networking/security software'
+            Write-Output 'You selected: Advanced repair'
+            Write-Output ''
+            Write-Output 'This will do everything in Safe conference prep, plus:'
+            Write-Output '  - run advanced network repair/reset actions'
+            Write-Output '  - this may affect installed networking/security software'
         }
         'PerformanceTune' {
-            Write-Host 'You selected: Performance tuning'
-            Write-Host ''
-            Write-Host 'This will do Safe conference prep, plus:'
-            Write-Host '  - apply conservative, Microsoft-supported TCP tuning actions'
-            Write-Host '  - no third-party code or proprietary settings are used'
+            Write-Output 'You selected: Performance tuning'
+            Write-Output ''
+            Write-Output 'This will do Safe conference prep, plus:'
+            Write-Output '  - apply conservative, Microsoft-supported TCP tuning actions'
+            Write-Output '  - no third-party code or proprietary settings are used'
         }
     }
-    Write-Host ''
+    Write-Output ''
 }
 
 function Read-NetCleanOptions {
@@ -313,62 +313,62 @@ function Show-NetCleanSummary {
         [string]$SelectedMode
     )
 
-    Write-Host ''
-    Write-Host 'NetClean Summary'
-    Write-Host '----------------'
-    Write-Host "Mode: $SelectedMode"
+    Write-Output ''
+    Write-Output 'NetClean Summary'
+    Write-Output '----------------'
+    Write-Output "Mode: $SelectedMode"
 
     if ($Result.PSObject.Properties.Name -contains 'Summary') {
-        Write-Host ''
-        Write-Host 'Phase 1 - Detect'
-        Write-Host "  Protected vendors detected: $($Result.Summary.ProtectedVendorsCount)"
-        Write-Host "  Protected interface GUIDs: $($Result.Summary.ProtectedInterfaceGuidCount)"
-        Write-Host "  Candidate artifacts: $($Result.Summary.CandidateArtifactCount)"
-        Write-Host "  Sanitizable artifacts: $($Result.Summary.SanitizableArtifactCount)"
+        Write-Output ''
+        Write-Output 'Phase 1 - Detect'
+        Write-Output "  Protected vendors detected: $($Result.Summary.ProtectedVendorsCount)"
+        Write-Output "  Protected interface GUIDs: $($Result.Summary.ProtectedInterfaceGuidCount)"
+        Write-Output "  Candidate artifacts: $($Result.Summary.CandidateArtifactCount)"
+        Write-Output "  Sanitizable artifacts: $($Result.Summary.SanitizableArtifactCount)"
     }
 
     if ($Result.PSObject.Properties.Name -contains 'Protect') {
-        Write-Host ''
-        Write-Host 'Phase 2 - Protect'
-        Write-Host "  Protected registry paths: $($Result.Protect.Summary.ProtectedRegistryPathCount)"
-        Write-Host "  Wi-Fi backup items: $($Result.Protect.Summary.WiFiBackupCount)"
-        Write-Host "  Protected registry backups: $($Result.Protect.Summary.ProtectedRegistryBackupCount)"
+        Write-Output ''
+        Write-Output 'Phase 2 - Protect'
+        Write-Output "  Protected registry paths: $($Result.Protect.Summary.ProtectedRegistryPathCount)"
+        Write-Output "  Wi-Fi backup items: $($Result.Protect.Summary.WiFiBackupCount)"
+        Write-Output "  Protected registry backups: $($Result.Protect.Summary.ProtectedRegistryBackupCount)"
     }
 
     if ($Result.PSObject.Properties.Name -contains 'Clean') {
-        Write-Host ''
-        Write-Host 'Phase 3 - Clean'
-        Write-Host "  Wi-Fi profiles removed: $($Result.Clean.Summary.WiFiProfilesRemoved)"
-        Write-Host "  Registry artifacts removed: $($Result.Clean.Summary.RegistryArtifactsRemoved)"
-        Write-Host "  Event logs touched: $($Result.Clean.Summary.EventLogsTouched)"
-        Write-Host "  User artifacts touched: $($Result.Clean.Summary.UserArtifactsTouched)"
-        Write-Host "  Advanced repair actions: $($Result.Clean.Summary.AdvancedRepairActions)"
-        Write-Host "  Performance tuning actions: $($Result.Clean.Summary.PerformanceTuningActions)"
+        Write-Output ''
+        Write-Output 'Phase 3 - Clean'
+        Write-Output "  Wi-Fi profiles removed: $($Result.Clean.Summary.WiFiProfilesRemoved)"
+        Write-Output "  Registry artifacts removed: $($Result.Clean.Summary.RegistryArtifactsRemoved)"
+        Write-Output "  Event logs touched: $($Result.Clean.Summary.EventLogsTouched)"
+        Write-Output "  User artifacts touched: $($Result.Clean.Summary.UserArtifactsTouched)"
+        Write-Output "  Advanced repair actions: $($Result.Clean.Summary.AdvancedRepairActions)"
+        Write-Output "  Performance tuning actions: $($Result.Clean.Summary.PerformanceTuningActions)"
     }
 
     if ($Result.PSObject.Properties.Name -contains 'Verify') {
-        Write-Host ''
-        Write-Host 'Phase 4 - Verify'
-        Write-Host "  Verification passed: $($Result.Verify.Summary.Passed)"
-        Write-Host "  Missing vendors: $($Result.Verify.Summary.MissingVendorsCount)"
-        Write-Host "  Missing protected GUIDs: $($Result.Verify.Summary.MissingGuidCount)"
-        Write-Host "  Missing services: $($Result.Verify.Summary.MissingServiceCount)"
+        Write-Output ''
+        Write-Output 'Phase 4 - Verify'
+        Write-Output "  Verification passed: $($Result.Verify.Summary.Passed)"
+        Write-Output "  Missing vendors: $($Result.Verify.Summary.MissingVendorsCount)"
+        Write-Output "  Missing protected GUIDs: $($Result.Verify.Summary.MissingGuidCount)"
+        Write-Output "  Missing services: $($Result.Verify.Summary.MissingServiceCount)"
 
         if (@($Result.Verify.VendorComparison.Missing).Count -gt 0) {
-            Write-Host ("  Missing vendor names: " + ($Result.Verify.VendorComparison.Missing -join ', ')) -ForegroundColor Yellow
+            Write-Output ("  Missing vendor names: " + ($Result.Verify.VendorComparison.Missing -join ', '))
         }
     }
 
     if ($Result.PSObject.Properties.Name -contains 'BackupPath') {
-        Write-Host ''
-        Write-Host "Backup Path: $($Result.BackupPath)"
+        Write-Output ''
+        Write-Output "Backup Path: $($Result.BackupPath)"
     }
 
     if ($script:LogFile) {
-        Write-Host "Log File: $script:LogFile"
+        Write-Output "Log File: $script:LogFile"
     }
 
-    Write-Host ''
+    Write-Output ''
 }
 
 function Show-PreviewSummary {
@@ -408,7 +408,7 @@ function Prompt-PostRunAction {
             'S' { return 'Shutdown' }
             'N' { return 'None' }
             default {
-                Write-Host 'Please enter R, S, or N.' -ForegroundColor Yellow
+                Write-Output 'Please enter R, S, or N.'
             }
         }
     }
@@ -470,7 +470,7 @@ function Invoke-NetCleanLauncher {
 
     if (-not $Force) {
         if (-not (Read-YesNo -Prompt 'Proceed with the selected NetClean operation?' -DefaultNo $true)) {
-            Write-Host 'Operation cancelled.'
+            Write-Output 'Operation cancelled.'
             return
         }
     }
