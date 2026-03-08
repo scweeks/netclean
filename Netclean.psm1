@@ -1,20 +1,25 @@
-# NetClean PowerShell module
-# Phase-oriented engine for:
-# - Detect
-# - Protect
-# - Clean
-# - Verify
-#
-# Goal:
-# Remove user/environment-identifying network history and metadata while
-# preserving required security, virtualization, firewall, VPN, and network
-# infrastructure software.
-#
-# Notes:
-# - Best fidelity requires administrative privileges
-# - The default workflow is intentionally conservative
-# - Advanced repair and performance tuning are opt-in
-# - This module favors explainability, backup, and verification
+<#
+.SYNOPSIS
+    NetClean PowerShell module
+.DESCRIPTION
+    Phase-oriented engine for:
+    - Phase 1: Detect
+    - Phase 2: Protect
+    - Phase 3: Clean
+    - Phase 4: Verify
+.FUNCTIONALITY
+    System, Security, Diagnostics
+    Goal:
+    Remove user/environment-identifying network history and metadata while
+    preserving required security, virtualization, firewall, VPN, and network
+    infrastructure software.
+
+.NOTES
+    - Best fidelity requires administrative privileges
+    - The default workflow is intentionally conservative
+    - Advanced repair and performance tuning are opt-in
+    - This module favors explainability, backup, and verification
+#>
 
 Set-StrictMode -Version Latest
 $script:NetCleanModuleVersion = '1.0.0'
@@ -35,6 +40,7 @@ Convert-RegKeyPath -Path 'HKLM:\SOFTWARE\\MyKey'
 #>
 function Convert-RegKeyPath {
     [CmdletBinding()]
+    [OutputType([System.String])]
     param(
         [Parameter(Mandatory = $true)]
         [ValidateNotNullOrEmpty()]
@@ -78,6 +84,7 @@ Convert-Guid -Guid 'A0E6C2D0-...'
 #>
 function Convert-Guid {
     [CmdletBinding()]
+    [OutputType([System.String])]
     param(
         [Parameter()]
         [AllowNull()]
@@ -109,6 +116,7 @@ Convert-RegToProviderPath -RegistryPath 'HKLM:\SOFTWARE\\MyKey'
 #>
 function Convert-RegToProviderPath {
     [CmdletBinding()]
+    [OutputType([System.String])]
     param(
         [Parameter(Mandatory = $true)]
         [ValidateNotNullOrEmpty()]
@@ -132,8 +140,23 @@ function Convert-RegToProviderPath {
     }
 }
 
-function Test-RegistryPathExists {
+<#
+.SYNOPSIS
+    Tests if a registry path exists.
+.DESCRIPTION
+    This function checks if a specified registry path exists.
+.PARAMETER RegistryPath
+    The registry path to test.
+.EXAMPLE
+    Test-RegistryPathExist -RegistryPath "HKLM:\SOFTWARE\MyKey"
+.OUTPUTS
+    System.Boolean - True if the path exists, false otherwise.
+.NOTES
+    The function uses the Convert-RegToProviderPath function to normalize the input path.
+#>
+function Test-RegistryPathExist {
     [CmdletBinding()]
+    [OutputType([System.Boolean])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$RegistryPath
@@ -148,8 +171,23 @@ function Test-RegistryPathExists {
     }
 }
 
+<#
+.SYNOPSIS
+    Gets the values of a registry key.
+.DESCRIPTION
+    This function retrieves the values of a specified registry key.
+.PARAMETER RegistryPath
+    The registry path to query.
+.EXAMPLE
+    Get-RegistryValuesSafe -RegistryPath "HKLM:\SOFTWARE\MyKey"
+.OUTPUTS
+    System.Object - The registry values.
+.NOTES
+    The function uses the Convert-RegToProviderPath function to normalize the input path.
+#>
 function Get-RegistryValuesSafe {
     [CmdletBinding()]
+    [OutputType([System.Object])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$RegistryPath
@@ -164,8 +202,23 @@ function Get-RegistryValuesSafe {
     }
 }
 
+<#
+.SYNOPSIS
+    Gets the names of child keys in a registry path.
+.DESCRIPTION
+    This function retrieves the names of child keys in a specified registry path.
+.PARAMETER RegistryPath
+    The registry path to query.
+.EXAMPLE
+    Get-RegistryChildKeyNamesSafe -RegistryPath "HKLM:\SOFTWARE\MyKey"
+.OUTPUTS
+    System.String[] - A list of child key names.
+.NOTES
+    The function uses the Convert-RegToProviderPath function to normalize the input path.
+#>
 function Get-RegistryChildKeyNamesSafe {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$RegistryPath
@@ -180,8 +233,23 @@ function Get-RegistryChildKeyNamesSafe {
     }
 }
 
-function Get-UniqueNonEmptyStrings {
+<#
+.SYNOPSIS
+    Gets unique, non-empty strings from an array.
+.DESCRIPTION
+    This function takes an array of objects and returns a list of unique, non-empty strings.
+.PARAMETER InputObject
+    The array of objects to process.
+.EXAMPLE
+    Get-UniqueNonEmptyString -InputObject @("apple", $null, "banana", "apple")
+.OUTPUTS
+    System.String[] - A list of unique, non-empty strings.
+.NOTES
+    The function trims whitespace from each string before checking if it's empty.
+#>
+function Get-UniqueNonEmptyString {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter()]
         [AllowNull()]
@@ -212,7 +280,23 @@ function Get-UniqueNonEmptyStrings {
     return @($list | Sort-Object -Unique)
 }
 
-function Add-HashSetValues {
+<#
+.SYNOPSIS
+    Adds a value to a HashSet.
+.DESCRIPTION
+    This function adds a string value to a HashSet if it is not null or whitespace.
+.PARAMETER Set
+    The HashSet to which the value will be added.
+.PARAMETER Values
+    The value(s) to add to the HashSet.
+.EXAMPLE
+    Add-HashSetValue -Set $mySet -Values "apple"
+.OUTPUTS
+    System.Void
+.NOTES
+    The function uses the Get-UniqueNonEmptyStrings function to normalize the input arrays.
+#>
+function Add-HashSetValue {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
@@ -242,8 +326,25 @@ function Add-HashSetValues {
     }
 }
 
-function Compare-StringSets {
+<#
+.SYNOPSIS
+    Compares two sets of strings and returns the differences.
+.DESCRIPTION
+    This function compares two arrays of strings and returns a custom object containing the unique strings from each array.
+.PARAMETER Before
+    The first array of strings to compare.
+.PARAMETER After
+    The second array of strings to compare.
+.EXAMPLE
+    Compare-StringSet -Before @("apple", "banana") -After @("banana", "cherry")
+.OUTPUTS
+    System.Management.Automation.PSCustomObject - A custom object containing the comparison results.
+.NOTES
+    The function uses the Get-UniqueNonEmptyStrings function to normalize the input arrays.
+#>
+function Compare-StringSet {
     [CmdletBinding()]
+    [OutputType([System.Management.Automation.PSCustomObject])]
     param(
         [Parameter()]
         [AllowNull()]
@@ -265,20 +366,55 @@ function Compare-StringSets {
     }
 }
 
-function Ensure-Directory {
-    [CmdletBinding()]
+<#
+.SYNOPSIS
+    Creates a directory if it does not exist.
+.DESCRIPTION
+    This function checks if a directory exists and creates it if it does not.
+.PARAMETER Path
+    The path of the directory to create.
+.EXAMPLE
+    New-DirectoryIfNotExist -Path "C:\MyDirectory"
+.OUTPUTS
+    System.Void
+.NOTES
+    The function uses the -Force parameter to create the directory if it does not exist.
+#>
+function New-DirectoryIfNotExist {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    [OutputType([System.Void])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Path
     )
 
     if (-not (Test-Path -LiteralPath $Path)) {
-        New-Item -Path $Path -ItemType Directory -Force | Out-Null
+        if ($PSCmdlet.ShouldProcess($Path, 'Create directory')) {
+            New-Item -Path $Path -ItemType Directory -Force | Out-Null
+        }
     }
 }
 
+# Alias for backwards compatibility
+Set-Alias -Name Ensure-Directory -Value New-DirectoryIfNotExist -Force
+
+<#
+.SYNOPSIS
+    Normalizes a file path from a command line argument.
+.DESCRIPTION
+    This function attempts to extract and normalize a file path from a command line string.
+.PARAMETER CommandLine
+    The command line string containing the file path.
+.EXAMPLE
+    Get-NormalizedFilePathFromCommandLine -CommandLine '"C:\Program Files\Example\example.exe"'
+.OUTPUTS
+    System.String - The normalized file path or $null if not found.
+.NOTES
+    The function trims whitespace and removes surrounding quotes from the command line argument.
+#>
 function Get-NormalizedFilePathFromCommandLine {
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter()]
         [AllowNull()]
@@ -291,19 +427,32 @@ function Get-NormalizedFilePathFromCommandLine {
 
     $s = $CommandLine.Trim()
 
-    if ($s -match '^\s*"([^"]+\.(?:exe|sys|dll))"') {
-        return $matches[1]
-    }
+    $m = [regex]::Match($s, '^\s*"([^"]+\.(?:exe|sys|dll))"')
+    if ($m.Success) { return $m.Groups[1].Value }
 
-    if ($s -match '^\s*([^\s]+\.(?:exe|sys|dll))') {
-        return $matches[1]
-    }
+    $m = [regex]::Match($s, '^\s*([^\s]+\.(?:exe|sys|dll))')
+    if ($m.Success) { return $m.Groups[1].Value }
 
     return $null
 }
 
+<#
+.SYNOPSIS
+    Resolves the vendor name from a given text.
+.DESCRIPTION
+    This function attempts to identify the vendor associated with a given text by checking for known vendor hints.
+.PARAMETER Text
+    The text to analyze for vendor information.
+.EXAMPLE
+    Resolve-VendorFromText -Text "Microsoft Windows Defender"
+.OUTPUTS
+    System.String - The resolved vendor name or $null if not found.
+.NOTES
+    The function uses a predefined set of vendor hints to match against the input text. It returns the first matching vendor name based on the hints provided.
+#>
 function Resolve-VendorFromText {
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter()]
         [AllowNull()]
@@ -349,8 +498,23 @@ function Resolve-VendorFromText {
     return $null
 }
 
-function Get-FileMetadata {
+<#
+.SYNOPSIS
+    Retrieves metadata for a given file.
+.DESCRIPTION
+    This function returns detailed metadata for a specified file, including version information and digital signature details.
+.PARAMETER Path
+    The path to the file for which to retrieve metadata.
+.EXAMPLE
+    Get-FileMetadatum -Path "C:\Windows\System32\ntdll.dll"
+.OUTPUTS
+    System.Management.Automation.PSCustomObject - A custom object containing the file's metadata.
+.NOTES
+    The function will display verbose information about the file being processed and any errors encountered.
+#>
+function Get-FileMetadatum {
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter()]
         [AllowNull()]
@@ -417,8 +581,23 @@ function Get-FileMetadata {
     }
 }
 
+<#
+.SYNOPSIS
+    Retrieves the registry roots for a given vendor.
+.DESCRIPTION
+    This function returns the registry paths commonly associated with a specified vendor's software.
+.PARAMETER Vendor
+    The name of the vendor for which to retrieve registry roots.
+.EXAMPLE
+    Get-VendorRoots -Vendor "Microsoft"
+.OUTPUTS
+    System.String[] - An array of registry paths associated with the vendor.
+.NOTES
+    The function will display verbose information about the registry paths being retrieved.
+#>
 function Get-VendorRootsFromInstallPath {
     [CmdletBinding()]
+    [OutputType([string[]])]
     param(
         [Parameter()]
         [AllowNull()]
@@ -458,8 +637,31 @@ function Get-VendorRootsFromInstallPath {
     return Get-UniqueNonEmptyStrings -InputObject $roots
 }
 
+<#
+.SYNOPSIS
+    Invokes an external command safely.
+.DESCRIPTION
+    This function executes an external command and handles potential errors gracefully.
+.PARAMETER Name
+    The name of the command to invoke.
+.PARAMETER FilePath
+    The path to the executable file.
+.PARAMETER ArgumentList
+    The list of arguments for the command.
+.PARAMETER DryRun
+    Indicates whether to perform a dry run without actually executing the command.
+.PARAMETER IgnoreExitCode
+    Indicates whether to ignore the exit code of the command.
+.EXAMPLE
+    Invoke-ExternalCommandSafe -Name "Example" -FilePath "C:\Example.exe" -ArgumentList @("-arg1", "-arg2")
+.OUTPUTS
+    System.Object - A custom object representing the result of the command execution.
+.NOTES
+    The function will display verbose information about the command being executed and any errors encountered.
+#>
 function Invoke-ExternalCommandSafe {
     [CmdletBinding()]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Name,
@@ -522,8 +724,25 @@ function Invoke-ExternalCommandSafe {
     }
 }
 
+<#
+.SYNOPSIS
+    Tests if a registry path is protected.
+.DESCRIPTION
+    This function checks if a given registry path is protected based on the provided context.
+.PARAMETER Path
+    The registry path to test.
+.PARAMETER Context
+    The context containing protected registry paths.
+.EXAMPLE
+    Test-RegistryPathProtected -Path "HKLM\SOFTWARE\Microsoft" -Context $context
+.OUTPUTS
+    System.Boolean - True if the path is protected, false otherwise.
+.NOTES
+    The context should have a property named 'ProtectedRegistryPaths' which is a collection of registry paths that are considered protected. The function checks if the input path matches or is a subpath of any of the protected paths.
+#>
 function Test-RegistryPathProtected {
     [CmdletBinding()]
+    [OutputType([bool])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Path,
@@ -551,8 +770,26 @@ function Test-RegistryPathProtected {
 # Signature model
 # ---------------------------------------------------------------------------
 
-function Get-VendorSignatures {
+<#
+.SYNOPSIS
+    Retrieves the signature for a given vendor.
+.DESCRIPTION
+    This function returns the signature information for a specified vendor, including categories, patterns, and registry roots.
+.PARAMETER Vendor
+    The name of the vendor for which to retrieve signature information.
+.EXAMPLE
+    Get-VendorSignature -Vendor "Microsoft"
+.OUTPUTS
+    System.Collections.Hashtable - A hashtable containing the vendor's signature information.
+.NOTES
+    The returned hashtable includes the following keys:
+    - Categories: An array of categories associated with the vendor (e.g., AV, Firewall).
+    - Patterns: An array of strings used to identify the vendor in various contexts.
+    - RegistryRoots: An array of registry paths commonly associated with the vendor's software.
+#>
+function Get-VendorSignature {
     [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable])]
     param()
 
     @{
@@ -657,8 +894,10 @@ function Get-VendorSignatures {
     }
 }
 
+
 function Test-VendorPatternMatch {
     [CmdletBinding()]
+    [OutputType([System.Boolean])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Vendor,
@@ -706,8 +945,21 @@ function Test-VendorPatternMatch {
 # Phase 1 - Detect helpers
 # ---------------------------------------------------------------------------
 
+<#
+.SYNOPSIS
+Retrieves evidence of WFP (Windows Filtering Platform) state information.
+.DESCRIPTION
+Scans the WFP state to identify installed filter objects and extracts relevant properties. Attempts to infer the vendor based on known patterns.
+.EXAMPLE
+Get-WfpStateEvidence
+.OUTPUTS
+System.Object[] - A collection of custom objects representing WFP filter objects, including properties such as Name, DisplayName, Path, Publisher, and InferredVendor.
+.NOTES
+- Requires administrative privileges to access WFP state information.
+#>
 function Get-WfpStateEvidence {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $results = New-Object System.Collections.Generic.List[object]
@@ -721,13 +973,13 @@ function Get-WfpStateEvidence {
         }
 
         [xml]$xml = Get-Content -LiteralPath $tempFile -Raw -ErrorAction Stop
-        $allNodes = @()
+        $xmlNodes = @()
 
         if ($xml -and $xml.DocumentElement) {
-            $allNodes = $xml.SelectNodes('//*')
+                $xmlNodes = $xml.SelectNodes('//*')
         }
 
-        foreach ($node in @($allNodes)) {
+        foreach ($node in @($xmlNodes)) {
             $textParts = @()
 
             foreach ($prop in @('displayData', 'name', 'description', 'serviceName', 'providerKey', 'calloutKey', 'layerKey')) {
@@ -738,6 +990,7 @@ function Get-WfpStateEvidence {
                     }
                 }
                 catch {
+                    Write-Verbose "Failed to extract property '$prop' from WFP XML node: $_"
                 }
             }
 
@@ -780,8 +1033,21 @@ function Get-WfpStateEvidence {
     return @($results | Sort-Object Name -Unique)
 }
 
+<#
+.SYNOPSIS
+Retrieves evidence of NDIS filter classes from the registry.
+.DESCRIPTION
+Scans the registry under the NDIS class keys to identify installed network filter classes. Extracts relevant properties and attempts to infer the vendor based on known patterns.
+.EXAMPLE
+Get-NdisFilterClassEvidence
+.OUTPUTS
+A collection of custom objects representing NDIS filter class evidence, including properties such as Name, DisplayName, Publisher, and InferredVendor.
+.NOTES
+- Requires administrative privileges for full access to registry keys.
+#>
 function Get-NdisFilterClassEvidence {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $results = New-Object System.Collections.Generic.List[object]
@@ -831,8 +1097,22 @@ function Get-NdisFilterClassEvidence {
     return @($results)
 }
 
+
+<#
+.SYNOPSIS
+Retrieves evidence of NDIS service bindings from the registry.
+.DESCRIPTION
+Scans the registry under the Services key to identify services that may be related to NDIS bindings. Extracts relevant properties and attempts to infer the vendor based on known patterns.
+.EXAMPLE
+Get-NdisServiceBindingEvidence
+.OUTPUTS
+System.Object[] - A collection of custom objects representing NDIS service bindings, including properties such as Name, DisplayName, Path, Publisher, and InferredVendor.
+.NOTES
+- Requires administrative privileges for full access to registry keys.
+#>
 function Get-NdisServiceBindingEvidence {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $results = New-Object System.Collections.Generic.List[object]
@@ -892,8 +1172,21 @@ function Get-NdisServiceBindingEvidence {
     return @($results)
 }
 
+<#
+.SYNOPSIS
+Retrieves evidence of installed MSI products from the registry.
+.DESCRIPTION
+Scans the registry under the MSI product keys to identify installed products. Extracts relevant properties such as DisplayName, Publisher, and InstallLocation. Attempts to infer the vendor based on these properties and known patterns.
+.EXAMPLE
+Get-MsiRegistryEvidence
+.OUTPUTS
+System.Object[] - A collection of custom objects representing installed MSI products, including properties such as Name
+.NOTES
+Requires appropriate permissions to access the registry keys for installed MSI products.
+#>
 function Get-MsiRegistryEvidence {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $results = New-Object System.Collections.Generic.List[object]
@@ -940,8 +1233,22 @@ function Get-MsiRegistryEvidence {
     return @($results | Sort-Object Name -Unique)
 }
 
+
+<#
+.SYNOPSIS
+Retrieves evidence of network-related INF files from the system.
+.DESCRIPTION
+Scans the Windows INF directory for files matching the pattern 'oem*.inf'. Extracts relevant properties such as Provider, Manufacturer, Class, and ClassGuid. Attempts to infer the vendor based on these properties and known patterns.
+.EXAMPLE
+Get-InfFileEvidence
+.OUTPUTS
+System.Object[] - A collection of custom objects representing network-related INF files, including properties such as Name, DisplayName, Path, Publisher, and InferredVendor.
+.NOTES
+Requires appropriate permissions to access the INF directory and read INF files.
+#>
 function Get-InfFileEvidence {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $results = New-Object System.Collections.Generic.List[object]
@@ -960,17 +1267,24 @@ function Get-InfFileEvidence {
                 $classGuid = $null
 
                 foreach ($line in $content) {
-                    if (-not $provider -and $line -match '^\s*Provider\s*=\s*(.+)$') {
-                        $provider = $matches[1].Trim().Trim('"').Trim('%')
+                    $m = [regex]::Match($line, '^\s*Provider\s*=\s*(.+)$')
+                    if (-not $provider -and $m.Success) {
+                        $provider = $m.Groups[1].Value.Trim().Trim('"').Trim('%')
                     }
-                    elseif (-not $manufacturer -and $line -match '^\s*Manufacturer\s*=\s*(.+)$') {
-                        $manufacturer = $matches[1].Trim().Trim('"').Trim('%')
+
+                    $m = [regex]::Match($line, '^\s*Manufacturer\s*=\s*(.+)$')
+                    if (-not $manufacturer -and $m.Success) {
+                        $manufacturer = $m.Groups[1].Value.Trim().Trim('"').Trim('%')
                     }
-                    elseif (-not $class -and $line -match '^\s*Class\s*=\s*(.+)$') {
-                        $class = $matches[1].Trim().Trim('"')
+
+                    $m = [regex]::Match($line, '^\s*Class\s*=\s*(.+)$')
+                    if (-not $class -and $m.Success) {
+                        $class = $m.Groups[1].Value.Trim().Trim('"')
                     }
-                    elseif (-not $classGuid -and $line -match '^\s*ClassGuid\s*=\s*(.+)$') {
-                        $classGuid = $matches[1].Trim().Trim('"')
+
+                    $m = [regex]::Match($line, '^\s*ClassGuid\s*=\s*(.+)$')
+                    if (-not $classGuid -and $m.Success) {
+                        $classGuid = $m.Groups[1].Value.Trim().Trim('"')
                     }
 
                     if ($provider -and $manufacturer -and $class -and $classGuid) {
@@ -1011,8 +1325,21 @@ function Get-InfFileEvidence {
     return @($results)
 }
 
+<#
+.SYNOPSIS
+Retrieves evidence of scheduled tasks from the system.
+.DESCRIPTION
+Queries the system for scheduled tasks and extracts relevant properties. Attempts to infer the vendor based on known patterns in task names, paths, and actions.
+.EXAMPLE
+Get-ScheduledTaskEvidence
+.OUTPUTS
+System.Object[] - A collection of custom objects representing scheduled tasks, including properties such as Name, DisplayName, Path, Publisher, and InferredVendor.
+.NOTES
+- Requires appropriate permissions to access scheduled task information.
+#>
 function Get-ScheduledTaskEvidence {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $results = New-Object System.Collections.Generic.List[object]
@@ -1064,8 +1391,21 @@ function Get-ScheduledTaskEvidence {
     return @($results)
 }
 
+<#
+.SYNOPSIS
+Retrieves evidence of AppX packages from the system.
+.DESCRIPTION
+Queries the system for installed AppX packages and extracts relevant properties. Attempts to infer the vendor based on known patterns.
+.EXAMPLE
+Get-AppxPackageEvidence
+.OUTPUTS
+System.Object[] - A collection of custom objects representing AppX packages, including properties such as Name, DisplayName, Path, Publisher, and InferredVendor.
+.NOTES
+- Requires appropriate permissions to access AppX package information for all users.
+#>
 function Get-AppxPackageEvidence {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $results = New-Object System.Collections.Generic.List[object]
@@ -1109,8 +1449,21 @@ function Get-AppxPackageEvidence {
     return @($results)
 }
 
+<#
+.SYNOPSIS
+Retrieves evidence of antivirus and firewall products from the Security Center WMI namespace.
+.DESCRIPTION
+Queries the 'root/SecurityCenter2' WMI namespace for instances of 'AntivirusProduct' and 'FirewallProduct'. For each product found, extracts relevant properties and attempts to infer the vendor based on known patterns. Also retrieves file metadata for the product executable to enrich the evidence.
+.EXAMPLE
+Get-ProtectionEvidence
+.OUTPUTS
+System.Object[] - A collection of custom objects representing antivirus and firewall products, including properties such as Name, DisplayName, Path, Publisher, and InferredVendor.
+.NOTES
+- Requires administrative privileges to access the 'root/SecurityCenter2' WMI namespace.
+#>
 function Get-ProtectionEvidence {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $evidence = New-Object System.Collections.Generic.List[object]
@@ -1402,6 +1755,7 @@ function Get-ProtectionEvidence {
 
 function Get-ServiceRegistryMap {
     [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable])]
     param()
 
     $map = @{}
@@ -1419,10 +1773,10 @@ function Get-ServiceRegistryMap {
             Type          = if ($props) { $props.Type } else { $null }
             Start         = if ($props) { $props.Start } else { $null }
             Group         = if ($props) { $props.Group } else { $null }
-            EnumPath      = if (Test-RegistryPathExists -RegistryPath "$svcPath\Enum") { "$svcPath\Enum" } else { $null }
-            LinkagePath   = if (Test-RegistryPathExists -RegistryPath "$svcPath\Linkage") { "$svcPath\Linkage" } else { $null }
-            ParamsPath    = if (Test-RegistryPathExists -RegistryPath "$svcPath\Parameters") { "$svcPath\Parameters" } else { $null }
-            InstancesPath = if (Test-RegistryPathExists -RegistryPath "$svcPath\Instances") { "$svcPath\Instances" } else { $null }
+            EnumPath      = if (Test-RegistryPathExist -RegistryPath "$svcPath\Enum") { "$svcPath\Enum" } else { $null }
+            LinkagePath   = if (Test-RegistryPathExist -RegistryPath "$svcPath\Linkage") { "$svcPath\Linkage" } else { $null }
+            ParamsPath    = if (Test-RegistryPathExist -RegistryPath "$svcPath\Parameters") { "$svcPath\Parameters" } else { $null }
+            InstancesPath = if (Test-RegistryPathExist -RegistryPath "$svcPath\Instances") { "$svcPath\Instances" } else { $null }
         }
 
         $map[$svcName.ToLowerInvariant()] = [pscustomobject]$entry
@@ -1433,6 +1787,7 @@ function Get-ServiceRegistryMap {
 
 function Get-AdapterRegistryCorrelation {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $results = New-Object System.Collections.Generic.List[object]
@@ -1469,9 +1824,9 @@ function Get-AdapterRegistryCorrelation {
             $candidateConnection = "$candidateNetwork\Connection"
             $candidateInterface = "$tcpipInterfacesRoot\{$guid}"
 
-            if (Test-RegistryPathExists -RegistryPath $candidateNetwork)   { $networkPath = $candidateNetwork }
-            if (Test-RegistryPathExists -RegistryPath $candidateConnection){ $connectionPath = $candidateConnection }
-            if (Test-RegistryPathExists -RegistryPath $candidateInterface) { $interfacePath = $candidateInterface }
+            if (Test-RegistryPathExist -RegistryPath $candidateNetwork)   { $networkPath = $candidateNetwork }
+            if (Test-RegistryPathExist -RegistryPath $candidateConnection){ $connectionPath = $candidateConnection }
+            if (Test-RegistryPathExist -RegistryPath $candidateInterface) { $interfacePath = $candidateInterface }
 
             $results.Add([pscustomobject]@{
                 InterfaceGuid  = $guid
@@ -1489,8 +1844,23 @@ function Get-AdapterRegistryCorrelation {
     return @($results)
 }
 
+<#
+.SYNOPSIS
+Exports specified registry keys to .reg files in a provider-safe manner.
+.DESCRIPTION
+For each registry path provided, performs an export using `reg.exe` to ensure provider safety. Exports are saved to the specified destination directory with timestamped filenames. If `-DryRun` is specified, simulates the export process and returns the intended file paths without performing any exports.
+.EXAMPLE
+Export-RegistryKeys -RegistryPaths @('HKLM\SYSTEM\CurrentControlSet\Services\MyService', 'HKLM\SYSTEM\CurrentControlSet\Services\AnotherService') -DestinationPath 'C:\RegistryExports'
+.EXAMPLE
+Export-RegistryKeys -RegistryPaths @('HKLM\SYSTEM\CurrentControlSet\Services\MyService') -DestinationPath 'C:\RegistryExports' -DryRun
+.OUTPUTS
+System.String[]
+.NOTES
+This function relies on `reg.exe` for exporting registry keys, which ensures that the export process is provider-safe. The exported .reg files can be used for backup, analysis, or transfer to another system.
+#>
 function Get-ProtectionInventory {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $evidence = @(Get-ProtectionEvidence)
@@ -1736,9 +2106,9 @@ Collects vendor signatures and evidence sources to produce a prioritized invento
 .OUTPUTS
 A collection of PSCustomObject inventory entries.
 #>
-
 function Get-ProtectionRegistryMap {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter()]
         [AllowNull()]
@@ -1759,7 +2129,7 @@ function Get-ProtectionRegistryMap {
             [void]$keys.Add("HKLM\SYSTEM\CurrentControlSet\Services\$svc")
             foreach ($suffix in @('Parameters', 'Linkage', 'Enum', 'Instances')) {
                 $candidate = "HKLM\SYSTEM\CurrentControlSet\Services\$svc\$suffix"
-                if (Test-RegistryPathExists -RegistryPath $candidate) {
+                if (Test-RegistryPathExist -RegistryPath $candidate) {
                     [void]$keys.Add($candidate)
                 }
             }
@@ -1769,7 +2139,7 @@ function Get-ProtectionRegistryMap {
             [void]$keys.Add("HKLM\SYSTEM\CurrentControlSet\Services\$drv")
             foreach ($suffix in @('Parameters', 'Linkage', 'Enum', 'Instances')) {
                 $candidate = "HKLM\SYSTEM\CurrentControlSet\Services\$drv\$suffix"
-                if (Test-RegistryPathExists -RegistryPath $candidate) {
+                if (Test-RegistryPathExist -RegistryPath $candidate) {
                     [void]$keys.Add($candidate)
                 }
             }
@@ -1784,7 +2154,7 @@ function Get-ProtectionRegistryMap {
                 "HKLM\SYSTEM\CurrentControlSet\Control\Network\{4d36e972-e325-11ce-bfc1-08002be10318}\{$g}",
                 "HKLM\SYSTEM\CurrentControlSet\Control\Network\{4d36e972-e325-11ce-bfc1-08002be10318}\{$g}\Connection"
             )) {
-                if (Test-RegistryPathExists -RegistryPath $candidate) {
+                if (Test-RegistryPathExist -RegistryPath $candidate) {
                     [void]$keys.Add($candidate)
                 }
             }
@@ -1814,9 +2184,9 @@ Creates a unique set of interface GUIDs marked as protected in an inventory.
 .OUTPUTS
 A list of GUID strings.
 #>
-
 function Get-ProtectedInterfaceGuidSet {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter()]
         [AllowNull()]
@@ -1847,9 +2217,9 @@ Finds registry locations and interface-specific entries that may contain network
 .OUTPUTS
 A collection of artifact candidate PSCustomObjects.
 #>
-
-function Get-NetworkPrivacyArtifactCandidates {
+function Get-NetworkPrivacyArtifactCandidate {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter()]
         [AllowNull()]
@@ -1872,7 +2242,7 @@ function Get-NetworkPrivacyArtifactCandidates {
         'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures\Managed',
         'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures\Unmanaged'
     )) {
-        if (Test-RegistryPathExists -RegistryPath $path) {
+        if (Test-RegistryPathExist -RegistryPath $path) {
             $candidates.Add([pscustomobject]@{
                 ArtifactType  = 'NetworkList'
                 RegistryPath  = $path
@@ -1931,7 +2301,7 @@ function Get-NetworkPrivacyArtifactCandidates {
             "$networkRoot\{$guid}",
             "$networkRoot\{$guid}\Connection"
         )) {
-            if (Test-RegistryPathExists -RegistryPath $path) {
+            if (Test-s -RegistryPath $path) {
                 $isProtected = $protectedGuidSet.Contains($guid)
                 $candidates.Add([pscustomobject]@{
                     ArtifactType  = 'NetworkControl'
@@ -1955,9 +2325,9 @@ Returns artifacts from `Get-NetworkPrivacyArtifactCandidates` that are not marke
 .OUTPUTS
 A collection of sanitizable artifact PSCustomObjects.
 #>
-
-function Get-SanitizableNetworkArtifacts {
+function Get-SanitizableNetworkArtifact {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter()]
         [AllowNull()]
@@ -1979,9 +2349,9 @@ Runs detection routines to assemble Inventory, ProtectionRegistryMap, candidate 
 .OUTPUTS
 A PSCustomObject containing detection context and summary.
 #>
-
 function Invoke-NetCleanPhase1Detect {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $inventory = @(Get-ProtectionInventory)
@@ -2020,8 +2390,10 @@ function Invoke-NetCleanPhase1Detect {
 # Phase 2 - Protect helpers
 # ---------------------------------------------------------------------------
 
+
 function Invoke-RegExport {
     [CmdletBinding()]
+    [OutputType([System.String])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Key,
@@ -2032,13 +2404,13 @@ function Invoke-RegExport {
         [switch]$DryRun
     )
 
-    $args = @('export', $Key, $FilePath, '/y')
+    $regArgs = @('export', $Key, $FilePath, '/y')
 
     if ($DryRun) {
         return $FilePath
     }
 
-    $proc = Start-Process -FilePath 'reg.exe' -ArgumentList $args -NoNewWindow -Wait -PassThru
+    $proc = Start-Process -FilePath 'reg.exe' -ArgumentList $regArgs -NoNewWindow -Wait -PassThru
     if ($null -eq $proc) {
         throw "Failed to start reg.exe export for '$Key'"
     }
@@ -2054,8 +2426,29 @@ function Invoke-RegExport {
     return $FilePath
 }
 
+<#
+.SYNOPSIS
+Export specified registry keys to .reg files in a provider-safe manner.
+.DESCRIPTION
+For each registry path provided, performs an export using `reg.exe` to ensure provider safety. Exports are saved to the specified destination directory with timestamped filenames. If `-DryRun` is specified, simulates the export process and returns the intended file paths without performing any exports.
+.PARAMETER Paths
+Array of registry key paths to export.
+.PARAMETER Dest
+Destination directory for exported files.
+.PARAMETER DryRun
+If specified, simulates the export process and returns the intended file paths without performing any exports.
+.EXAMPLE
+Export-ProtectedRegistryKey -Paths @('HKLM\SYSTEM\CurrentControlSet\Services\MyService', 'HKLM\SYSTEM\CurrentControlSet\Services\AnotherService') -Dest "C:\Backups\Registry"
+This command exports the specified registry keys to .reg files in the given destination directory.
+.OUTPUTS
+Array of file paths for the exported .reg files. In dry-run mode, returns the intended file paths without creating any files.
+.NOTES
+- Ensure that the destination directory exists or can be created.
+- The function relies on `reg.exe` for exporting registry keys, which may require appropriate permissions to execute successfully.
+#>
 function Export-ProtectedRegistryKey {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter(Mandatory = $true)]
         [AllowEmptyCollection()]
@@ -2098,9 +2491,9 @@ If specified, no external export is performed and simulated results are returned
 .OUTPUTS
 Array of exported file paths.
 #>
-
 function Export-NetworkList {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Dest,
@@ -2123,9 +2516,9 @@ Parses `netsh wlan show profiles` output to extract profile names; returns an em
 .OUTPUTS
 Array of Wi‑Fi profile name strings.
 #>
-
 function Get-WiFiProfileNames {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $lines = netsh wlan show profiles 2>$null
@@ -2136,11 +2529,13 @@ function Get-WiFiProfileNames {
     $profiles = New-Object System.Collections.Generic.List[string]
 
     foreach ($line in $lines) {
-        if ($line -match ':\s*(.+)$') {
-            $value = $matches[1].Trim()
+        $m = [regex]::Match($line, ':\s*(.+)$')
+        if ($m.Success) {
+            $value = $m.Groups[1].Value.Trim()
             if ([string]::IsNullOrWhiteSpace($value)) { continue }
 
-            if ($line -match 'profile' -or $line -match 'profil' -or $line -match 'perfil' -or $line -match 'профил' -or $line -match '配置文件') {
+            $lc = $line.ToLowerInvariant()
+            if ($lc -like '*profile*' -or $lc -like '*profil*' -or $lc -like '*perfil*' -or $lc -like '*профил*' -or $lc -like '*配置文件*') {
                 [void]$profiles.Add($value)
             }
         }
@@ -2149,8 +2544,30 @@ function Get-WiFiProfileNames {
     return @($profiles | Sort-Object -Unique)
 }
 
+<#
+.SYNOPSIS
+Export Wi‑Fi profiles to XML files and write a list of exported items.
+.DESCRIPTION
+For each Wi‑Fi profile, exports to an XML file using `netsh wlan export profile`. A list file is also created containing the exported file paths. Honors `-DryRun` to simulate exports and return intended file paths without performing actual exports.
+.PARAMETER Dest
+Destination directory for exported Wi‑Fi profile XML files and list file.
+.PARAMETER DryRun
+If specified, simulates the export process and returns the list of file paths that would have been created without performing any exports.
+.OUTPUTS
+Array of file paths for the exported Wi‑Fi profile XML files and the list file. In dry-run mode, returns the intended file paths without creating any files.
+.EXAMPLE
+Export-WiFiProfile -Dest "C:\Backups\WiFiProfiles"
+This command exports all Wi‑Fi profiles to XML files in the specified directory and creates a list file with the exported profile names.
+.EXAMPLE
+Export-WiFiProfile -Dest "C:\Backups\WiFiProfiles" -DryRun
+This command simulates the export process and returns the list of file paths that would have been created without performing any exports.
+.NOTES
+- Ensure that the destination directory exists or can be created.
+- The function relies on `netsh` for exporting Wi‑Fi profiles, which may require appropriate permissions to execute successfully.
+#>
 function Export-WiFiProfile {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Dest,
@@ -2170,8 +2587,8 @@ function Export-WiFiProfile {
 
     if ($DryRun) {
         [void]$exported.Add($listFile)
-        foreach ($profile in $profiles) {
-            [void]$exported.Add("PROFILE:$profile")
+        foreach ($wifiProfile in $profiles) {
+            [void]$exported.Add("PROFILE:$wifiProfile")
         }
         return @($exported)
     }
@@ -2179,9 +2596,9 @@ function Export-WiFiProfile {
     $profiles | Out-File -FilePath $listFile -Encoding UTF8
     [void]$exported.Add($listFile)
 
-    foreach ($profile in $profiles) {
+    foreach ($wifiProfile in $profiles) {
         $before = @(Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
-        & netsh wlan export profile name="$profile" folder="$Dest" key=clear 2>&1 | Out-Null
+        & netsh wlan export profile name="$wifiProfile" folder="$Dest" key=clear 2>&1 | Out-Null
         $after = @(Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
         $newFiles = @($after | Where-Object { $_ -notin $before })
 
@@ -2205,9 +2622,9 @@ Simulate export operations without calling external commands.
 .OUTPUTS
 Array of exported file paths and markers for profiles when in dry-run.
 #>
-
 function Export-FirewallPolicy {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Dest,
@@ -2238,9 +2655,9 @@ Simulate export without running external commands.
 .OUTPUTS
 Path to the exported firewall policy file.
 #>
-
 function Export-ProtectionInventory {
     [CmdletBinding()]
+    [OutputType([System.String])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Dest,
@@ -2281,9 +2698,9 @@ Simulate writing without creating files.
 .OUTPUTS
 Path to the JSON file that would be or was written.
 #>
-
 function Export-ProtectionRegistryMap {
     [CmdletBinding()]
+    [OutputType([System.String])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Dest,
@@ -2321,9 +2738,9 @@ Simulate writing without creating files.
 .OUTPUTS
 Path to the JSON file.
 #>
-
 function Export-SanitizableNetworkArtifacts {
     [CmdletBinding()]
+    [OutputType([System.String])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Dest,
@@ -2347,8 +2764,29 @@ function Export-SanitizableNetworkArtifacts {
     return $file
 }
 
+<#
+.SYNOPSIS
+Export the NetClean manifest containing backup and summary metadata.
+.DESCRIPTION
+Serializes the manifest hashtable to JSON in the destination directory. Honors `-DryRun` to avoid filesystem writes.
+.PARAMETER Dest
+Destination directory for the manifest file.
+.PARAMETER Manifest
+Hashtable describing backup artifacts and summary information.
+.PARAMETER DryRun
+If specified, operations are simulated and no files are written.
+.EXAMPLE
+$manifest = @{
+    ExampleKey = 'ExampleValue'
+}
+.OUTPUTS
+Path to the manifest JSON file.
+.NOTES
+Exports the provided manifest to a JSON file in the specified destination. The manifest should contain relevant metadata about the backup and protection summary. The function returns the path to the manifest file, whether it was actually written or simulated via `-DryRun`.
+#>
 function Export-NetCleanManifest {
     [CmdletBinding()]
+    [OutputType([System.String])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$Dest,
@@ -2383,9 +2821,9 @@ Simulate writing without creating files.
 .OUTPUTS
 Path to the manifest JSON file.
 #>
-
 function Invoke-NetCleanPhase2Protect {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter(Mandatory = $true)]
         [pscustomobject]$Context,
@@ -2472,6 +2910,7 @@ Remove-WiFiProfilesSafe -DryRun
 #>
 function Remove-WiFiProfilesSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
+    [OutputType([System.Object[]])]
     param(
         [switch]$DryRun
     )
@@ -2480,17 +2919,17 @@ function Remove-WiFiProfilesSafe {
     $removed = New-Object System.Collections.Generic.List[string]
     $operations = New-Object System.Collections.Generic.List[object]
 
-    foreach ($profile in $profiles) {
-        if (-not ($DryRun -or $PSCmdlet.ShouldProcess("Wi-Fi profile '$profile'", 'Delete'))) {
-            $operations.Add([pscustomobject]@{ Name = $profile; Succeeded = $false; Skipped = $true; Reason = 'WhatIf' })
+    foreach ($wifiProfile in $profiles) {
+        if (-not ($DryRun -or $PSCmdlet.ShouldProcess("Wi-Fi profile '$wifiProfile'", 'Delete'))) {
+            $operations.Add([pscustomobject]@{ Name = $wifiProfile; Succeeded = $false; Skipped = $true; Reason = 'WhatIf' })
             continue
         }
 
-        $result = Invoke-ExternalCommandSafe -Name "Delete Wi-Fi profile $profile" -FilePath 'netsh.exe' -ArgumentList @('wlan', 'delete', 'profile', ('name="' + $profile + '"')) -DryRun:$DryRun
+        $result = Invoke-ExternalCommandSafe -Name "Delete Wi-Fi profile $wifiProfile" -FilePath 'netsh.exe' -ArgumentList @('wlan', 'delete', 'profile', ('name="' + $wifiProfile + '"')) -DryRun:$DryRun
         $operations.Add($result)
 
         if ($result.Succeeded) {
-            [void]$removed.Add($profile)
+            [void]$removed.Add($wifiProfile)
         }
     }
 
@@ -2513,6 +2952,7 @@ Clear-DnsCacheSafe -DryRun
 #>
 function Clear-DnsCacheSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
+    [OutputType([System.Object[]])]
     param(
         [switch]$DryRun
     )
@@ -2536,6 +2976,7 @@ Clear-ArpCacheSafe
 #>
 function Clear-ArpCacheSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
+    [OutputType([System.Object[]])]
     param(
         [switch]$DryRun
     )
@@ -2563,6 +3004,7 @@ Remove-RegistryPathSafe -RegistryPath 'HKCU:\Software\Foo' -Context $ctx -DryRun
 #>
 function Remove-RegistryPathSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
+    [OutputType([System.Object[]])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$RegistryPath,
@@ -2662,6 +3104,7 @@ Remove-NetworkPrivacyArtifactsSafe -Context $ctx -DryRun
 #>
 function Remove-NetworkPrivacyArtifactsSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
+    [OutputType([System.Object[]])]
     param(
         [Parameter(Mandatory = $true)]
         [pscustomobject]$Context,
@@ -2694,9 +3137,14 @@ Removes NLA internet probe properties to reset network location awareness probes
 Simulate actions without making changes.
 .EXAMPLE
 Clear-NlaProbeStateSafe -DryRun
+.OUTPUTS
+An array of results for each property processed, indicating the property name, whether it was removed, if it was a dry run, if the operation succeeded, and any error messages if applicable.
+.NOTES
+- Clearing NLA probe state can help reset network location awareness but may have side effects on network connectivity until the system re-probes. Use with caution.
 #>
 function Clear-NlaProbeStateSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
+    [OutputType([System.Object[]])]
     param(
         [switch]$DryRun
     )
@@ -2761,8 +3209,29 @@ function Clear-NlaProbeStateSafe {
     return @($results)
 }
 
+
+<#
+.SYNOPSIS
+Safely clears user network event logs.
+
+.DESCRIPTION
+Clears user-specific network event logs such as WLAN AutoConfig, NetworkProfile and DHCP Client operational logs. Honors `-DryRun`, `-WhatIf` and `-Confirm` to allow safe simulation of actions.
+
+.PARAMETER DryRun
+If specified, all operations are simulated and no actual changes are made to the system. Results will indicate what would have been done.
+
+.EXAMPLE
+Clear-NetworkEventLogsSafe -DryRun
+
+.OUTPUTS
+An array of results for each log cleared, indicating the log name, whether it was cleared, if it was a dry run, if the operation succeeded, and any error messages if applicable.
+
+.NOTES
+- Clearing event logs can result in loss of historical event data. It is recommended to perform these operations when a backup of important logs has been made or when the logs are not needed for troubleshooting.
+#>
 function Clear-NetworkEventLogsSafe {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [switch]$DryRun
     )
@@ -2782,8 +3251,29 @@ function Clear-NetworkEventLogsSafe {
     return @($results)
 }
 
+
+<#
+.SYNOPSIS
+Safely clears user network artifacts from the registry.
+
+.DESCRIPTION
+Removes user-specific network artifacts such as mapped network drive MRU and terminal server client history from the registry. Honors `-DryRun`, `-WhatIf` and `-Confirm` to allow safe simulation of actions.
+
+.PARAMETER DryRun
+If specified, all operations are simulated and no actual changes are made to the system. Results will indicate what would have been done.
+
+.EXAMPLE
+Clear-UserNetworkArtifactsSafe -DryRun
+
+.OUTPUTS
+An array of results for each artifact path processed, indicating the path, whether it was removed, if it was a dry run, if the operation succeeded, and any error messages if applicable.
+
+.NOTES
+- This function targets specific user registry paths known to store network-related artifacts. It is designed to be safe and cautious, avoiding any protected paths and providing detailed results for each attempted removal.
+#>
 function Clear-UserNetworkArtifactsSafe {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [switch]$DryRun
     )
@@ -2843,8 +3333,29 @@ function Clear-UserNetworkArtifactsSafe {
     return @($results)
 }
 
+
+<#
+.SYNOPSIS
+Performs advanced network repairs by resetting Winsock and TCP/IP stacks.
+
+.DESCRIPTION
+Executes a series of commands to reset the Winsock catalog and TCP/IP stacks for both IPv4 and IPv6. These operations can resolve a variety of network issues related to corrupted network configurations. Honors `-DryRun` to simulate actions without making changes.
+
+.PARAMETER DryRun
+If specified, all operations are simulated and no actual changes are made to the system. Results will indicate what would have been done.
+
+.EXAMPLE
+Invoke-AdvancedNetworkRepair -DryRun
+
+.OUTPUTS
+An array of results for each repair command executed, indicating the name of the command, whether it succeeded, if it was a dry run, and any error messages if applicable.
+
+.NOTES
+- Resetting Winsock and TCP/IP stacks can disrupt network connectivity until the system is restarted. It is recommended to perform these operations when a restart can be accommodated.
+#>
 function Invoke-AdvancedNetworkRepair {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [switch]$DryRun
     )
@@ -2864,8 +3375,29 @@ function Invoke-AdvancedNetworkRepair {
     return @($results)
 }
 
+
+<#
+.SYNOPSIS
+Performs conservative performance tuning by enabling normal autotuning, RSS, and ECN.
+
+.DESCRIPTION
+Executes a set of commands to enable normal autotuning, Receive Side Scaling (RSS), and Explicit Congestion Notification (ECN) capability. These settings can improve network performance in many scenarios while maintaining broad compatibility. Honors `-DryRun` to simulate actions without making changes.
+
+.PARAMETER DryRun
+If specified, all operations are simulated and no actual changes are made to the system. Results will indicate what would have been done.
+
+.EXAMPLE
+Invoke-ConservativePerformanceTune -DryRun
+
+.OUTPUTS
+An array of results for each performance tuning command executed, indicating the name of the command, whether it succeeded, if it was a dry run, and any error messages if applicable.
+
+.NOTES
+- These performance tuning steps are generally safe and can provide benefits in typical network environments, but results may vary based on specific hardware and drivers.
+#>
 function Invoke-ConservativePerformanceTune {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [switch]$DryRun
     )
@@ -2897,8 +3429,51 @@ function Invoke-ConservativePerformanceTune {
     return @($results)
 }
 
+
+<#
+.SYNOPSIS
+Performs cleaning operations to remove network privacy artifacts and reset network state.
+
+.DESCRIPTION
+Based on the provided context and mode, executes a series of cleaning operations such as removing Wi‑Fi profiles, flushing DNS cache, clearing ARP cache, removing registry artifacts, clearing NLA probe state, and optionally performing advanced repairs and performance tuning. Each operation is performed safely with support for `-DryRun` to simulate actions without making changes. Returns an updated context object containing details of the cleaning operations performed and their results.
+
+.PARAMETER Context
+The context object produced during the detect/protect phases, containing inventory and protection information.
+
+.PARAMETER Mode
+Determines the cleaning mode and which operations to perform. Supported values are:
+- 'Preview': Minimal cleaning for previewing potential changes.
+
+.PARAMETER DryRun
+If specified, all operations are simulated and no actual changes are made to the system. Results will indicate what would have been done.
+
+.PARAMETER SkipWifi
+If specified, Wi‑Fi profile removal will be skipped.
+
+.PARAMETER SkipDnsFlush
+If specified, DNS cache flushing will be skipped.
+
+.PARAMETER SkipEventLogs
+If specified, network event log clearing will be skipped.
+
+.PARAMETER SkipUserArtifacts
+If specified, user network artifact clearing will be skipped.
+
+.PARAMETER EnableConservativePerformanceTuning
+If specified, conservative performance tuning commands will be executed in addition to the standard cleaning operations.
+
+.EXAMPLE
+Invoke-NetCleanPhase3Clean -Context $ctx -Mode 'SafeConferencePrep' -DryRun
+
+.OUTPUTS
+An updated context object containing the results of the cleaning operations, including which Wi‑Fi profiles were removed, the outcome of DNS cache flushing, ARP cache clearing, registry artifact removal, NLA probe state clearing, event log clearing, user artifact clearing, and any advanced repairs or performance tuning performed based on the selected mode.
+
+.NOTES
+- Ensure that the context object provided contains the necessary inventory and protection information for accurate cleaning operations.
+#>
 function Invoke-NetCleanPhase3Clean {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter(Mandatory = $true)]
         [pscustomobject]$Context,
@@ -2966,8 +3541,28 @@ function Invoke-NetCleanPhase3Clean {
 # Phase 4 - Verify helpers
 # ---------------------------------------------------------------------------
 
+<#
+.SYNOPSIS
+Performs post-cleaning state verification by comparing inventories before and after cleaning.
+
+.DESCRIPTION
+Compares the pre-cleaning inventory with the post-cleaning inventory to identify any remaining protected items. Evaluates differences in AV vendors, protected interface GUIDs, and associated services. Returns a detailed report of the findings and an overall pass/fail status based on whether any protected items remain.
+
+.PARAMETER Context
+The context object containing the pre-cleaning inventory and other relevant information.
+
+.EXAMPLE
+Test-NetCleanPostState -Context $ctx
+
+.OUTPUTS
+A custom object containing the pre- and post-cleaning inventories, comparisons of vendors, GUIDs, and services, and an overall pass/fail status indicating whether protected items were successfully removed.
+
+.NOTES
+- This function assumes that the pre-cleaning inventory was accurately captured during the detect/protect phases. Ensure that those phases completed successfully for reliable verification results.
+#>
 function Test-NetCleanPostState {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter(Mandatory = $true)]
         [pscustomobject]$Context
@@ -3011,8 +3606,29 @@ function Test-NetCleanPostState {
     }
 }
 
+
+<#
+.SYNOPSIS
+Performs verification checks after cleaning to assess the state of the system.
+
+.DESCRIPTION
+Compares the post-cleaning inventory against the pre-cleaning inventory to determine if protected items were successfully removed. Evaluates differences in AV vendors, interface GUIDs, and associated services. Returns a detailed report of the comparisons and an overall pass/fail status.
+
+.PARAMETER Context
+The context object containing the pre- and post-cleaning inventories.
+
+.EXAMPLE
+Invoke-NetCleanPhase4Verify -Context $ctx
+
+.OUTPUTS
+A context object enriched with verification results, including comparisons of vendors, GUIDs, and services, and a summary of the verification outcome.
+
+.NOTES
+- This function relies on the integrity of the inventories collected during the detect and protect phases. Ensure that those phases completed successfully for accurate verification.
+#>
 function Invoke-NetCleanPhase4Verify {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [Parameter(Mandatory = $true)]
         [pscustomobject]$Context
@@ -3046,8 +3662,53 @@ function Invoke-NetCleanPhase4Verify {
 # Workflow orchestration
 # ---------------------------------------------------------------------------
 
+<#
+.SYNOPSIS
+Orchestrates the NetClean workflow across detect, protect, clean, and verify phases.
+
+.DESCRIPTION
+Coordinates the execution of the NetClean workflow by invoking each phase in sequence. Accepts parameters to control the mode of operation, backup paths, and which cleaning actions to perform or skip. Returns a context object containing detailed information about each phase's operations and results.
+
+.PARAMETER Mode
+Defines the cleaning mode to execute. Supported values are:
+- 'Preview': Executes detect and protect phases, then returns context without making changes.
+
+.PARAMETER BackupPath
+Specifies the directory path where backups will be stored during the protect phase.
+
+.PARAMETER DryRun
+If set, simulates the workflow without performing any destructive actions, allowing for review of intended operations.
+
+.PARAMETER SkipWifi
+If set, skips the removal of Wi‑Fi profiles during the clean phase.
+
+.PARAMETER SkipDnsFlush
+If set, skips flushing the DNS resolver cache during the clean phase.
+
+.PARAMETER SkipEventLogs
+If set, skips clearing network-related event logs during the clean phase.
+
+.PARAMETER SkipUserArtifacts
+If set, skips removing user artifacts during the clean phase.
+
+.PARAMETER SkipFirewallBackup
+If set, skips backing up firewall policies during the protect phase.
+
+.PARAMETER EnableConservativePerformanceTuning
+If set, enables conservative performance tuning options.
+
+.EXAMPLE
+Invoke-NetCleanWorkflow -Mode 'SafeConferencePrep' -BackupPath 'C:\NetCleanBackups' -DryRun
+
+.OUTPUTS
+A context object containing detailed information about the operations performed in each phase of the NetClean workflow, including inventories, backups, cleaning actions, and verification results.
+
+.NOTES
+- Ensure that you have appropriate permissions to perform the operations in this workflow.
+#>
 function Invoke-NetCleanWorkflow {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param(
         [ValidateSet('Preview', 'SafeConferencePrep', 'AdvancedRepair', 'PerformanceTune')]
         [string]$Mode = 'SafeConferencePrep',
@@ -3079,8 +3740,26 @@ function Invoke-NetCleanWorkflow {
 # Compatibility wrappers
 # ---------------------------------------------------------------------------
 
+
+<#
+.SYNOPSIS
+Builds a list of installed AV vendors.
+
+.DESCRIPTION
+Aggregates the names of installed antivirus vendors from the protection inventory.
+
+.PARAMETER Inventory
+Optionally specify an inventory to build from; if not provided, the current inventory will be retrieved.
+
+.EXAMPLE
+Get-InstalledAV
+
+.OUTPUTS
+A list of unique, non-empty strings representing installed AV vendors.
+#>
 function Get-InstalledAV {
     [CmdletBinding()]
+    [OutputType([System.String[]])]
     param(
         [Parameter(Mandatory = $false)]
         [object[]]$Inventory
@@ -3104,8 +3783,29 @@ function Get-InstalledAV {
     return $out
 }
 
+
+<#
+.SYNOPSIS
+Builds a list of service patterns for the specified AV vendors.
+
+.DESCRIPTION
+Aggregates service patterns from the protection inventory for the specified AV vendors.
+
+.PARAMETER AvList
+List of AV vendor names (case-insensitive, supports partial matches) to derive service patterns for.
+
+.PARAMETER Inventory
+Optionally specify an inventory to derive from; if not provided, the current inventory will be retrieved.
+
+.EXAMPLE
+Get-AVServicePattern -AvList @('Defender', 'Symantec')
+
+.OUTPUTS
+A list of unique, non-empty service patterns associated with the specified AV vendors.
+#>
 function Get-AVServicePattern {
     [CmdletBinding()]
+    [OutputType([System.String[]])]
     param(
         [Parameter(Mandatory = $true)]
         [string[]]$AvList,
@@ -3134,8 +3834,26 @@ function Get-AVServicePattern {
     return Get-UniqueNonEmptyStrings -InputObject $patterns
 }
 
+
+<#
+.SYNOPSIS
+Builds a comprehensive protection list from the inventory.
+
+.DESCRIPTION
+Aggregates services, drivers, adapters and registry keys from the protection inventory into a deduplicated hashtable of lists.
+
+.PARAMETER Inventory
+Optionally specify an inventory to build from; if not provided, the current inventory will be retrieved.
+
+.EXAMPLE
+Get-ProtectionList
+
+.OuTPUTS
+A hashtable with keys 'Services', 'Drivers', 'Adapters' and 'Registry', each containing a list of unique, non-empty strings representing items to protect.
+#>
 function Get-ProtectionList {
     [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable])]
     param(
         [Parameter(Mandatory = $false)]
         [object[]]$Inventory
