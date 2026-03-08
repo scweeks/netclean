@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     NetClean PowerShell module
 .DESCRIPTION
@@ -397,6 +397,7 @@ function New-DirectoryIfNotExist {
 
 # Alias for backwards compatibility
 Set-Alias -Name Ensure-Directory -Value New-DirectoryIfNotExist -Force
+Set-Alias -Name Get-UniqueNonEmptyStrings -Value Get-UniqueNonEmptyString -Force
 
 <#
 .SYNOPSIS
@@ -605,7 +606,7 @@ function Get-VendorRootsFromInstallPath {
     )
 
     if ([string]::IsNullOrWhiteSpace($InstallPath)) {
-        return @()
+        return [string[]] @()
     }
 
     $roots = New-Object System.Collections.Generic.List[string]
@@ -634,7 +635,8 @@ function Get-VendorRootsFromInstallPath {
         Write-Verbose "Ignored error: $_"
     }
 
-    return Get-UniqueNonEmptyStrings -InputObject $roots
+    [string[]]$result = @(Get-UniqueNonEmptyStrings -InputObject $roots)
+    return [string[]] $result
 }
 
 <#
@@ -1864,7 +1866,7 @@ function Get-ProtectionInventory {
     param()
 
     $evidence = @(Get-ProtectionEvidence)
-    $signatures = Get-VendorSignatures
+    $signatures = Get-VendorSignature
     $serviceMap = Get-ServiceRegistryMap
     $adapterCorrelation = @(Get-AdapterRegistryCorrelation)
     $inventory = New-Object System.Collections.Generic.List[object]
@@ -2321,7 +2323,7 @@ function Get-NetworkPrivacyArtifactCandidate {
 .SYNOPSIS
 Filters artifact candidates to those safe to sanitize.
 .DESCRIPTION
-Returns artifacts from `Get-NetworkPrivacyArtifactCandidates` that are not marked protected by inventory.
+Returns artifacts from `Get-NetworkPrivacyArtifactCandidate` that are not marked protected by inventory.
 .OUTPUTS
 A collection of sanitizable artifact PSCustomObjects.
 #>
@@ -2338,7 +2340,7 @@ function Get-SanitizableNetworkArtifact {
         $Inventory = @(Get-ProtectionInventory)
     }
 
-    return @(Get-NetworkPrivacyArtifactCandidates -Inventory $Inventory | Where-Object { -not $_.IsProtected })
+    return @(Get-NetworkPrivacyArtifactCandidate -Inventory $Inventory | Where-Object { -not $_.IsProtected })
 }
 
 <#
@@ -2357,8 +2359,8 @@ function Invoke-NetCleanPhase1Detect {
     $inventory = @(Get-ProtectionInventory)
     $protectionMap = @(Get-ProtectionRegistryMap -Inventory $inventory)
     $protectedGuids = @(Get-ProtectedInterfaceGuidSet -Inventory $inventory)
-    $candidateArtifacts = @(Get-NetworkPrivacyArtifactCandidates -Inventory $inventory)
-    $sanitizableArtifacts = @(Get-SanitizableNetworkArtifacts -Inventory $inventory)
+    $candidateArtifacts = @(Get-NetworkPrivacyArtifactCandidate -Inventory $inventory)
+    $sanitizableArtifacts = @(Get-SanitizableNetworkArtifact -Inventory $inventory)
 
     $protectedRegistryPaths = @(
         $protectionMap |
@@ -2516,7 +2518,7 @@ Parses `netsh wlan show profiles` output to extract profile names; returns an em
 .OUTPUTS
 Array of Wi‑Fi profile name strings.
 #>
-function Get-WiFiProfileNames {
+function Get-WiFiProfileName {
     [CmdletBinding()]
     [OutputType([System.Object[]])]
     param()
@@ -2579,7 +2581,7 @@ function Export-WiFiProfile {
     Ensure-Directory -Path $Dest
 
     $listFile = Join-Path $Dest ("WiFiProfiles_{0}.txt" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-    $profiles = @(Get-WiFiProfileNames)
+    $profiles = @(Get-WiFiProfileName)
 
     if ($profiles.Count -eq 0) {
         return @()
@@ -2738,7 +2740,7 @@ Simulate writing without creating files.
 .OUTPUTS
 Path to the JSON file.
 #>
-function Export-SanitizableNetworkArtifacts {
+function Export-SanitizableNetworkArtifact {
     [CmdletBinding()]
     [OutputType([System.String])]
     param(
@@ -2754,8 +2756,8 @@ function Export-SanitizableNetworkArtifacts {
 
     Ensure-Directory -Path $Dest
 
-    $artifacts = @(Get-SanitizableNetworkArtifacts -Inventory $Inventory)
-    $file = Join-Path $Dest ("SanitizableNetworkArtifacts_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+    $artifacts = @(Get-SanitizableNetworkArtifact -Inventory $Inventory)
+    $file = Join-Path $Dest ("SanitizableNetworkArtifact_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 
     if (-not $DryRun) {
         $artifacts | ConvertTo-Json -Depth 8 | Out-File -FilePath $file -Encoding UTF8
@@ -2855,7 +2857,7 @@ function Invoke-NetCleanPhase2Protect {
 
     $manifest.ProtectionInventoryJson   = Export-ProtectionInventory -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
     $manifest.ProtectionRegistryMapJson = Export-ProtectionRegistryMap -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
-    $manifest.SanitizableArtifactsJson  = Export-SanitizableNetworkArtifacts -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
+    $manifest.SanitizableArtifactsJson  = Export-SanitizableNetworkArtifact -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
     $manifest.NetworkListBackup         = Export-NetworkList -Dest $BackupPath -DryRun:$DryRun
     $manifest.WiFiExports               = @(Export-WiFiProfile -Dest $BackupPath -DryRun:$DryRun)
 
@@ -2915,7 +2917,7 @@ function Remove-WiFiProfilesSafe {
         [switch]$DryRun
     )
 
-    $profiles = @(Get-WiFiProfileNames)
+    $profiles = @(Get-WiFiProfileName)
     $removed = New-Object System.Collections.Generic.List[string]
     $operations = New-Object System.Collections.Generic.List[object]
 
@@ -3768,7 +3770,7 @@ function Get-InstalledAV {
     if ($PSBoundParameters.ContainsKey('Inventory')) { $inventory = @($Inventory) }
     else { $inventory = @(Get-ProtectionInventory) }
 
-    if (@($inventory).Count -eq 0) { return @() }
+    if (@($inventory).Count -eq 0) { return [string[]]@() }
 
     $securityCategories = @('AV', 'EDR', 'XDR', 'Firewall')
 
@@ -3778,8 +3780,8 @@ function Get-InstalledAV {
         }
     }
 
-    $out = @(Get-UniqueNonEmptyStrings -InputObject $results)
-    if (@($out).Count -eq 0) { return @() }
+    [string[]]$out = @(Get-UniqueNonEmptyStrings -InputObject $results)
+    if (@($out).Count -eq 0) { return [string[]]@() }
     return $out
 }
 
@@ -3904,9 +3906,17 @@ Set-Alias -Name Export-ProtectedRegistryKeys -Value Export-ProtectedRegistryKey 
 Export-ModuleMember -Function @(
     'Convert-RegKeyPath',
     'Convert-Guid',
+    'Get-NormalizedFilePathFromCommandLine',
+    'Get-UniqueNonEmptyString',
+    'Test-RegistryPathExist',
+    'Get-RegistryValuesSafe',
+    'Get-RegistryChildKeyNamesSafe',
+    'Add-HashSetValue',
+    'Compare-StringSet',
+    'New-DirectoryIfNotExist',
     'Convert-RegToProviderPath',
     'Resolve-VendorFromText',
-    'Get-VendorSignatures',
+    'Get-VendorSignature',
     'Get-WfpStateEvidence',
     'Get-NdisFilterClassEvidence',
     'Get-NdisServiceBindingEvidence',
@@ -3918,17 +3928,17 @@ Export-ModuleMember -Function @(
     'Get-ProtectionInventory',
     'Get-ProtectionRegistryMap',
     'Get-ProtectedInterfaceGuidSet',
-    'Get-NetworkPrivacyArtifactCandidates',
-    'Get-SanitizableNetworkArtifacts',
+    'Get-NetworkPrivacyArtifactCandidate',
+    'Get-SanitizableNetworkArtifact',
     'Invoke-NetCleanPhase1Detect',
     'Export-ProtectedRegistryKey',
     'Export-NetworkList',
-    'Get-WiFiProfileNames',
+    'Get-WiFiProfileName',
     'Export-WiFiProfile',
     'Export-FirewallPolicy',
     'Export-ProtectionInventory',
     'Export-ProtectionRegistryMap',
-    'Export-SanitizableNetworkArtifacts',
+    'Export-SanitizableNetworkArtifact',
     'Export-NetCleanManifest',
     'Invoke-NetCleanPhase2Protect',
     'Remove-WiFiProfilesSafe',

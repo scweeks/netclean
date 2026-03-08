@@ -656,7 +656,15 @@ function Invoke-NetCleanLauncher {
     }
 
     Show-ModeExplanation -SelectedMode $selectedMode
-    $options = Read-NetCleanOption -SelectedMode $selectedMode
+    $options = Read-NetCleanOption `
+        -SelectedMode $selectedMode `
+        -DryRun:$DryRun `
+        -SkipWifi:$SkipWifi `
+        -SkipDnsFlush:$SkipDnsFlush `
+        -SkipEventLogs:$SkipEventLogs `
+        -SkipUserArtifacts:$SkipUserArtifacts `
+        -SkipFirewallBackup:$SkipFirewallBackup `
+        -EnableConservativePerformanceTuning:$EnableConservativePerformanceTuning
 
     if (-not $Force) {
         if (-not (Read-YesNo -Prompt 'Proceed with the selected NetClean operation?' -DefaultNo $true)) {
@@ -698,8 +706,10 @@ function Invoke-NetCleanLauncher {
 
     Show-NetCleanSummary -Result $result -SelectedMode $selectedMode
 
-    $postRunAction = Prompt-PostRunAction
+    $postRunAction = Read-PostRunAction
     Invoke-PostRunAction -Action $postRunAction -DryRunMode:$options.DryRun
 }
 
-Invoke-NetCleanLauncher
+if ($MyInvocation.InvocationName -ne '.') {
+    Invoke-NetCleanLauncher
+}

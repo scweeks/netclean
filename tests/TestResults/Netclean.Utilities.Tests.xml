@@ -1,0 +1,47 @@
+﻿<?xml version="1.0" encoding="utf-8" standalone="no"?>
+<test-results xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="nunit_schema_2.5.xsd" name="Pester" total="10" errors="0" failures="0" not-run="0" inconclusive="0" ignored="0" skipped="0" invalid="0" date="2026-03-08" time="12:48:38">
+  <environment user="seanw" machine-name="BADROCK-PC" os-version="10.0.26200" user-domain="BADROCK-PC" clr-version="9.0.10" cwd="E:\DevRepos\NetworkCleaner\netclean" platform="Microsoft Windows 11 Pro|C:\WINDOWS|\Device\Harddisk0\Partition3" nunit-version="2.5.8.0" />
+  <culture-info current-culture="en-US" current-uiculture="en-US" />
+  <test-suite type="TestFixture" name="Pester" executed="True" result="Success" success="True" time="0.8886" asserts="0" description="Pester">
+    <results>
+      <test-suite type="TestFixture" name="E:\DevRepos\NetworkCleaner\netclean\tests\Unit\Netclean.Utilities.Tests.ps1" executed="True" result="Success" success="True" time="0.8886" asserts="0" description="E:\DevRepos\NetworkCleaner\netclean\tests\Unit\Netclean.Utilities.Tests.ps1">
+        <results>
+          <test-suite type="TestFixture" name="Netclean utility functions" executed="True" result="Success" success="True" time="0.2935" asserts="0" description="Netclean utility functions">
+            <results>
+              <test-suite type="TestFixture" name="Netclean utility functions.Convert-RegKeyPath" executed="True" result="Success" success="True" time="0.152" asserts="0" description="Netclean utility functions.Convert-RegKeyPath">
+                <results>
+                  <test-case description="normalizes provider-qualified path and separators" name="Netclean utility functions.Convert-RegKeyPath.normalizes provider-qualified path and separators" time="0.0899" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="throws on invalid paths" name="Netclean utility functions.Convert-RegKeyPath.throws on invalid paths" time="0.0351" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="Netclean utility functions.Convert-Guid" executed="True" result="Success" success="True" time="0.1995" asserts="0" description="Netclean utility functions.Convert-Guid">
+                <results>
+                  <test-case description="returns null for empty input" name="Netclean utility functions.Convert-Guid.returns null for empty input" time="0.01" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="returns canonical lowercase GUID" name="Netclean utility functions.Convert-Guid.returns canonical lowercase GUID" time="0.0174" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="throws on invalid GUID" name="Netclean utility functions.Convert-Guid.throws on invalid GUID" time="0.0127" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="Netclean utility functions.Get-NormalizedFilePathFromCommandLine" executed="True" result="Success" success="True" time="0.2262" asserts="0" description="Netclean utility functions.Get-NormalizedFilePathFromCommandLine">
+                <results>
+                  <test-case description="extracts quoted executable path" name="Netclean utility functions.Get-NormalizedFilePathFromCommandLine.extracts quoted executable path" time="0.0123" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="returns null for non-matching" name="Netclean utility functions.Get-NormalizedFilePathFromCommandLine.returns null for non-matching" time="0.0076" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="Netclean utility functions.Get-UniqueNonEmptyString" executed="True" result="Success" success="True" time="0.2504" asserts="0" description="Netclean utility functions.Get-UniqueNonEmptyString">
+                <results>
+                  <test-case description="flattens arrays and deduplicates" name="Netclean utility functions.Get-UniqueNonEmptyString.flattens arrays and deduplicates" time="0.017" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+              <test-suite type="TestFixture" name="Netclean utility functions.Resolve-VendorFromText" executed="True" result="Success" success="True" time="0.2804" asserts="0" description="Netclean utility functions.Resolve-VendorFromText">
+                <results>
+                  <test-case description="returns vendor when hint present" name="Netclean utility functions.Resolve-VendorFromText.returns vendor when hint present" time="0.0134" asserts="0" success="True" result="Success" executed="True" />
+                  <test-case description="returns null when none match" name="Netclean utility functions.Resolve-VendorFromText.returns null when none match" time="0.0085" asserts="0" success="True" result="Success" executed="True" />
+                </results>
+              </test-suite>
+            </results>
+          </test-suite>
+        </results>
+      </test-suite>
+    </results>
+  </test-suite>
+</test-results>

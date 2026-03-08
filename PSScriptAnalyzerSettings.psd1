@@ -7,5 +7,6 @@
         PSAvoidUsingInvokeExpression = @{ Enable = $true; Severity = 'Error' }
         PSAvoidGlobalVars = @{ Enable = $true; Severity = 'Warning' }
         PSUseShouldProcessForStateChangingFunctions = @{ Enable = $true; Severity = 'Warning' }
+        UnexpectedAttribute = @{ Enable = $false; Severity = 'Warning' }
     }
 }
