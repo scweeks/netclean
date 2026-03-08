@@ -23,6 +23,16 @@ $script:NetCleanModuleVersion = '1.0.0'
 # Utility helpers
 # ---------------------------------------------------------------------------
 
+<#
+.SYNOPSIS
+Normalize a registry key path to a canonical form.
+.DESCRIPTION
+Removes provider prefixes and normalizes separators for a registry path. Validates common registry hives.
+.PARAMETER Path
+The registry path to normalize.
+.EXAMPLE
+Convert-RegKeyPath -Path 'HKLM:\SOFTWARE\\MyKey'
+#>
 function Convert-RegKeyPath {
     [CmdletBinding()]
     param(
@@ -56,6 +66,16 @@ function Convert-RegKeyPath {
     return $p.Trim()
 }
 
+<#
+.SYNOPSIS
+Validates and normalizes a GUID string.
+.DESCRIPTION
+Parses a GUID string and returns the canonical lowercase GUID form. Returns `$null` for empty input.
+.PARAMETER Guid
+The GUID string to validate and convert.
+.EXAMPLE
+Convert-Guid -Guid 'A0E6C2D0-...'
+#>
 function Convert-Guid {
     [CmdletBinding()]
     param(
@@ -77,6 +97,16 @@ function Convert-Guid {
     return $parsed.Guid.ToLowerInvariant()
 }
 
+<#
+.SYNOPSIS
+Convert a registry key path to the provider-qualified path.
+.DESCRIPTION
+Transforms a normalized registry path into a Provider:: style path usable by provider cmdlets (e.g., Registry::HKEY_LOCAL_MACHINE\...).
+.PARAMETER RegistryPath
+The registry path to convert.
+.EXAMPLE
+Convert-RegToProviderPath -RegistryPath 'HKLM:\SOFTWARE\\MyKey'
+#>
 function Convert-RegToProviderPath {
     [CmdletBinding()]
     param(
@@ -973,6 +1003,7 @@ function Get-InfFileEvidence {
                 }
             }
             catch {
+                Write-Verbose "Ignored error: $_"
             }
         }
     }
@@ -1232,6 +1263,7 @@ function Get-ProtectionEvidence {
             }
         }
         catch {
+            Write-Verbose "Ignored error: $_"
         }
     }
 
@@ -1696,6 +1728,15 @@ function Get-ProtectionInventory {
     return @($inventory | Sort-Object Vendor)
 }
 
+<#
+.SYNOPSIS
+Builds an inventory of protection software from collected evidence.
+.DESCRIPTION
+Collects vendor signatures and evidence sources to produce a prioritized inventory of detected protection products and related registry keys.
+.OUTPUTS
+A collection of PSCustomObject inventory entries.
+#>
+
 function Get-ProtectionRegistryMap {
     [CmdletBinding()]
     param(
@@ -1765,6 +1806,15 @@ function Get-ProtectionRegistryMap {
     return @($result | Sort-Object Vendor)
 }
 
+<#
+.SYNOPSIS
+Returns the set of protected interface GUIDs from inventory.
+.DESCRIPTION
+Creates a unique set of interface GUIDs marked as protected in an inventory.
+.OUTPUTS
+A list of GUID strings.
+#>
+
 function Get-ProtectedInterfaceGuidSet {
     [CmdletBinding()]
     param(
@@ -1788,6 +1838,15 @@ function Get-ProtectedInterfaceGuidSet {
 
     return @($set | Sort-Object)
 }
+
+<#
+.SYNOPSIS
+Enumerates candidate registry artifacts relevant to network history.
+.DESCRIPTION
+Finds registry locations and interface-specific entries that may contain network history or metadata; marks whether each is protected by inventory.
+.OUTPUTS
+A collection of artifact candidate PSCustomObjects.
+#>
 
 function Get-NetworkPrivacyArtifactCandidates {
     [CmdletBinding()]
@@ -1888,6 +1947,15 @@ function Get-NetworkPrivacyArtifactCandidates {
     return @($candidates)
 }
 
+<#
+.SYNOPSIS
+Filters artifact candidates to those safe to sanitize.
+.DESCRIPTION
+Returns artifacts from `Get-NetworkPrivacyArtifactCandidates` that are not marked protected by inventory.
+.OUTPUTS
+A collection of sanitizable artifact PSCustomObjects.
+#>
+
 function Get-SanitizableNetworkArtifacts {
     [CmdletBinding()]
     param(
@@ -1902,6 +1970,15 @@ function Get-SanitizableNetworkArtifacts {
 
     return @(Get-NetworkPrivacyArtifactCandidates -Inventory $Inventory | Where-Object { -not $_.IsProtected })
 }
+
+<#
+.SYNOPSIS
+Run phase 1 detection to build context for subsequent phases.
+.DESCRIPTION
+Runs detection routines to assemble Inventory, ProtectionRegistryMap, candidate and sanitizable artifacts and returns a context object used by later phases.
+.OUTPUTS
+A PSCustomObject containing detection context and summary.
+#>
 
 function Invoke-NetCleanPhase1Detect {
     [CmdletBinding()]
@@ -2007,6 +2084,21 @@ function Export-ProtectedRegistryKey {
     return @($exported.ToArray())
 }
 
+<#
+.SYNOPSIS
+Export a set of registry keys to .reg files.
+.DESCRIPTION
+For each provided registry path, performs a provider-safe export to the destination directory. Honors `-DryRun` to simulate exports.
+.PARAMETER Paths
+Array of registry key paths to export.
+.PARAMETER Dest
+Destination directory for exported files.
+.PARAMETER DryRun
+If specified, no external export is performed and simulated results are returned.
+.OUTPUTS
+Array of exported file paths.
+#>
+
 function Export-NetworkList {
     [CmdletBinding()]
     param(
@@ -2022,6 +2114,15 @@ function Export-NetworkList {
 
     return Invoke-RegExport -Key $key -FilePath $file -DryRun:$DryRun
 }
+
+<#
+.SYNOPSIS
+Return Wi‑Fi profile names present on the system.
+.DESCRIPTION
+Parses `netsh wlan show profiles` output to extract profile names; returns an empty list if none found.
+.OUTPUTS
+Array of Wi‑Fi profile name strings.
+#>
 
 function Get-WiFiProfileNames {
     [CmdletBinding()]
@@ -2092,6 +2193,19 @@ function Export-WiFiProfile {
     return @($exported)
 }
 
+<#
+.SYNOPSIS
+Export Wi‑Fi profiles and write a list file.
+.DESCRIPTION
+Exports each Wi‑Fi profile to XML using `netsh` and returns a list of exported files. Honors `-DryRun` to simulate exports.
+.PARAMETER Dest
+Destination folder for exported profiles.
+.PARAMETER DryRun
+Simulate export operations without calling external commands.
+.OUTPUTS
+Array of exported file paths and markers for profiles when in dry-run.
+#>
+
 function Export-FirewallPolicy {
     [CmdletBinding()]
     param(
@@ -2111,6 +2225,19 @@ function Export-FirewallPolicy {
 
     return $file
 }
+
+<#
+.SYNOPSIS
+Export firewall policy to a .wfw file.
+.DESCRIPTION
+Uses `netsh advfirewall export` to export the firewall policy configuration to the destination file. Honors `-DryRun` and returns the intended file path.
+.PARAMETER Dest
+Destination directory for the exported firewall policy.
+.PARAMETER DryRun
+Simulate export without running external commands.
+.OUTPUTS
+Path to the exported firewall policy file.
+#>
 
 function Export-ProtectionInventory {
     [CmdletBinding()]
@@ -2140,6 +2267,21 @@ function Export-ProtectionInventory {
     return $file
 }
 
+<#
+.SYNOPSIS
+Export protection inventory to JSON.
+.DESCRIPTION
+Writes the provided protection inventory (or current detected inventory) to a JSON file in the destination directory. Honors `-DryRun` to avoid writing files.
+.PARAMETER Dest
+Destination directory for the inventory JSON file.
+.PARAMETER Inventory
+Optional inventory object to serialize; detected inventory is used if omitted.
+.PARAMETER DryRun
+Simulate writing without creating files.
+.OUTPUTS
+Path to the JSON file that would be or was written.
+#>
+
 function Export-ProtectionRegistryMap {
     [CmdletBinding()]
     param(
@@ -2164,6 +2306,21 @@ function Export-ProtectionRegistryMap {
 
     return $file
 }
+
+<#
+.SYNOPSIS
+Export sanitizable artifact list to JSON.
+.DESCRIPTION
+Serializes the list of sanitizable network artifacts to JSON in the destination folder. Honors `-DryRun`.
+.PARAMETER Dest
+Destination directory for the JSON file.
+.PARAMETER Inventory
+Optional inventory used to derive artifacts.
+.PARAMETER DryRun
+Simulate writing without creating files.
+.OUTPUTS
+Path to the JSON file.
+#>
 
 function Export-SanitizableNetworkArtifacts {
     [CmdletBinding()]
@@ -2211,6 +2368,21 @@ function Export-NetCleanManifest {
 
     return $file
 }
+
+<#
+.SYNOPSIS
+Export the NetClean manifest containing backup and summary metadata.
+.DESCRIPTION
+Serializes the manifest hashtable to JSON in the destination directory. Honors `-DryRun` to avoid filesystem writes.
+.PARAMETER Dest
+Destination directory for the manifest file.
+.PARAMETER Manifest
+Hashtable describing backup artifacts and summary information.
+.PARAMETER DryRun
+Simulate writing without creating files.
+.OUTPUTS
+Path to the manifest JSON file.
+#>
 
 function Invoke-NetCleanPhase2Protect {
     [CmdletBinding()]
@@ -2288,6 +2460,16 @@ function Invoke-NetCleanPhase2Protect {
 # Phase 3 - Clean helpers
 # ---------------------------------------------------------------------------
 
+<#
+.SYNOPSIS
+Removes Wi‑Fi profiles safely (supports -WhatIf).
+.DESCRIPTION
+Deletes all user Wi‑Fi profiles unless protected; supports `-DryRun`, `-WhatIf` and `-Confirm`.
+.PARAMETER DryRun
+If specified, operations are simulated and no destructive actions are performed.
+.EXAMPLE
+Remove-WiFiProfilesSafe -DryRun
+#>
 function Remove-WiFiProfilesSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -2319,6 +2501,16 @@ function Remove-WiFiProfilesSafe {
     }
 }
 
+<#
+.SYNOPSIS
+Clears the DNS resolver cache (supports -WhatIf).
+.DESCRIPTION
+Invokes the platform command to flush the DNS resolver cache. Honors `-DryRun`, `-WhatIf` and `-Confirm`.
+.PARAMETER DryRun
+Simulate actions without making changes.
+.EXAMPLE
+Clear-DnsCacheSafe -DryRun
+#>
 function Clear-DnsCacheSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -2332,6 +2524,16 @@ function Clear-DnsCacheSafe {
     return Invoke-ExternalCommandSafe -Name 'Flush DNS cache' -FilePath 'ipconfig.exe' -ArgumentList @('/flushdns') -DryRun:$DryRun
 }
 
+<#
+.SYNOPSIS
+Clears the ARP cache (supports -WhatIf).
+.DESCRIPTION
+Attempts to clear the system ARP cache. Honors `-DryRun`, `-WhatIf` and `-Confirm`.
+.PARAMETER DryRun
+Simulate actions without making changes.
+.EXAMPLE
+Clear-ArpCacheSafe
+#>
 function Clear-ArpCacheSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -2345,6 +2547,20 @@ function Clear-ArpCacheSafe {
     return Invoke-ExternalCommandSafe -Name 'Clear ARP cache' -FilePath 'arp.exe' -ArgumentList @('-d', '*') -DryRun:$DryRun -IgnoreExitCode
 }
 
+<#
+.SYNOPSIS
+Removes a registry path if allowed (supports -WhatIf).
+.DESCRIPTION
+Safely removes a registry path unless it is protected. Honors `-DryRun`, `-WhatIf` and `-Confirm`.
+.PARAMETER RegistryPath
+The registry path to remove.
+.PARAMETER Context
+Operation context with protection information.
+.PARAMETER DryRun
+Simulate removal without making changes.
+.EXAMPLE
+Remove-RegistryPathSafe -RegistryPath 'HKCU:\Software\Foo' -Context $ctx -DryRun
+#>
 function Remove-RegistryPathSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -2432,6 +2648,18 @@ function Remove-RegistryPathSafe {
     }
 }
 
+<#
+.SYNOPSIS
+Removes discovered network privacy artifacts.
+.DESCRIPTION
+Iterates discovered artifacts and removes related registry entries where allowed. Honors `-DryRun`, `-WhatIf` and `-Confirm`.
+.PARAMETER Context
+The protection/context object produced during detect/protect phases.
+.PARAMETER DryRun
+Simulate actions without making changes.
+.EXAMPLE
+Remove-NetworkPrivacyArtifactsSafe -Context $ctx -DryRun
+#>
 function Remove-NetworkPrivacyArtifactsSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -2457,6 +2685,16 @@ function Remove-NetworkPrivacyArtifactsSafe {
     }
 }
 
+<#
+.SYNOPSIS
+Clears NLA probe state properties.
+.DESCRIPTION
+Removes NLA internet probe properties to reset network location awareness probes. Honors `-DryRun`, `-WhatIf` and `-Confirm`.
+.PARAMETER DryRun
+Simulate actions without making changes.
+.EXAMPLE
+Clear-NlaProbeStateSafe -DryRun
+#>
 function Clear-NlaProbeStateSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
