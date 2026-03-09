@@ -22,8 +22,13 @@ Describe 'NetClean.ps1 launcher / UX functions' {
     }
 
     It 'Read-YesNo returns true when Force is set' {
+        Mock Read-Host { throw "Prompt should not be called when Force is set" }
+
         $script:Force = $true
+
         Read-YesNo -Prompt 'Continue?' | Should -BeTrue
+
+        Should -Not -Invoke Read-Host
         $script:Force = $false
     }
 
@@ -67,6 +72,7 @@ Describe 'NetClean.ps1 launcher orchestration' {
         Mock Test-NetCleanAdministrator {}
         Mock Start-NetCleanLog {}
         Mock Write-NetCleanLog {}
+        Mock Read-Host { 'Y' }
         Mock Read-YesNo { $true }
         Mock Read-NetCleanOption {
             [pscustomobject]@{

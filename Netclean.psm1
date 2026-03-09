@@ -277,7 +277,7 @@ function Get-UniqueNonEmptyString {
         [void]$list.Add($s)
     }
 
-    return @($list | Sort-Object -Unique)
+    return $list.ToArray() | Sort-Object -Unique
 }
 
 <#
@@ -300,6 +300,7 @@ function Add-HashSetValue {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [System.Collections.Generic.HashSet[string]]$Set,
 
         [Parameter()]
@@ -413,7 +414,7 @@ function Get-NormalizedFilePathFromCommandLine {
     [CmdletBinding()]
     [OutputType([string])]
     param(
-        [Parameter()]
+        [Parameter(Mandatory = $true)]
         [AllowNull()]
         [string]$CommandLine
     )
@@ -422,15 +423,32 @@ function Get-NormalizedFilePathFromCommandLine {
         return $null
     }
 
-    $s = $CommandLine.Trim()
+    $text = $CommandLine.Trim()
 
-    $m = [regex]::Match($s, '^\s*"([^"]+\.(?:exe|sys|dll))"')
-    if ($m.Success) { return $m.Groups[1].Value }
+    $text = [Environment]::ExpandEnvironmentVariables($text)
 
-    $m = [regex]::Match($s, '^\s*([^\s]+\.(?:exe|sys|dll))')
-    if ($m.Success) { return $m.Groups[1].Value }
+    if ($text.StartsWith('\SystemRoot\', [System.StringComparison]::OrdinalIgnoreCase)) {
+        $text = Join-Path $env:windir $text.Substring(12)
+    }
 
-    return $null
+    if ($text.StartsWith('"')) {
+        $m = [regex]::Match($text, '^"([^"]+\.(exe|dll|sys|com|cpl|ocx))"', 'IgnoreCase')
+        if ($m.Success) {
+            return $m.Groups[1].Value
+        }
+    }
+
+    $m = [regex]::Match($text, '^[^\s"]+\.(exe|dll|sys|com|cpl|ocx)', 'IgnoreCase')
+    if ($m.Success) {
+        return $m.Value
+    }
+
+    $m = [regex]::Match($text, '^[A-Za-z]:\\.*?\.(exe|dll|sys|com|cpl|ocx)', 'IgnoreCase')
+    if ($m.Success) {
+        return $m.Value.Trim('"')
+    }
+
+    return $text.Trim('"')
 }
 
 <#
@@ -1028,7 +1046,7 @@ function Get-WfpStateEvidence {
         }
     }
 
-    return @($results | Sort-Object Name -Unique)
+    return $results.ToArray() | Sort-Object Name -Unique
 }
 
 <#
@@ -1048,7 +1066,7 @@ function Get-NdisFilterClassEvidence {
     [OutputType([System.Object[]])]
     param()
 
-    $results = New-Object System.Collections.Generic.List[object]
+    $results = New-Object 'System.Collections.Generic.List[object]'
     $classRoot = 'HKLM\SYSTEM\CurrentControlSet\Control\Class\{4d36e974-e325-11ce-bfc1-08002be10318}'
 
     foreach ($child in @(Get-RegistryChildKeyNamesSafe -RegistryPath $classRoot)) {
@@ -1058,43 +1076,55 @@ function Get-NdisFilterClassEvidence {
         $props = Get-RegistryValuesSafe -RegistryPath $path
         if ($null -eq $props) { continue }
 
-        $text = @(
-            $props.ComponentId,
-            $props.DriverDesc,
-            $props.ProviderName,
-            $props.MatchingDeviceId,
-            $props.FilterClass,
-            $props.Characteristic
-        ) | Where-Object { $_ }
+        $text = New-Object 'System.Collections.Generic.List[string]'
 
-        if (@($text).Count -eq 0) { continue }
+        foreach ($propertyName in @(
+            'ComponentId',
+            'DriverDesc',
+            'ProviderName',
+            'MatchingDeviceId',
+            'FilterClass',
+            'Characteristic'
+        )) {
+            if ($props.PSObject.Properties.Name -contains $propertyName) {
+                $value = $props.$propertyName
+                if ($null -ne $value -and -not [string]::IsNullOrWhiteSpace([string]$value)) {
+                    $text.Add([string]$value)
+                }
+            }
+        }
 
-        $vendor = Resolve-VendorFromText -Text $text
+        if ($text.Count -eq 0) { continue }
+
+        $driverDesc   = if ($props.PSObject.Properties.Name -contains 'DriverDesc')   { $props.DriverDesc }   else { $null }
+        $providerName = if ($props.PSObject.Properties.Name -contains 'ProviderName') { $props.ProviderName } else { $null }
+        $componentId  = if ($props.PSObject.Properties.Name -contains 'ComponentId')  { $props.ComponentId }  else { $null }
+
+        $vendor = Resolve-VendorFromText -Text $text.ToArray()
 
         $results.Add([pscustomobject]@{
             Source               = 'NDIS'
             ProductClass         = 'NdisFilterClass'
-            Name                 = ($text -join ' | ')
-            DisplayName          = $props.DriverDesc
+            Name                 = ($text.ToArray() -join ' | ')
+            DisplayName          = $driverDesc
             Path                 = $null
-            Publisher            = $props.ProviderName
+            Publisher            = $providerName
             InstallPath          = $null
-            InterfaceDescription = $props.DriverDesc
-            Manufacturer         = $props.ProviderName
-            CompanyName          = $props.ProviderName
-            FileDescription      = $props.DriverDesc
-            ProductName          = $props.ComponentId
+            InterfaceDescription = $driverDesc
+            Manufacturer         = $providerName
+            CompanyName          = $providerName
+            FileDescription      = $driverDesc
+            ProductName          = $componentId
             SignerSubject        = $null
             InferredVendor       = $vendor
             RegistryPath         = $path
-            ComponentId          = $props.ComponentId
+            ComponentId          = $componentId
             Instance             = $props
         })
     }
 
-    return @($results)
+    return $results.ToArray()
 }
-
 
 <#
 .SYNOPSIS
@@ -1122,24 +1152,68 @@ function Get-NdisServiceBindingEvidence {
         $props   = Get-RegistryValuesSafe -RegistryPath $svcPath
 
         $tokens = New-Object System.Collections.Generic.List[string]
-        $tokens.Add($svcName)
+        $tokens.Add([string]$svcName)
 
-        if ($props) {
-            if ($props.DisplayName) { $tokens.Add($props.DisplayName) }
-            if ($props.Group)       { $tokens.Add($props.Group) }
+        $displayName = $null
+        $group       = $null
+        $imagePath   = $null
+        $bindValues  = @()
+        $exportValues = @()
+        $routeValues  = @()
+
+        if ($null -ne $props) {
+            if ($props.PSObject.Properties.Name -contains 'DisplayName') {
+                $displayName = $props.DisplayName
+                if ($null -ne $displayName -and "$displayName".Trim() -ne '') {
+                    $tokens.Add([string]$displayName)
+                }
+            }
+
+            if ($props.PSObject.Properties.Name -contains 'Group') {
+                $group = $props.Group
+                if ($null -ne $group -and "$group".Trim() -ne '') {
+                    $tokens.Add([string]$group)
+                }
+            }
+
+            if ($props.PSObject.Properties.Name -contains 'ImagePath') {
+                $imagePath = $props.ImagePath
+            }
         }
 
-        if ($linkage) {
-            if ($linkage.Bind)   { $tokens.Add($linkage.Bind) }
-            if ($linkage.Export) { $tokens.Add($linkage.Export) }
-            if ($linkage.Route)  { $tokens.Add($linkage.Route) }
+        if ($null -ne $linkage) {
+            if ($linkage.PSObject.Properties.Name -contains 'Bind') {
+                $bindValues = @($linkage.Bind)
+                foreach ($value in $bindValues) {
+                    if ($null -ne $value -and "$value".Trim() -ne '') {
+                        $tokens.Add([string]$value)
+                    }
+                }
+            }
+
+            if ($linkage.PSObject.Properties.Name -contains 'Export') {
+                $exportValues = @($linkage.Export)
+                foreach ($value in $exportValues) {
+                    if ($null -ne $value -and "$value".Trim() -ne '') {
+                        $tokens.Add([string]$value)
+                    }
+                }
+            }
+
+            if ($linkage.PSObject.Properties.Name -contains 'Route') {
+                $routeValues = @($linkage.Route)
+                foreach ($value in $routeValues) {
+                    if ($null -ne $value -and "$value".Trim() -ne '') {
+                        $tokens.Add([string]$value)
+                    }
+                }
+            }
         }
 
-        $tokens = @($tokens | Where-Object { $_ })
+        $tokenArray = @($tokens | Where-Object { $null -ne $_ -and "$_".Trim() -ne '' })
+        if ($tokenArray.Count -eq 0) { continue }
 
-        if (@($tokens).Count -eq 0) { continue }
-
-        $joined = ($tokens | ForEach-Object { $_.ToString() }) -join ' '
+        $joined = ($tokenArray | ForEach-Object { $_.ToString() }) -join ' '
         $vendor = Resolve-VendorFromText -Text @($joined)
 
         if ($joined.ToLowerInvariant() -match 'ndis|filter|lwf|wfp|vpn|fw|firewall|net|vmswitch|vmnet|vbox|vethernet|packet|inspect|falcon|sentinel|zscaler|globalprotect|forti|anyconnect') {
@@ -1147,8 +1221,8 @@ function Get-NdisServiceBindingEvidence {
                 Source               = 'NDIS'
                 ProductClass         = 'NdisServiceBinding'
                 Name                 = $svcName
-                DisplayName          = if ($props) { $props.DisplayName } else { $svcName }
-                Path                 = if ($props) { $props.ImagePath } else { $null }
+                DisplayName          = if ($null -ne $displayName -and "$displayName".Trim() -ne '') { $displayName } else { $svcName }
+                Path                 = $imagePath
                 Publisher            = $null
                 InstallPath          = $null
                 InterfaceDescription = $null
@@ -1167,7 +1241,7 @@ function Get-NdisServiceBindingEvidence {
         }
     }
 
-    return @($results)
+    return $results.ToArray()
 }
 
 <#
@@ -1187,7 +1261,7 @@ function Get-MsiRegistryEvidence {
     [OutputType([System.Object[]])]
     param()
 
-    $results = New-Object System.Collections.Generic.List[object]
+    $results = New-Object 'System.Collections.Generic.List[object]'
 
     foreach ($root in @(
         'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products',
@@ -1198,28 +1272,54 @@ function Get-MsiRegistryEvidence {
             $props = Get-RegistryValuesSafe -RegistryPath $productPath
             if ($null -eq $props) { continue }
 
-            if ([string]::IsNullOrWhiteSpace($props.DisplayName)) { continue }
+            $displayName = if ($props.PSObject.Properties.Name -contains 'DisplayName') {
+                $props.DisplayName
+            } else {
+                $null
+            }
 
-            $vendor = Resolve-VendorFromText -Text @(
-                $props.DisplayName,
-                $props.Publisher,
-                $props.InstallLocation,
+            if ([string]::IsNullOrWhiteSpace([string]$displayName)) { continue }
+
+            $publisher = if ($props.PSObject.Properties.Name -contains 'Publisher') {
+                $props.Publisher
+            } else {
+                $null
+            }
+
+            $installLocation = if ($props.PSObject.Properties.Name -contains 'InstallLocation') {
+                $props.InstallLocation
+            } else {
+                $null
+            }
+
+            $uninstallString = if ($props.PSObject.Properties.Name -contains 'UninstallString') {
                 $props.UninstallString
-            )
+            } else {
+                $null
+            }
+
+            $vendorText = New-Object 'System.Collections.Generic.List[string]'
+            foreach ($value in @($displayName, $publisher, $installLocation, $uninstallString)) {
+                if ($null -ne $value -and -not [string]::IsNullOrWhiteSpace([string]$value)) {
+                    $vendorText.Add([string]$value)
+                }
+            }
+
+            $vendor = Resolve-VendorFromText -Text $vendorText.ToArray()
 
             $results.Add([pscustomobject]@{
                 Source               = 'MSI'
                 ProductClass         = 'MsiProduct'
-                Name                 = $props.DisplayName
-                DisplayName          = $props.DisplayName
+                Name                 = $displayName
+                DisplayName          = $displayName
                 Path                 = $null
-                Publisher            = $props.Publisher
-                InstallPath          = $props.InstallLocation
+                Publisher            = $publisher
+                InstallPath          = $installLocation
                 InterfaceDescription = $null
-                Manufacturer         = $props.Publisher
-                CompanyName          = $props.Publisher
+                Manufacturer         = $publisher
+                CompanyName          = $publisher
                 FileDescription      = $null
-                ProductName          = $props.DisplayName
+                ProductName          = $displayName
                 SignerSubject        = $null
                 InferredVendor       = $vendor
                 RegistryPath         = $productPath
@@ -1228,7 +1328,7 @@ function Get-MsiRegistryEvidence {
         }
     }
 
-    return @($results | Sort-Object Name -Unique)
+    return $results.ToArray() | Sort-Object Name -Unique
 }
 
 
@@ -1320,7 +1420,7 @@ function Get-InfFileEvidence {
         }
     }
 
-    return @($results)
+    return $results.ToArray()
 }
 
 <#
@@ -1386,7 +1486,7 @@ function Get-ScheduledTaskEvidence {
         Write-Verbose "Ignored error: $_"
     }
 
-    return @($results)
+    return $results.ToArray()
 }
 
 <#
@@ -1444,7 +1544,97 @@ function Get-AppxPackageEvidence {
         Write-Verbose "Ignored error: $_"
     }
 
-    return @($results)
+    return $results.ToArray()
+}
+
+<#
+.SYNOPSIS
+Retrieves metadata for a specified file.
+.DESCRIPTION
+Gets detailed information about a file, including its version and company details.
+.EXAMPLE
+Get-FileMetadata -Path "C:\Windows\System32\notepad.exe"
+.OUTPUTS
+PSCustomObject - A custom object containing the file's metadata.
+#>
+function Get-FileMetadata {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+
+    $resolvedPath = Get-NormalizedFilePathFromCommandLine -CommandLine $Path
+
+    if ([string]::IsNullOrWhiteSpace($resolvedPath)) {
+        return $null
+    }
+
+    try {
+        try {
+            if (-not (Test-Path -LiteralPath $resolvedPath -ErrorAction Stop)) {
+                return [pscustomobject]@{
+                    Path            = $resolvedPath
+                    Exists          = $false
+                    CompanyName     = $null
+                    FileDescription = $null
+                    ProductName     = $null
+                    OriginalName    = $null
+                    FileVersion     = $null
+                    SignerSubject   = $null
+                    SignerIssuer    = $null
+                    SignerThumbprint= $null
+                    SignatureStatus = $null
+                    InferredVendor  = $null
+                }
+            }
+        }
+        catch {
+            Write-Verbose "Invalid path for metadata lookup: $resolvedPath"
+            return $null
+        }
+
+        $item = Get-Item -LiteralPath $resolvedPath -ErrorAction Stop
+        $versionInfo = $item.VersionInfo
+
+        $sig = $null
+        try {
+            $sig = Get-AuthenticodeSignature -FilePath $item.FullName -ErrorAction Stop
+        }
+        catch {
+            Write-Verbose "Failed to get Authenticode signature for '$($item.FullName)': $_"
+        }
+
+        return [pscustomobject]@{
+            Path             = $item.FullName
+            Exists           = $true
+            CompanyName      = if ($versionInfo) { $versionInfo.CompanyName } else { $null }
+            FileDescription  = if ($versionInfo) { $versionInfo.FileDescription } else { $null }
+            ProductName      = if ($versionInfo) { $versionInfo.ProductName } else { $null }
+            OriginalName     = if ($versionInfo) { $versionInfo.OriginalFilename } else { $null }
+            FileVersion      = if ($versionInfo) { $versionInfo.FileVersion } else { $null }
+            SignerSubject    = if ($sig -and $sig.SignerCertificate) { $sig.SignerCertificate.Subject } else { $null }
+            SignerIssuer     = if ($sig -and $sig.SignerCertificate) { $sig.SignerCertificate.Issuer } else { $null }
+            SignerThumbprint = if ($sig -and $sig.SignerCertificate) { $sig.SignerCertificate.Thumbprint } else { $null }
+            SignatureStatus  = if ($sig) { [string]$sig.Status } else { $null }
+            InferredVendor   = Resolve-VendorFromText -Text @(
+                if ($versionInfo) { $versionInfo.CompanyName }
+                if ($versionInfo) { $versionInfo.FileDescription }
+                if ($versionInfo) { $versionInfo.ProductName }
+                $item.Name
+            )
+        }
+    }
+    catch {
+        Write-Verbose "Get-FileMetadata ignored error for path '$Path': $_"
+        return $null
+    }
 }
 
 <#
@@ -1748,7 +1938,7 @@ function Get-ProtectionEvidence {
     foreach ($item in @(Get-ScheduledTaskEvidence))      { $evidence.Add($item) }
     foreach ($item in @(Get-AppxPackageEvidence))        { $evidence.Add($item) }
 
-    return @($evidence)
+    return $evidence.ToArray()
 }
 
 function Get-ServiceRegistryMap {
@@ -1763,14 +1953,38 @@ function Get-ServiceRegistryMap {
         $svcPath = "$servicesRoot\$svcName"
         $props = Get-RegistryValuesSafe -RegistryPath $svcPath
 
+        $imagePath = $null
+        $displayName = $null
+        $type = $null
+        $start = $null
+        $group = $null
+
+        if ($null -ne $props) {
+            if ($props.PSObject.Properties.Name -contains 'ImagePath') {
+                $imagePath = $props.ImagePath
+            }
+            if ($props.PSObject.Properties.Name -contains 'DisplayName') {
+                $displayName = $props.DisplayName
+            }
+            if ($props.PSObject.Properties.Name -contains 'Type') {
+                $type = $props.Type
+            }
+            if ($props.PSObject.Properties.Name -contains 'Start') {
+                $start = $props.Start
+            }
+            if ($props.PSObject.Properties.Name -contains 'Group') {
+                $group = $props.Group
+            }
+        }
+
         $entry = [ordered]@{
             Name          = $svcName
             RegistryPath  = $svcPath
-            ImagePath     = if ($props) { $props.ImagePath } else { $null }
-            DisplayName   = if ($props) { $props.DisplayName } else { $null }
-            Type          = if ($props) { $props.Type } else { $null }
-            Start         = if ($props) { $props.Start } else { $null }
-            Group         = if ($props) { $props.Group } else { $null }
+            ImagePath     = $imagePath
+            DisplayName   = $displayName
+            Type          = $type
+            Start         = $start
+            Group         = $group
             EnumPath      = if (Test-RegistryPathExist -RegistryPath "$svcPath\Enum") { "$svcPath\Enum" } else { $null }
             LinkagePath   = if (Test-RegistryPathExist -RegistryPath "$svcPath\Linkage") { "$svcPath\Linkage" } else { $null }
             ParamsPath    = if (Test-RegistryPathExist -RegistryPath "$svcPath\Parameters") { "$svcPath\Parameters" } else { $null }
@@ -1839,7 +2053,7 @@ function Get-AdapterRegistryCorrelation {
         }
     }
 
-    return @($results)
+    return $results.ToArray()
 }
 
 <#
@@ -1889,8 +2103,8 @@ function Get-ProtectionInventory {
         $evidenceStrings = New-Object System.Collections.Generic.HashSet[string]
         $categories = New-Object System.Collections.Generic.HashSet[string]
 
-        Add-HashSetValues -Set $categories -Values $signature.Categories
-        Add-HashSetValues -Set $registryKeys -Values $signature.RegistryRoots
+        Add-HashSetValue -Set $categories -Values $signature.Categories
+        Add-HashSetValue -Set $registryKeys -Values $signature.RegistryRoots
 
         foreach ($item in $matched) {
             if ($item.Source -in @('Service', 'ServiceRegistry', 'NDIS')) {
@@ -1919,7 +2133,7 @@ function Get-ProtectionInventory {
             }
 
             if ($item.PSObject.Properties.Name -contains 'InstallPath') {
-                Add-HashSetValues -Set $registryKeys -Values (Get-VendorRootsFromInstallPath -InstallPath $item.InstallPath)
+                Add-HashSetValue -Set $registryKeys -Values (Get-VendorRootsFromInstallPath -InstallPath $item.InstallPath)
             }
 
             $label = @(
@@ -2093,7 +2307,72 @@ function Get-ProtectionInventory {
         })
     }
 
-    return @($inventory | Sort-Object Vendor)
+    return $inventory.ToArray() | Sort-Object Vendor
+}
+
+<#
+.SYNOPSIS
+Retrieves metadata for a specified file.
+.DESCRIPTION
+Gets detailed information about a file, including its version and company details.
+.OUTPUTS
+A PSCustomObject containing the file's metadata.
+#>
+function Get-FileMetadatum {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [string]$Path
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+
+    $normalizedPath = $Path.Trim()
+
+    if ($normalizedPath.StartsWith('"') -and $normalizedPath.EndsWith('"')) {
+        $normalizedPath = $normalizedPath.Trim('"')
+    }
+
+    if ($normalizedPath -match '^[^ ]+\.exe\b') {
+        $normalizedPath = $matches[0]
+    }
+
+    try {
+        $resolved = $normalizedPath
+
+        if (-not (Test-Path -LiteralPath $resolved)) {
+            return [pscustomobject]@{
+                Path            = $normalizedPath
+                Exists          = $false
+                VersionInfo     = $null
+                CompanyName     = $null
+                FileDescription = $null
+                ProductName     = $null
+                OriginalName    = $null
+            }
+        }
+
+        $item = Get-Item -LiteralPath $resolved -ErrorAction Stop
+        $versionInfo = $item.VersionInfo
+
+        return [pscustomobject]@{
+            Path            = $item.FullName
+            Exists          = $true
+            VersionInfo     = $versionInfo
+            CompanyName     = if ($versionInfo) { $versionInfo.CompanyName } else { $null }
+            FileDescription = if ($versionInfo) { $versionInfo.FileDescription } else { $null }
+            ProductName     = if ($versionInfo) { $versionInfo.ProductName } else { $null }
+            OriginalName    = if ($versionInfo) { $versionInfo.OriginalFilename } else { $null }
+        }
+    }
+    catch {
+        Write-Verbose "Get-FileMetadata ignored error for path '$Path': $_"
+        return $null
+    }
 }
 
 <#
@@ -2121,7 +2400,7 @@ function Get-ProtectionRegistryMap {
 
     foreach ($item in $Inventory) {
         $keys = New-Object System.Collections.Generic.HashSet[string]
-        Add-HashSetValues -Set $keys -Values $item.RegistryKeys
+        Add-HashSetValue -Set $keys -Values $item.RegistryKeys
 
         foreach ($svc in @($item.Services)) {
             [void]$keys.Add("HKLM\SYSTEM\CurrentControlSet\Services\$svc")
@@ -2171,7 +2450,7 @@ function Get-ProtectionRegistryMap {
         })
     }
 
-    return @($result | Sort-Object Vendor)
+    return $result.ToArray() | Sort-Object Vendor
 }
 
 <#
@@ -2204,7 +2483,7 @@ function Get-ProtectedInterfaceGuidSet {
         }
     }
 
-    return @($set | Sort-Object)
+    return @($set) | Sort-Object
 }
 
 <#
@@ -2230,7 +2509,7 @@ function Get-NetworkPrivacyArtifactCandidate {
 
     $protectedGuids = @(Get-ProtectedInterfaceGuidSet -Inventory $Inventory)
     $protectedGuidSet = New-Object System.Collections.Generic.HashSet[string]
-    Add-HashSetValues -Set $protectedGuidSet -Values $protectedGuids
+    Add-HashSetValue -Set $protectedGuidSet -Values $protectedGuids
 
     $candidates = New-Object System.Collections.Generic.List[object]
 
@@ -2299,7 +2578,7 @@ function Get-NetworkPrivacyArtifactCandidate {
             "$networkRoot\{$guid}",
             "$networkRoot\{$guid}\Connection"
         )) {
-            if (Test-s -RegistryPath $path) {
+            if (Test-RegistryPathExist -RegistryPath $path) {
                 $isProtected = $protectedGuidSet.Contains($guid)
                 $candidates.Add([pscustomobject]@{
                     ArtifactType  = 'NetworkControl'
@@ -2312,7 +2591,7 @@ function Get-NetworkPrivacyArtifactCandidate {
         }
     }
 
-    return @($candidates)
+    return $candidates.ToArray()
 }
 
 <#
@@ -2472,7 +2751,7 @@ function Export-ProtectedRegistryKey {
         [void]$exported.Add($result)
     }
 
-    return @($exported.ToArray())
+    return $exported.ToArray()
 }
 
 <#
@@ -2538,8 +2817,7 @@ function Get-WiFiProfileName {
             }
         }
     }
-
-    return @($profiles | Sort-Object -Unique)
+return $profiles.ToArray() | Sort-Object -Unique
 }
 
 <#
@@ -2588,7 +2866,7 @@ function Export-WiFiProfile {
         foreach ($wifiProfile in $profiles) {
             [void]$exported.Add("PROFILE:$wifiProfile")
         }
-        return @($exported)
+        return $exported.ToArray()
     }
 
     $profiles | Out-File -FilePath $listFile -Encoding UTF8
@@ -2605,7 +2883,7 @@ function Export-WiFiProfile {
         }
     }
 
-    return @($exported)
+    return $exported.ToArray()
 }
 
 <#
@@ -3204,7 +3482,7 @@ function Clear-NlaProbeStateSafe {
         }
     }
 
-    return @($results)
+    return $results.ToArray()
 }
 
 
@@ -3246,7 +3524,7 @@ function Clear-NetworkEventLogsSafe {
         $results.Add((Invoke-ExternalCommandSafe -Name "Clear event log $log" -FilePath 'wevtutil.exe' -ArgumentList @('cl', $log) -DryRun:$DryRun -IgnoreExitCode))
     }
 
-    return @($results)
+    return $results.ToArray()
 }
 
 
@@ -3328,7 +3606,7 @@ function Clear-UserNetworkArtifactsSafe {
         }
     }
 
-    return @($results)
+    return $results.ToArray()
 }
 
 
@@ -3370,7 +3648,7 @@ function Invoke-AdvancedNetworkRepair {
         $results.Add((Invoke-ExternalCommandSafe -Name $cmd.Name -FilePath $cmd.File -ArgumentList $cmd.Args -DryRun:$DryRun))
     }
 
-    return @($results)
+    return $results.ToArray()
 }
 
 
@@ -3424,7 +3702,7 @@ function Invoke-ConservativePerformanceTune {
         $results.Add((Invoke-ExternalCommandSafe -Name $cmd.Name -FilePath $cmd.File -ArgumentList $cmd.Args -DryRun:$DryRun -IgnoreExitCode))
     }
 
-    return @($results)
+    return $results.ToArray()
 }
 
 
@@ -3953,6 +4231,7 @@ Export-ModuleMember -Function @(
     'Invoke-NetCleanWorkflow',
     'Get-InstalledAV',
     'Get-AVServicePattern',
+    'Get-FileMetadata',
     'Get-ProtectionList'
 ) -Alias @(
     'Convert-NormalizeGuid',
