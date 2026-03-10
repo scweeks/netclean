@@ -1,4 +1,105 @@
-﻿<#
+﻿    # Returns $true when the runtime supports simple parallelism helpers we use (Start-Job batching)
+    function Test-ParallelCapability {
+        [CmdletBinding()]
+        param()
+
+        return $true
+    }
+
+    # Invoke a scriptblock over an input list in parallel using Start-Job with simple throttling.
+    # Returns an array of results collected from each job's output. This is compatible with Windows PowerShell.
+    function Invoke-InParallel {
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory=$true)]
+            [scriptblock]$ScriptBlock,
+
+            [Parameter(Mandatory=$true)]
+            [object[]]$InputObjects,
+
+            [int]$ThrottleLimit = ([System.Environment]::ProcessorCount)
+        )
+        # Prefer PowerShell 7+ runspace parallelism when available for efficiency.
+        if ($PSVersionTable.PSVersion -and $PSVersionTable.PSVersion.Major -ge 7) {
+            try {
+                $ps7Results = @()
+                $InputObjects | ForEach-Object -Parallel {
+                    try {
+                        $res = & $using:ScriptBlock $_
+                        if ($res) { $res }
+                    }
+                    catch { Write-Verbose "Invoke-InParallel (PS7): $($_.Exception.Message)" }
+                } -ThrottleLimit $ThrottleLimit -ErrorAction Stop | ForEach-Object { $ps7Results += $_ }
+
+                return ,$ps7Results
+            }
+            catch { Write-Verbose "Invoke-InParallel PS7 fallback: $($_.Exception.Message)" }
+        }
+
+        # Fallback: Start-Job batching for Windows PowerShell compatibility
+        $jobs = @()
+        $results = New-Object System.Collections.Generic.List[object]
+
+        foreach ($item in $InputObjects) {
+            while ($jobs.Count -ge $ThrottleLimit) {
+                [void](Wait-Job -Job $jobs -Any -Timeout 1)
+                $finished = $jobs | Where-Object { $_.State -ne 'Running' }
+                foreach ($j in $finished) {
+                    try {
+                        $r = Receive-Job -Job $j -ErrorAction SilentlyContinue
+                        if ($r) {
+                            foreach ($itemOut in $r) { $results.Add($itemOut) }
+                        }
+                    }
+                    catch { Write-Verbose "Invoke-InParallel (Receive-Job): $($_.Exception.Message)" }
+                    Remove-Job -Job $j -Force -ErrorAction SilentlyContinue
+                }
+                $jobs = $jobs | Where-Object { $_.State -eq 'Running' }
+            }
+
+            $jobs += Start-Job -ArgumentList $item -ScriptBlock $ScriptBlock
+        }
+
+        # Wait for remaining
+        if ($jobs.Count -gt 0) {
+            Wait-Job -Job $jobs
+            foreach ($j in $jobs) {
+                try {
+                    $r = Receive-Job -Job $j -ErrorAction SilentlyContinue
+                    if ($r) { foreach ($itemOut in $r) { $results.Add($itemOut) } }
+                }
+                catch { Write-Verbose "Invoke-InParallel (final Receive-Job): $($_.Exception.Message)" }
+                Remove-Job -Job $j -Force -ErrorAction SilentlyContinue
+            }
+        }
+
+        return $results.ToArray()
+    }
+
+    ## Read human-friendly network profile names directly from the registry.
+    function Get-NetworkListProfileName {
+        [CmdletBinding()]
+        param()
+
+        $root = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles'
+        $names = New-Object System.Collections.Generic.List[string]
+        try {
+            if (Test-Path -LiteralPath $root) {
+                $children = Get-ChildItem -Path $root -ErrorAction SilentlyContinue
+                foreach ($c in $children) {
+                    try {
+                        $pn = Get-ItemProperty -Path $c.PSPath -Name 'ProfileName' -ErrorAction SilentlyContinue
+                        if ($pn -and $pn.ProfileName) { [void]$names.Add($pn.ProfileName) }
+                    }
+                    catch { Write-Verbose "Get-NetworkListProfileName child: $($_.Exception.Message)" }
+                }
+            }
+        }
+        catch { Write-Verbose "Get-NetworkListProfileName: $($_.Exception.Message)" }
+
+        return $names.ToArray() | Sort-Object -Unique
+    }
+<#
 .SYNOPSIS
     NetClean PowerShell module
 .DESCRIPTION
@@ -602,74 +703,7 @@ function Resolve-VendorFromText {
 .NOTES
     The function will display verbose information about the file being processed and any errors encountered.
 #>
-function Get-FileMetadatum {
-    [CmdletBinding()]
-    [OutputType([pscustomobject])]
-    param(
-        [Parameter()]
-        [AllowNull()]
-        [string]$Path
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return $null
-    }
-
-    $candidate = Get-NormalizedFilePathFromCommandLine -CommandLine $Path
-    if ([string]::IsNullOrWhiteSpace($candidate)) {
-        $candidate = $Path.Trim().Trim('"')
-    }
-
-    if (-not (Test-Path -LiteralPath $candidate)) {
-        return $null
-    }
-
-    try {
-        $item = Get-Item -LiteralPath $candidate -ErrorAction Stop
-        $ver = $item.VersionInfo
-        $sig = Get-AuthenticodeSignature -FilePath $candidate -ErrorAction SilentlyContinue
-
-        $signerSubject = $null
-        $signerIssuer = $null
-        $signerThumbprint = $null
-        $signatureStatus = $null
-
-        if ($sig) {
-            $signatureStatus = $sig.Status.ToString()
-            if ($sig.SignerCertificate) {
-                $signerSubject    = $sig.SignerCertificate.Subject
-                $signerIssuer     = $sig.SignerCertificate.Issuer
-                $signerThumbprint = $sig.SignerCertificate.Thumbprint
-            }
-        }
-
-        $inferredVendor = Resolve-VendorFromText -Text @(
-            $ver.CompanyName,
-            $ver.ProductName,
-            $ver.FileDescription,
-            $signerSubject,
-            $signerIssuer,
-            $item.Name
-        )
-
-        return [pscustomobject]@{
-            Path             = $item.FullName
-            CompanyName      = $ver.CompanyName
-            FileDescription  = $ver.FileDescription
-            ProductName      = $ver.ProductName
-            FileVersion      = $ver.FileVersion
-            OriginalFilename = $ver.OriginalFilename
-            SignerSubject    = $signerSubject
-            SignerIssuer     = $signerIssuer
-            SignerThumbprint = $signerThumbprint
-            SignatureStatus  = $signatureStatus
-            InferredVendor   = $inferredVendor
-        }
-    }
-    catch {
-        return $null
-    }
-}
+<# Duplicate helper removed; use Get-FileMetadata instead. #>
 
 <#
 .SYNOPSIS
@@ -1628,11 +1662,11 @@ Retrieves metadata for a specified file.
 .DESCRIPTION
 Gets detailed information about a file, including its version and company details.
 .EXAMPLE
-Get-FileMetadata -Path "C:\Windows\System32\notepad.exe"
+Get-FileMetadatum -Path "C:\Windows\System32\notepad.exe"
 .OUTPUTS
 PSCustomObject - A custom object containing the file's metadata.
 #>
-function Get-FileMetadata {
+function Get-FileMetadatum {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
@@ -1707,7 +1741,7 @@ function Get-FileMetadata {
         }
     }
     catch {
-        Write-Verbose "Get-FileMetadata ignored error for path '$Path': $_"
+        Write-Verbose "Get-FileMetadatum ignored error for path '$Path': $_"
         return $null
     }
 }
@@ -1734,7 +1768,7 @@ function Get-ProtectionEvidence {
     try {
         $avProducts = Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName 'AntivirusProduct' -ErrorAction Stop
         foreach ($item in $avProducts) {
-            $meta = Get-FileMetadata -Path $item.pathToSignedProductExe
+            $meta = Get-FileMetadatum -Path $item.pathToSignedProductExe
             $evidence.Add([pscustomobject]@{
                 Source               = 'SecurityCenter2'
                 ProductClass         = 'AntivirusProduct'
@@ -1761,7 +1795,7 @@ function Get-ProtectionEvidence {
     try {
         $fwProducts = Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName 'FirewallProduct' -ErrorAction Stop
         foreach ($item in $fwProducts) {
-            $meta = Get-FileMetadata -Path $item.pathToSignedProductExe
+            $meta = Get-FileMetadatum -Path $item.pathToSignedProductExe
             $evidence.Add([pscustomobject]@{
                 Source               = 'SecurityCenter2'
                 ProductClass         = 'FirewallProduct'
@@ -1788,7 +1822,7 @@ function Get-ProtectionEvidence {
     try {
         $services = Get-CimInstance Win32_Service -ErrorAction Stop
         foreach ($svc in $services) {
-            $meta = Get-FileMetadata -Path $svc.PathName
+            $meta = Get-FileMetadatum -Path $svc.PathName
             $evidence.Add([pscustomobject]@{
                 Source               = 'Service'
                 ProductClass         = 'Service'
@@ -1818,7 +1852,7 @@ function Get-ProtectionEvidence {
     try {
         $drivers = Get-CimInstance Win32_SystemDriver -ErrorAction Stop
         foreach ($drv in $drivers) {
-            $meta = Get-FileMetadata -Path $drv.PathName
+            $meta = Get-FileMetadatum -Path $drv.PathName
             $evidence.Add([pscustomobject]@{
                 Source               = 'Driver'
                 ProductClass         = 'Driver'
@@ -1854,7 +1888,7 @@ function Get-ProtectionEvidence {
                 if ($_.DisplayName) {
                     $meta = $null
                     if ($_.DisplayIcon) {
-                        $meta = Get-FileMetadata -Path $_.DisplayIcon
+                        $meta = Get-FileMetadatum -Path $_.DisplayIcon
                     }
 
                     $evidence.Add([pscustomobject]@{
@@ -1976,7 +2010,7 @@ function Get-ProtectionEvidence {
 
             $imagePath = $svcProps.ImagePath
             $displayName = $svcProps.DisplayName
-            $meta = Get-FileMetadata -Path $imagePath
+            $meta = Get-FileMetadatum -Path $imagePath
 
             $evidence.Add([pscustomobject]@{
                 Source               = 'ServiceRegistry'
@@ -2243,7 +2277,7 @@ function Get-ProtectionInventory {
                     }
                 }
 
-                $imgMeta = Get-FileMetadata -Path $svcInfo.ImagePath
+                $imgMeta = Get-FileMetadatum -Path $svcInfo.ImagePath
                 if ($imgMeta -and $imgMeta.Path) {
                     [void]$evidenceStrings.Add("ServiceBinary: $($imgMeta.Path)")
                 }
@@ -2393,62 +2427,7 @@ Gets detailed information about a file, including its version and company detail
 .OUTPUTS
 A PSCustomObject containing the file's metadata.
 #>
-function Get-FileMetadatum {
-    [CmdletBinding()]
-    [OutputType([pscustomobject])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [AllowNull()]
-        [string]$Path
-    )
-
-    if ([string]::IsNullOrWhiteSpace($Path)) {
-        return $null
-    }
-
-    $normalizedPath = $Path.Trim()
-
-    if ($normalizedPath.StartsWith('"') -and $normalizedPath.EndsWith('"')) {
-        $normalizedPath = $normalizedPath.Trim('"')
-    }
-
-    if ($normalizedPath -match '^[^ ]+\.exe\b') {
-        $normalizedPath = $matches[0]
-    }
-
-    try {
-        $resolved = $normalizedPath
-
-        if (-not (Test-Path -LiteralPath $resolved)) {
-            return [pscustomobject]@{
-                Path            = $normalizedPath
-                Exists          = $false
-                VersionInfo     = $null
-                CompanyName     = $null
-                FileDescription = $null
-                ProductName     = $null
-                OriginalName    = $null
-            }
-        }
-
-        $item = Get-Item -LiteralPath $resolved -ErrorAction Stop
-    $versionInfo = $item.VersionInfo
-
-        return [pscustomobject]@{
-            Path            = $item.FullName
-            Exists          = $true
-            VersionInfo     = $versionInfo
-            CompanyName     = if ($versionInfo) { $versionInfo.CompanyName } else { $null }
-            FileDescription = if ($versionInfo) { $versionInfo.FileDescription } else { $null }
-            ProductName     = if ($versionInfo) { $versionInfo.ProductName } else { $null }
-            OriginalName    = if ($versionInfo) { $versionInfo.OriginalFilename } else { $null }
-        }
-    }
-    catch {
-        Write-Verbose "Get-FileMetadata ignored error for path '$Path': $_"
-        return $null
-    }
-}
+<# Duplicate helper removed; canonical function is Get-FileMetadata. #>
 
 <#
 .SYNOPSIS
@@ -3030,23 +3009,39 @@ function Export-WiFiProfile {
         return $exported.ToArray()
     }
 
+    # Attempt bulk export first (exports all profiles to XML when supported). If that fails, fall back to per-profile export.
     $profiles | Out-File -FilePath $listFile -Encoding UTF8
     [void]$exported.Add($listFile)
 
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile list: {0}" -f $listFile)
-    }
+    if ($canLog) { Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile list: {0}" -f $listFile) }
 
-    foreach ($wifiProfile in $profiles) {
+    $bulkSucceeded = $false
+    try {
         $before = @(Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
-        & netsh wlan export profile name="$wifiProfile" folder="$Dest" key=clear 2>&1 | Out-Null
+        & netsh wlan export profile folder="$Dest" key=clear 2>&1 | Out-Null
         $after = @(Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
         $newFiles = @($after | Where-Object { $_ -notin $before })
+        if ($newFiles.Count -gt 0) {
+            foreach ($nf in $newFiles) { [void]$exported.Add($nf) }
+            $bulkSucceeded = $true
+            if ($canLog) { foreach ($nf in $newFiles) { Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile to '{0}'" -f $nf) } }
+        }
+    }
+    catch {
+        $bulkSucceeded = $false
+    }
 
-        foreach ($newFile in $newFiles) {
-            [void]$exported.Add($newFile)
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile '{0}' to '{1}'" -f $wifiProfile, $newFile)
+    if (-not $bulkSucceeded) {
+        # Fallback to per-profile export
+        foreach ($wifiProfile in $profiles) {
+            $before = @(Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+            & netsh wlan export profile name="$wifiProfile" folder="$Dest" key=clear 2>&1 | Out-Null
+            $after = @(Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+            $newFiles = @($after | Where-Object { $_ -notin $before })
+
+            foreach ($newFile in $newFiles) {
+                [void]$exported.Add($newFile)
+                if ($canLog) { Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile '{0}' to '{1}'" -f $wifiProfile, $newFile) }
             }
         }
     }
@@ -3495,56 +3490,59 @@ function Remove-WiFiProfilesSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([System.Object])]
     param(
-        [switch]$DryRun
+        [switch]$DryRun,
+        [string[]]$Profiles
     )
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    $profiles = @(Get-WiFiProfileName)
+    if ($PSBoundParameters.ContainsKey('Profiles') -and $Profiles) { $profiles = @($Profiles) }
+    else { $profiles = @(Get-WiFiProfileName) }
     $removed = New-Object System.Collections.Generic.List[string]
     $operations = New-Object System.Collections.Generic.List[object]
 
-    foreach ($wifiProfile in $profiles) {
-        if ($DryRun) {
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Would remove Wi-Fi profile: {0}" -f $wifiProfile)
-            }
-
-            $operations.Add([pscustomobject]@{
-                Name      = $wifiProfile
-                Succeeded = $true
-                Skipped   = $false
-                Reason    = 'DryRun'
-            })
+    if ($DryRun) {
+        foreach ($wifiProfile in $profiles) {
+            if ($canLog) { Write-NetCleanLog -Level INFO -Message ("Would remove Wi-Fi profile: {0}" -f $wifiProfile) }
+            $operations.Add([pscustomobject]@{ Name=$wifiProfile; Succeeded=$true; Skipped=$false; Reason='DryRun' })
             [void]$removed.Add($wifiProfile)
-            continue
+        }
+    }
+    else {
+        $toProcess = @()
+        foreach ($wifiProfile in $profiles) {
+            if (-not $PSCmdlet.ShouldProcess("Wi-Fi profile '$wifiProfile'", 'Delete')) {
+                if ($canLog) { Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented Wi-Fi profile removal: {0}" -f $wifiProfile) }
+                $operations.Add([pscustomobject]@{ Name=$wifiProfile; Succeeded=$false; Skipped=$true; Reason='WhatIf' })
+                continue
+            }
+            $toProcess += $wifiProfile
         }
 
-        if (-not $PSCmdlet.ShouldProcess("Wi-Fi profile '$wifiProfile'", 'Delete')) {
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented Wi-Fi profile removal: {0}" -f $wifiProfile)
+        if ($toProcess.Count -gt 0) {
+            # Use parallel jobs to delete profiles in batches for speed; fallback to sequential if job unavailable
+            $sb = {
+                param($p)
+                & netsh wlan delete profile name="$p" 2>&1 | Out-Null
+                if ($LASTEXITCODE -eq 0) { [pscustomobject]@{ Name=$p; Succeeded=$true; Skipped=$false; Reason='Removed' } }
+                else { [pscustomobject]@{ Name=$p; Succeeded=$false; Skipped=$false; Reason='Failed' } }
             }
 
-            $operations.Add([pscustomobject]@{
-                Name      = $wifiProfile
-                Succeeded = $false
-                Skipped   = $true
-                Reason    = 'WhatIf'
-            })
-            continue
-        }
-
-        $result = Invoke-ExternalCommandSafe -Name "Delete Wi-Fi profile $wifiProfile" -FilePath 'netsh.exe' -ArgumentList @('wlan', 'delete', 'profile', ('name="' + $wifiProfile + '"')) -DryRun:$false
-        $operations.Add($result)
-
-        if ($result.Succeeded) {
-            [void]$removed.Add($wifiProfile)
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Removed Wi-Fi profile: {0}" -f $wifiProfile)
+            try {
+                $res = Invoke-InParallel -ScriptBlock $sb -InputObjects $toProcess -ThrottleLimit ([System.Math]::Max(1, [System.Environment]::ProcessorCount))
             }
-        }
-        elseif ($canLog) {
-            Write-NetCleanLog -Level WARN -Message ("Failed to remove Wi-Fi profile '{0}': {1}" -f $wifiProfile, $result.Error)
+            catch {
+                $res = @()
+            }
+
+            foreach ($r in $res) {
+                if ($r -and $r.Succeeded) { [void]$removed.Add($r.Name) }
+                $operations.Add($r)
+                if ($canLog) {
+                    if ($r.Succeeded) { Write-NetCleanLog -Level INFO -Message ("Removed Wi-Fi profile: {0}" -f $r.Name) }
+                    else { Write-NetCleanLog -Level WARN -Message ("Failed to remove Wi-Fi profile '{0}': {1}" -f $r.Name, $r.Reason) }
+                }
+            }
         }
     }
 
@@ -4302,7 +4300,16 @@ function Invoke-NetCleanPhase3Clean {
         }
     }
     else {
-        $wifiResult = Remove-WiFiProfilesSafe -DryRun:$DryRun
+        $profilesToRemove = $null
+        if ($Context -and $Context.PSObject.Properties.Name -contains 'Protect' -and $Context.Protect.PSObject.Properties.Name -contains 'Summary' -and $Context.Protect.Summary.PSObject.Properties.Name -contains 'WiFiProfilesFound') {
+            $profilesToRemove = @($Context.Protect.Summary.WiFiProfilesFound)
+        }
+        if ($profilesToRemove -and $profilesToRemove.Count -gt 0) {
+            $wifiResult = Remove-WiFiProfilesSafe -DryRun:$DryRun -Profiles $profilesToRemove
+        }
+        else {
+            $wifiResult = Remove-WiFiProfilesSafe -DryRun:$DryRun
+        }
     }
 
     if ($SkipDnsFlush) {
@@ -4423,9 +4430,21 @@ function Invoke-NetCleanPhase3Clean {
             Write-NetCleanLog -Level INFO -Message ("NLA probe property processed: {0} {1}" -f $n.Property, (if ($n.Succeeded) { 'OK' } else { "ERR: $($n.Error)" }))
         }
 
-        # Event logs
+        # Event logs (be defensive: test for properties before accessing them)
         foreach ($l in @($logResults)) {
-            Write-NetCleanLog -Level INFO -Message ("Event log operation: {0} => {1}" -f $l.Command, (if ($l.Succeeded) { 'OK' } else { "ERR: $($l.Error)" }))
+            $cmd = $null
+            if ($l -ne $null) {
+                if ($l.PSObject.Properties.Name -contains 'Command') { $cmd = $l.Command }
+                elseif ($l.PSObject.Properties.Name -contains 'Name') { $cmd = $l.Name }
+                elseif ($l.PSObject.Properties.Name -contains 'LogName') { $cmd = $l.LogName }
+            }
+
+            $status = '(unknown)'
+            if ($l -and $l.PSObject.Properties.Name -contains 'Succeeded') {
+                $status = if ($l.Succeeded) { 'OK' } else { "ERR: $($l.Error)" }
+            }
+
+            Write-NetCleanLog -Level INFO -Message ("Event log operation: {0} => {1}" -f ($cmd -or '(unknown)'), $status)
         }
 
         # User artifacts
@@ -4656,15 +4675,75 @@ function Invoke-NetCleanWorkflow {
 
     if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ('Workflow starting. Mode={0} BackupPath={1} DryRun={2}' -f $Mode, $BackupPath, [bool]$DryRun) }
 
+    $timings = @{}
+
+    # Phase 1 - Detect
+    $t0 = Get-Date
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Detect start: {0}" -f $t0.ToString('s')) }
     $ctx = Invoke-NetCleanPhase1Detect
+    $t1 = Get-Date
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Detect end: {0} (duration: {1})" -f $t1.ToString('s'), ($t1 - $t0).ToString()) }
+    $timings.Detect = [pscustomobject]@{ Start=$t0; End=$t1; Duration=($t1 - $t0) }
+
+    # Phase 2 - Protect
+    $t0 = Get-Date
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Protect start: {0}" -f $t0.ToString('s')) }
     $ctx = Invoke-NetCleanPhase2Protect -Context $ctx -BackupPath $BackupPath -DryRun:$DryRun -SkipFirewallBackup:$SkipFirewallBackup
+    # preserve backup path reported by Protect phase for later summaries when intermediate phases
+    $backupPathFromProtect = $null
+    if ($ctx -and $ctx.PSObject.Properties.Name -contains 'BackupPath') { $backupPathFromProtect = $ctx.BackupPath }
+    $t1 = Get-Date
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Protect end: {0} (duration: {1})" -f $t1.ToString('s'), ($t1 - $t0).ToString()) }
+    $timings.Protect = [pscustomobject]@{ Start=$t0; End=$t1; Duration=($t1 - $t0) }
+
+    # Populate cached Wi‑Fi and network profile lists into Protect.Summary for downstream use
+    try {
+        if ($ctx.PSObject.Properties.Name -contains 'Protect' -and $ctx.Protect.PSObject.Properties.Name -contains 'Manifest') {
+            $manifest = $ctx.Protect.Manifest
+            $wifiFound = @()
+            if ($manifest -and $manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {
+                foreach ($e in $manifest.WiFiExports) {
+                    if ($e -is [string] -and $e -like 'PROFILE:*') { $wifiFound += ($e -replace '^PROFILE:', '') }
+                    elseif ($e -is [string] -and $e -like '*.xml') { $wifiFound += [System.IO.Path]::GetFileNameWithoutExtension($e) }
+                }
+            }
+            if ($wifiFound.Count -eq 0) { $wifiFound = @(Get-WiFiProfileName) }
+
+            Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName WiFiProfilesFound -NotePropertyValue @($wifiFound) -Force
+            Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName WiFiProfilesFoundCount -NotePropertyValue $wifiFound.Count -Force
+
+            # Network list profile names from registry
+            $netProfiles = @(Get-NetworkListProfileName)
+            Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName NetworkProfilesFound -NotePropertyValue @($netProfiles) -Force
+            Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName NetworkProfilesFoundCount -NotePropertyValue $netProfiles.Count -Force
+        }
+    }
+    catch { Write-Verbose "Invoke-NetCleanWorkflow cache population: $($_.Exception.Message)" }
 
     if ($Mode -eq 'Preview') {
+        Add-Member -InputObject $ctx -NotePropertyName Timings -NotePropertyValue $timings -Force
         return $ctx
     }
 
+    # Phase 3 - Clean
+    $t0 = Get-Date
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Clean start: {0}" -f $t0.ToString('s')) }
     $ctx = Invoke-NetCleanPhase3Clean -Context $ctx -Mode $Mode -DryRun:$DryRun -SkipWifi:$SkipWifi -SkipDnsFlush:$SkipDnsFlush -SkipEventLogs:$SkipEventLogs -SkipUserArtifacts:$SkipUserArtifacts -EnableConservativePerformanceTuning:$EnableConservativePerformanceTuning
+    if ($backupPathFromProtect -and -not ($ctx.PSObject.Properties.Name -contains 'BackupPath')) { Add-Member -InputObject $ctx -NotePropertyName BackupPath -NotePropertyValue $backupPathFromProtect -Force }
+    $t1 = Get-Date
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Clean end: {0} (duration: {1})" -f $t1.ToString('s'), ($t1 - $t0).ToString()) }
+    $timings.Clean = [pscustomobject]@{ Start=$t0; End=$t1; Duration=($t1 - $t0) }
+
+    # Phase 4 - Verify
+    $t0 = Get-Date
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Verify start: {0}" -f $t0.ToString('s')) }
     $ctx = Invoke-NetCleanPhase4Verify -Context $ctx
+    if ($backupPathFromProtect -and -not ($ctx.PSObject.Properties.Name -contains 'BackupPath')) { Add-Member -InputObject $ctx -NotePropertyName BackupPath -NotePropertyValue $backupPathFromProtect -Force }
+    $t1 = Get-Date
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Verify end: {0} (duration: {1})" -f $t1.ToString('s'), ($t1 - $t0).ToString()) }
+    $timings.Verify = [pscustomobject]@{ Start=$t0; End=$t1; Duration=($t1 - $t0) }
+
+    Add-Member -InputObject $ctx -NotePropertyName Timings -NotePropertyValue $timings -Force
 
     if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ('Workflow complete. Mode={0} DryRun={1}' -f $Mode, [bool]$DryRun) }
 
@@ -4673,7 +4752,9 @@ function Invoke-NetCleanWorkflow {
         $manifestFile = $null
         if ($ctx.PSObject.Properties.Name -contains 'Protect' -and $ctx.Protect.PSObject.Properties.Name -contains 'ManifestFile') { $manifestFile = $ctx.Protect.ManifestFile }
 
-        Write-NetCleanLog -Level INFO -Message ('Final summary: Mode={0} DryRun={1} BackupPath={2} ManifestFile={3}' -f $Mode, [bool]$DryRun, $ctx.BackupPath, $manifestFile)
+        $backupPathVal = $null
+        if ($ctx -and $ctx.PSObject.Properties.Name -contains 'BackupPath') { $backupPathVal = $ctx.BackupPath }
+        Write-NetCleanLog -Level INFO -Message ('Final summary: Mode={0} DryRun={1} BackupPath={2} ManifestFile={3}' -f $Mode, [bool]$DryRun, ($backupPathVal -or '(none)'), $manifestFile)
 
         # Wi‑Fi profiles removed or previewed
         $wifiProfiles = @()
@@ -4922,7 +5003,7 @@ Export-ModuleMember -Function @(
     'Invoke-NetCleanWorkflow',
     'Get-InstalledAV',
     'Get-AVServicePattern',
-    'Get-FileMetadata',
+    'Get-FileMetadatum',
     'Get-ProtectionList'
 ) -Alias @(
     'Convert-NormalizeGuid',

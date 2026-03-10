@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     NetClean launcher / UX shell.
 
@@ -76,6 +76,9 @@ if ($false) {
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+# Record script start time for runtime reporting
+$script:RunStart = Get-Date
+
 # ---------------------------------------------------------------------------
 # Module import
 # ---------------------------------------------------------------------------
@@ -88,6 +91,31 @@ Import-Module -Name $modulePath -Force -ErrorAction Stop
 # ---------------------------------------------------------------------------
 
 $script:LogFile = $null
+
+# Maximum items to show in lists; remaining count will be summarized.
+$script:SummaryListLimit = 20
+
+function Show-TruncatedList {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)]
+        [object[]]$Items,
+        [Parameter(Mandatory=$false)]
+        [string]$Heading = 'Items',
+        [Parameter(Mandatory=$false)]
+        [int]$Limit
+    )
+    if (-not $Limit) { $Limit = $script:SummaryListLimit }
+    Write-Information '' -InformationAction Continue
+    Write-Information $Heading -InformationAction Continue
+    if ($Items -and $Items.Count -gt 0) {
+        $count = $Items.Count
+        $toShow = $Items[0..([Math]::Min($Limit-1, $count-1))]
+        foreach ($i in $toShow) { Write-Information "  - $i" -InformationAction Continue }
+        if ($count -gt $Limit) { Write-Information "  - ...and $($count - $Limit) more" -InformationAction Continue }
+    }
+    else { Write-Information '  - (none)' -InformationAction Continue }
+}
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -590,6 +618,61 @@ function Show-NetCleanSummary {
         Write-Information "  Performance tuning actions: $($Result.Clean.Summary.PerformanceTuningActions)" -InformationAction Continue
     }
 
+    # Detailed lists: Wi‑Fi & network profile details and removed artifacts
+    # Wi‑Fi: initial list comes from Protect.Manifest.WiFiExports (entries include "PROFILE:<name>")
+    if ($Result.PSObject.Properties.Name -contains 'Protect') {
+        $manifest = $Result.Protect.Manifest
+        if ($manifest -and $manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {
+            $found = @($manifest.WiFiExports | Where-Object { $_ -is [string] -and $_ -like 'PROFILE:*' } | ForEach-Object { $_ -replace '^PROFILE:', '' })
+            if ($found.Count -gt 0) {
+                Show-TruncatedList -Items $found -Heading 'Wi-Fi Profiles - Found'
+            }
+
+            if ($manifest.NetworkListBackup) {
+                Write-Information '' -InformationAction Continue
+                Write-Information "Network list backup: $($manifest.NetworkListBackup)" -InformationAction Continue
+            }
+        }
+    }
+
+    # If Clean phase ran, show removed items and remaining Wi‑Fi profiles
+    if ($Result.PSObject.Properties.Name -contains 'Clean') {
+        $clean = $Result.Clean
+
+        # Removed Wi‑Fi profiles (names)
+        if ($clean.WiFi -and $clean.WiFi.Profiles) {
+                Show-TruncatedList -Items @($clean.WiFi.Profiles) -Heading 'Wi-Fi Profiles - Removed'
+
+            # Compute remaining if we have the original found list
+            if ($Result.PSObject.Properties.Name -contains 'Protect' -and $Result.Protect.Manifest -and $Result.Protect.Manifest.WiFiExports) {
+                $original = @($Result.Protect.Manifest.WiFiExports | Where-Object { $_ -is [string] -and $_ -like 'PROFILE:*' } | ForEach-Object { $_ -replace '^PROFILE:', '' })
+                $remaining = @($original | Where-Object { $_ -notin $clean.WiFi.Profiles })
+                if ($remaining.Count -gt 0) { Show-TruncatedList -Items $remaining -Heading 'Wi-Fi Profiles - Remaining After Cleanup' }
+                else { Write-Information '' -InformationAction Continue; Write-Information 'Wi-Fi Profiles - Remaining After Cleanup' -InformationAction Continue; Write-Information '  - (none)' -InformationAction Continue }
+            }
+        }
+
+        # Registry keys removed
+        if ($clean.RegistryArtifacts -and $clean.RegistryArtifacts.Results) {
+            $removedKeys = @($clean.RegistryArtifacts.Results | Where-Object { $_.Removed } | ForEach-Object { $_.RegistryPath })
+            if ($removedKeys.Count -gt 0) {
+                Write-Information '' -InformationAction Continue
+                Write-Information ("Registry keys removed: {0}" -f $removedKeys.Count) -InformationAction Continue
+                Show-TruncatedList -Items $removedKeys -Heading 'Registry keys removed'
+            }
+        }
+
+        # Event logs cleared (names)
+        if ($clean.EventLogs) {
+            $logs = @($clean.EventLogs | ForEach-Object { if ($_.Name) { $_.Name } elseif ($_.LogName) { $_.LogName } else { $_ } })
+            if ($logs.Count -gt 0) {
+                Write-Information '' -InformationAction Continue
+                Write-Information ("Event logs touched: {0}" -f $logs.Count) -InformationAction Continue
+                Show-TruncatedList -Items $logs -Heading 'Event logs touched'
+            }
+        }
+    }
+
     if ($Result.PSObject.Properties.Name -contains 'Verify') {
         Write-Information '' -InformationAction Continue
         Write-Information 'Phase 4 - Verify' -InformationAction Continue
@@ -613,6 +696,24 @@ function Show-NetCleanSummary {
     }
 
     Write-Information '' -InformationAction Continue
+
+    # Show total runtime (if start time recorded)
+    if ($script:RunStart) {
+        $elapsed = (Get-Date) - $script:RunStart
+        Write-Information ("Total runtime: {0}" -f $elapsed.ToString()) -InformationAction Continue
+    }
+
+    # Per-phase timings (if available)
+    if ($Result.PSObject.Properties.Name -contains 'Timings') {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Phase runtimes' -InformationAction Continue
+        foreach ($phase in $Result.Timings.PSObject.Properties.Name) {
+            $t = $Result.Timings.$phase
+            if ($t -and $t.Duration) {
+                Write-Information ("  {0}: {1}" -f $phase, $t.Duration.ToString()) -InformationAction Continue
+            }
+        }
+    }
 }
 
 <#
@@ -644,7 +745,53 @@ function Show-PreviewSummary {
     if ($script:LogFile) {
         Write-Information "Log File: $script:LogFile" -InformationAction Continue
     }
+
+    # Show Wi‑Fi profiles found (from Protect.Manifest if available)
+    if ($Result.PSObject.Properties.Name -contains 'Protect') {
+        $manifest = $Result.Protect.Manifest
+        if ($manifest -and $manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {
+            $found = @($manifest.WiFiExports | Where-Object { $_ -is [string] -and $_ -like 'PROFILE:*' } | ForEach-Object { $_ -replace '^PROFILE:', '' })
+            if ($found.Count -gt 0) {
+                Write-Information '' -InformationAction Continue
+                Write-Information 'Wi-Fi Profiles - Found' -InformationAction Continue
+                foreach ($p in $found) { Write-Information "  - $p" -InformationAction Continue }
+            }
+
+            if ($manifest.NetworkListBackup) {
+                Write-Information '' -InformationAction Continue
+                Write-Information "Network list backup: $($manifest.NetworkListBackup)" -InformationAction Continue
+            }
+        }
+    }
+
+    # Show sanitizable registry artifacts (preview of what would be removed)
+    if ($Result.PSObject.Properties.Name -contains 'SanitizableArtifacts' -and $Result.SanitizableArtifacts.Count -gt 0) {
+        Write-Information '' -InformationAction Continue
+        Write-Information "Sanitizable registry artifacts (candidates): $($Result.SanitizableArtifacts.Count)" -InformationAction Continue
+        foreach ($a in $Result.SanitizableArtifacts) {
+            if ($a.PSObject.Properties.Name -contains 'RegistryPath' -and $a.RegistryPath) {
+                Write-Information "  - $($a.RegistryPath)" -InformationAction Continue
+            }
+        }
+    }
     Write-Information '' -InformationAction Continue
+
+    # Show total runtime (if start time recorded)
+    if ($script:RunStart) {
+        $elapsed = (Get-Date) - $script:RunStart
+        Write-Information ("Total runtime: {0}" -f $elapsed.ToString()) -InformationAction Continue
+    }
+
+    if ($Result.PSObject.Properties.Name -contains 'Timings') {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Phase runtimes' -InformationAction Continue
+        foreach ($phase in $Result.Timings.PSObject.Properties.Name) {
+            $t = $Result.Timings.$phase
+            if ($t -and $t.Duration) {
+                Write-Information ("  {0}: {1}" -f $phase, $t.Duration.ToString()) -InformationAction Continue
+            }
+        }
+    }
 }
 
 function Read-PostRunAction {
@@ -801,7 +948,7 @@ function Invoke-NetCleanLauncher {
     $postRunAction = Read-PostRunAction
     Invoke-PostRunAction -Action $postRunAction -DryRunMode:$options.DryRun
 
-    if ($selection -in @(
+    if ($selectedMode -in @(
     'SafeConferencePrep',
     'AdvancedRepair',
     'PerformanceTune'
