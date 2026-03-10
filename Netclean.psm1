@@ -4160,7 +4160,7 @@ An array of results for each log cleared, indicating the log name, whether it wa
 - Clearing event logs can result in loss of historical event data. It is recommended to perform these operations when a backup of important logs has been made or when the logs are not needed for troubleshooting.
 #>
 function Clear-NetworkEventLogsSafe {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([System.Object[]])]
     param(
         [switch]$DryRun
@@ -4174,22 +4174,50 @@ function Clear-NetworkEventLogsSafe {
         'Microsoft-Windows-DHCP-Client/Operational'
     )
 
-    $results = New-Object System.Collections.Generic.List[object]
+    $results = [System.Collections.Generic.List[object]]::new()
 
     foreach ($log in $logs) {
-        if ($canLog) {
-            if ($DryRun) {
+        if ($DryRun) {
+            if ($canLog) {
                 Write-NetCleanLog -Level INFO -Message ("Would clear event log: {0}" -f $log)
             }
-            else {
-                Write-NetCleanLog -Level INFO -Message ("Clearing event log: {0}" -f $log)
-            }
+
+            $results.Add([pscustomobject]@{
+                Name      = "Clear event log $log"
+                Succeeded = $true
+                Skipped   = $false
+                Reason    = 'DryRun'
+                DryRun    = $true
+                LogName   = $log
+            })
+            continue
         }
 
-        $result = Invoke-ExternalCommandSafe -Name "Clear event log $log" -FilePath 'wevtutil.exe' -ArgumentList @('cl', $log) -DryRun:$DryRun -IgnoreExitCode
+        if (-not $PSCmdlet.ShouldProcess($log, 'Clear event log')) {
+            if ($canLog) {
+                Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented clearing event log: {0}" -f $log)
+            }
+
+            $results.Add([pscustomobject]@{
+                Name      = "Clear event log $log"
+                Succeeded = $false
+                Skipped   = $true
+                Reason    = 'WhatIf'
+                DryRun    = $false
+                LogName   = $log
+            })
+            continue
+        }
+
+        $result = Invoke-ExternalCommandSafe `
+            -Name "Clear event log $log" `
+            -FilePath 'wevtutil.exe' `
+            -ArgumentList @('cl', $log) `
+            -IgnoreExitCode
+
         $results.Add($result)
 
-        if ($canLog -and -not $DryRun -and -not $result.Succeeded) {
+        if ($canLog -and -not $result.Succeeded) {
             Write-NetCleanLog -Level WARN -Message ("Failed to clear event log '{0}': {1}" -f $log, $result.Error)
         }
     }
@@ -4212,7 +4240,7 @@ An array of results for each artifact path processed, indicating the path, wheth
 - This function targets specific user registry paths known to store network-related artifacts. It is designed to be safe and cautious, avoiding any protected paths and providing detailed results for each attempted removal.
 #>
 function Clear-UserNetworkArtifactsSafe {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([System.Object[]])]
     param(
         [switch]$DryRun
@@ -4220,50 +4248,69 @@ function Clear-UserNetworkArtifactsSafe {
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    $candidatePaths = @(
-        'Registry::HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Explorer\Map Network Drive MRU',
-        'Registry::HKEY_CURRENT_USER\Software\Microsoft\Terminal Server Client\Default',
-        'Registry::HKEY_CURRENT_USER\Software\Microsoft\Terminal Server Client\Servers'
+    $paths = @(
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU',
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths',
+        'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs'
     )
 
-    $results = New-Object System.Collections.Generic.List[object]
+    $results = [System.Collections.Generic.List[object]]::new()
 
-    foreach ($path in $candidatePaths) {
-        if (-not (Test-Path -LiteralPath $path)) {
+    foreach ($path in $paths) {
+
+        if ($DryRun) {
+
             if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("User network artifact path not found, skipping: {0}" -f $path)
+                Write-NetCleanLog -Level INFO -Message ("Would remove user network artifact path: {0}" -f $path)
             }
 
             $results.Add([pscustomobject]@{
                 Path      = $path
                 Removed   = $false
-                DryRun    = [bool]$DryRun
-                Succeeded = $true
-                Reason    = 'NotFound'
-            })
-            continue
-        }
-
-        if ($DryRun) {
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Would clear user network artifact path: {0}" -f $path)
-            }
-
-            $results.Add([pscustomobject]@{
-                Path      = $path
-                Removed   = $true
                 DryRun    = $true
                 Succeeded = $true
                 Reason    = 'DryRun'
             })
+
+            continue
+        }
+
+        if (-not (Test-Path -LiteralPath $path)) {
+
+            $results.Add([pscustomobject]@{
+                Path      = $path
+                Removed   = $false
+                DryRun    = $false
+                Succeeded = $true
+                Reason    = 'NotFound'
+            })
+
+            continue
+        }
+
+        if (-not $PSCmdlet.ShouldProcess($path, 'Remove user network artifact path')) {
+
+            if ($canLog) {
+                Write-NetCleanLog -Level INFO -Message ("WhatIf prevented clearing user network artifact path: {0}" -f $path)
+            }
+
+            $results.Add([pscustomobject]@{
+                Path      = $path
+                Removed   = $false
+                DryRun    = $false
+                Succeeded = $false
+                Reason    = 'WhatIf'
+            })
+
             continue
         }
 
         try {
+
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
 
             if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Cleared user network artifact path: {0}" -f $path)
+                Write-NetCleanLog -Level INFO -Message ("Removed user network artifact path: {0}" -f $path)
             }
 
             $results.Add([pscustomobject]@{
@@ -4271,12 +4318,13 @@ function Clear-UserNetworkArtifactsSafe {
                 Removed   = $true
                 DryRun    = $false
                 Succeeded = $true
-                Reason    = 'Removed'
+                Reason    = $null
             })
         }
         catch {
+
             if ($canLog) {
-                Write-NetCleanLog -Level WARN -Message ("Failed to clear user network artifact path '{0}': {1}" -f $path, $_.Exception.Message)
+                Write-NetCleanLog -Level WARN -Message ("Failed removing user network artifact path '{0}': {1}" -f $path, $_.Exception.Message)
             }
 
             $results.Add([pscustomobject]@{
