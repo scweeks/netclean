@@ -4397,7 +4397,7 @@ An array of results for each repair command executed, indicating the name of the
 - Resetting Winsock and TCP/IP stacks can disrupt network connectivity until the system is restarted. It is recommended to perform these operations when a restart can be accommodated.
 #>
 function Invoke-AdvancedNetworkRepair {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([System.Object[]])]
     param(
         [switch]$DryRun
@@ -4406,28 +4406,114 @@ function Invoke-AdvancedNetworkRepair {
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     $commands = @(
-        @{ Name = 'Reset Winsock'; File = 'netsh.exe'; Args = @('winsock', 'reset') },
-        @{ Name = 'Reset IPv4';    File = 'netsh.exe'; Args = @('int', 'ip', 'reset') },
-        @{ Name = 'Reset IPv6';    File = 'netsh.exe'; Args = @('int', 'ipv6', 'reset') }
+        [pscustomobject]@{
+            Name         = 'Reset Winsock'
+            FilePath     = 'netsh.exe'
+            ArgumentList = @('winsock', 'reset')
+        },
+        [pscustomobject]@{
+            Name         = 'Reset IPv4 stack'
+            FilePath     = 'netsh.exe'
+            ArgumentList = @('int', 'ip', 'reset')
+        },
+        [pscustomobject]@{
+            Name         = 'Reset IPv6 stack'
+            FilePath     = 'netsh.exe'
+            ArgumentList = @('int', 'ipv6', 'reset')
+        }
     )
 
-    $results = New-Object System.Collections.Generic.List[object]
+    $results = [System.Collections.Generic.List[object]]::new()
 
     foreach ($cmd in $commands) {
-        if ($canLog) {
-            if ($DryRun) {
-                Write-NetCleanLog -Level INFO -Message ("Would perform advanced repair action: {0}" -f $cmd.Name)
+        if ($DryRun) {
+            if ($canLog) {
+                Write-NetCleanLog -Level INFO -Message ("Would perform advanced network repair action: {0}" -f $cmd.Name)
             }
-            else {
-                Write-NetCleanLog -Level INFO -Message ("Performing advanced repair action: {0}" -f $cmd.Name)
-            }
+
+            $results.Add([pscustomobject]@{
+                Name      = $cmd.Name
+                FilePath  = $cmd.FilePath
+                Arguments = ($cmd.ArgumentList -join ' ')
+                Succeeded = $true
+                Applied   = $false
+                DryRun    = $true
+                Skipped   = $false
+                Reason    = 'DryRun'
+                ExitCode  = 0
+                Error     = $null
+            })
+
+            continue
         }
 
-        $result = Invoke-ExternalCommandSafe -Name $cmd.Name -FilePath $cmd.File -ArgumentList $cmd.Args -DryRun:$DryRun
-        $results.Add($result)
+        if (-not $PSCmdlet.ShouldProcess($cmd.Name, 'Perform advanced network repair action')) {
+            if ($canLog) {
+                Write-NetCleanLog -Level INFO -Message ("WhatIf prevented advanced network repair action: {0}" -f $cmd.Name)
+            }
 
-        if ($canLog -and -not $DryRun -and -not $result.Succeeded) {
-            Write-NetCleanLog -Level WARN -Message ("Advanced repair action failed '{0}': {1}" -f $cmd.Name, $result.Error)
+            $results.Add([pscustomobject]@{
+                Name      = $cmd.Name
+                FilePath  = $cmd.FilePath
+                Arguments = ($cmd.ArgumentList -join ' ')
+                Succeeded = $false
+                Applied   = $false
+                DryRun    = $false
+                Skipped   = $true
+                Reason    = 'WhatIf'
+                ExitCode  = $null
+                Error     = $null
+            })
+
+            continue
+        }
+
+        try {
+            $result = Invoke-ExternalCommandSafe `
+                -Name $cmd.Name `
+                -FilePath $cmd.FilePath `
+                -ArgumentList $cmd.ArgumentList `
+                -IgnoreExitCode
+
+            $results.Add([pscustomobject]@{
+                Name      = $result.Name
+                FilePath  = $cmd.FilePath
+                Arguments = ($cmd.ArgumentList -join ' ')
+                Succeeded = [bool]$result.Succeeded
+                Applied   = [bool]$result.Succeeded
+                DryRun    = $false
+                Skipped   = $false
+                Reason    = $(if ($result.Succeeded) { $null } else { 'CommandFailed' })
+                ExitCode  = $result.ExitCode
+                Error     = $result.Error
+            })
+
+            if ($canLog) {
+                if ($result.Succeeded) {
+                    Write-NetCleanLog -Level INFO -Message ("Completed advanced network repair action: {0}" -f $cmd.Name)
+                }
+                else {
+                    Write-NetCleanLog -Level WARN -Message ("Failed advanced network repair action '{0}': {1}" -f $cmd.Name, $result.Error)
+                }
+            }
+        }
+        catch {
+            if ($canLog) {
+                Write-NetCleanLog -Level WARN -Message ("Exception during advanced network repair action '{0}': {1}" -f $cmd.Name, $_.Exception.Message)
+            }
+
+            $results.Add([pscustomobject]@{
+                Name      = $cmd.Name
+                FilePath  = $cmd.FilePath
+                Arguments = ($cmd.ArgumentList -join ' ')
+                Succeeded = $false
+                Applied   = $false
+                DryRun    = $false
+                Skipped   = $false
+                Reason    = 'Exception'
+                ExitCode  = -1
+                Error     = $_.Exception.Message
+            })
         }
     }
 
@@ -4449,7 +4535,7 @@ An array of results for each performance tuning command executed, indicating the
 - These performance tuning steps are generally safe and can provide benefits in typical network environments, but results may vary based on specific hardware and drivers.
 #>
 function Invoke-ConservativePerformanceTune {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([System.Object[]])]
     param(
         [switch]$DryRun
@@ -4458,40 +4544,114 @@ function Invoke-ConservativePerformanceTune {
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     $commands = @(
-        @{
-            Name = 'Enable normal autotuning'
-            File = 'netsh.exe'
-            Args = @('int', 'tcp', 'set', 'global', 'autotuninglevel=normal')
+        [pscustomobject]@{
+            Name         = 'Enable TCP autotuning normal'
+            FilePath     = 'netsh.exe'
+            ArgumentList = @('int', 'tcp', 'set', 'global', 'autotuninglevel=normal')
         },
-        @{
-            Name = 'Enable RSS'
-            File = 'netsh.exe'
-            Args = @('int', 'tcp', 'set', 'global', 'rss=enabled')
+        [pscustomobject]@{
+            Name         = 'Enable ECN capability'
+            FilePath     = 'netsh.exe'
+            ArgumentList = @('int', 'tcp', 'set', 'global', 'ecncapability=enabled')
         },
-        @{
-            Name = 'Enable ECN capability'
-            File = 'netsh.exe'
-            Args = @('int', 'tcp', 'set', 'global', 'ecncapability=enabled')
+        [pscustomobject]@{
+            Name         = 'Enable TCP timestamps'
+            FilePath     = 'netsh.exe'
+            ArgumentList = @('int', 'tcp', 'set', 'global', 'timestamps=enabled')
         }
     )
 
-    $results = New-Object System.Collections.Generic.List[object]
+    $results = [System.Collections.Generic.List[object]]::new()
 
     foreach ($cmd in $commands) {
-        if ($canLog) {
-            if ($DryRun) {
-                Write-NetCleanLog -Level INFO -Message ("Would apply performance tuning action: {0}" -f $cmd.Name)
+        if ($DryRun) {
+            if ($canLog) {
+                Write-NetCleanLog -Level INFO -Message ("Would perform conservative performance tuning action: {0}" -f $cmd.Name)
             }
-            else {
-                Write-NetCleanLog -Level INFO -Message ("Applying performance tuning action: {0}" -f $cmd.Name)
-            }
+
+            $results.Add([pscustomobject]@{
+                Name      = $cmd.Name
+                FilePath  = $cmd.FilePath
+                Arguments = ($cmd.ArgumentList -join ' ')
+                Succeeded = $true
+                Applied   = $false
+                DryRun    = $true
+                Skipped   = $false
+                Reason    = 'DryRun'
+                ExitCode  = 0
+                Error     = $null
+            })
+
+            continue
         }
 
-        $result = Invoke-ExternalCommandSafe -Name $cmd.Name -FilePath $cmd.File -ArgumentList $cmd.Args -DryRun:$DryRun -IgnoreExitCode
-        $results.Add($result)
+        if (-not $PSCmdlet.ShouldProcess($cmd.Name, 'Perform conservative performance tuning action')) {
+            if ($canLog) {
+                Write-NetCleanLog -Level INFO -Message ("WhatIf prevented conservative performance tuning action: {0}" -f $cmd.Name)
+            }
 
-        if ($canLog -and -not $DryRun -and -not $result.Succeeded) {
-            Write-NetCleanLog -Level WARN -Message ("Performance tuning action failed '{0}': {1}" -f $cmd.Name, $result.Error)
+            $results.Add([pscustomobject]@{
+                Name      = $cmd.Name
+                FilePath  = $cmd.FilePath
+                Arguments = ($cmd.ArgumentList -join ' ')
+                Succeeded = $false
+                Applied   = $false
+                DryRun    = $false
+                Skipped   = $true
+                Reason    = 'WhatIf'
+                ExitCode  = $null
+                Error     = $null
+            })
+
+            continue
+        }
+
+        try {
+            $result = Invoke-ExternalCommandSafe `
+                -Name $cmd.Name `
+                -FilePath $cmd.FilePath `
+                -ArgumentList $cmd.ArgumentList `
+                -IgnoreExitCode
+
+            $results.Add([pscustomobject]@{
+                Name      = $result.Name
+                FilePath  = $cmd.FilePath
+                Arguments = ($cmd.ArgumentList -join ' ')
+                Succeeded = [bool]$result.Succeeded
+                Applied   = [bool]$result.Succeeded
+                DryRun    = $false
+                Skipped   = $false
+                Reason    = $(if ($result.Succeeded) { $null } else { 'CommandFailed' })
+                ExitCode  = $result.ExitCode
+                Error     = $result.Error
+            })
+
+            if ($canLog) {
+                if ($result.Succeeded) {
+                    Write-NetCleanLog -Level INFO -Message ("Completed conservative performance tuning action: {0}" -f $cmd.Name)
+                }
+                else {
+                    Write-NetCleanLog -Level WARN -Message ("Failed conservative performance tuning action '{0}': {1}" -f $cmd.Name, $result.Error)
+                }
+            }
+        }
+        catch {
+            if ($canLog) {
+                Write-NetCleanLog -Level WARN -Message ("Exception during conservative performance tuning action '{0}': {1}" -f $cmd.Name, $_.Exception.Message)
+            }
+
+            $results.Add([pscustomobject]@{
+                Name      = $cmd.Name
+                FilePath  = $cmd.FilePath
+                Arguments = ($cmd.ArgumentList -join ' ')
+                Succeeded = $false
+                Applied   = $false
+                DryRun    = $false
+                Skipped   = $false
+                Reason    = 'Exception'
+                ExitCode  = -1
+                Error     = $_.Exception.Message
+            })
         }
     }
 
