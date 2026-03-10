@@ -130,6 +130,15 @@ $script:NetCleanModuleVersion = '1.0.0'
 # ---------------------------------------------------------------------------
 
 $script:LogFile = $null
+$script:NewLine = [Environment]::NewLine
+$script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+
+function Get-NetCleanLogFile {
+    [CmdletBinding()]
+    param()
+
+    return $script:LogFile
+}
 
 <#
 .SYNOPSIS
@@ -156,9 +165,22 @@ function Start-NetCleanLog {
         }
     }
 
-    $script:LogFile = Join-Path $Directory ("NetClean_{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-    if ($PSCmdlet.ShouldProcess($script:LogFile, "Create log file")) {
-        "[$(Get-Date -Format s)] [INFO] Log started" | Out-File -FilePath $script:LogFile -Encoding UTF8
+    $candidateLogFile = Join-Path $Directory ("NetClean_{0}.log" -f (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'))
+
+    if ($PSCmdlet.ShouldProcess($candidateLogFile, "Create log file")) {
+        try {
+            [System.IO.File]::WriteAllText(
+                $candidateLogFile,
+                "[$(Get-Date -Format s)] [INFO] Log started" + $script:NewLine,
+                $script:Utf8NoBom
+            )
+
+            $script:LogFile = $candidateLogFile
+        }
+        catch {
+            $script:LogFile = $null
+            Write-Verbose "Failed to create log file '$candidateLogFile': $_"
+        }
     }
 }
 
@@ -179,7 +201,7 @@ function Start-NetCleanLog {
 function Write-NetCleanLog {
     [CmdletBinding()]
     param(
-        [ValidateSet('INFO', 'WARN', 'ERROR', 'DEBUG')]
+        [ValidateSet('INFO','WARN','ERROR','DEBUG','TRACE')]
         [string]$Level = 'INFO',
 
         [Parameter(Mandatory = $true)]
@@ -188,15 +210,22 @@ function Write-NetCleanLog {
 
     $line = "[$(Get-Date -Format s)] [$Level] $Message"
 
-    if ($script:LogFile) {
-        $line | Out-File -FilePath $script:LogFile -Encoding UTF8 -Append
+    $logFile = Get-NetCleanLogFile
+    if ($logFile) {
+        try {
+            [System.IO.File]::AppendAllText($logFile, $line + $script:NewLine, $script:Utf8NoBom)
+        }
+        catch {
+            Write-Verbose "Failed to append to log file '$logFile': $_"
+        }
     }
 
     switch ($Level) {
         'ERROR' { Write-Error $Message }
         'WARN'  { Write-Warning $Message }
+        'INFO'  { Write-Information $Message -InformationAction Continue }
         'DEBUG' { Write-Verbose $Message }
-        default { Write-Verbose $Message }
+        'TRACE' { Write-Debug $Message }
     }
 }
 
@@ -2914,6 +2943,70 @@ function Export-NetworkList {
 
 <#
 .SYNOPSIS
+Invoke a native executable and capture its output.
+.DESCRIPTION
+Executes a native executable with the specified arguments and captures its output, including any errors.
+.PARAMETER FilePath
+The path to the native executable.
+.PARAMETER ArgumentList
+The list of arguments to pass to the executable.
+.PARAMETER Name
+The name to use for the captured output.
+.PARAMETER IgnoreExitCode
+If specified, ignores the exit code of the executable.
+.OUTPUTS
+A custom object containing the execution results.
+#>
+function Invoke-NetCleanNativeCapture {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)]
+        [string]$FilePath,
+
+        [Parameter()]
+        [string[]]$ArgumentList = @(),
+
+        [string]$Name = $FilePath,
+
+        [switch]$IgnoreExitCode
+    )
+
+    try {
+        $output = & $FilePath @ArgumentList 2>&1
+        $exitCode = if ($null -ne $LASTEXITCODE) { $LASTEXITCODE } else { 0 }
+
+        if (-not $IgnoreExitCode -and $exitCode -ne 0) {
+            return [pscustomobject]@{
+                Name      = $Name
+                ExitCode  = $exitCode
+                Succeeded = $false
+                Output    = @($output)
+                Error     = (@($output) | Out-String).Trim()
+            }
+        }
+
+        return [pscustomobject]@{
+            Name      = $Name
+            ExitCode  = $exitCode
+            Succeeded = $true
+            Output    = @($output)
+            Error     = $null
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Name      = $Name
+            ExitCode  = -1
+            Succeeded = $false
+            Output    = @()
+            Error     = $_.Exception.Message
+        }
+    }
+}
+
+<#
+.SYNOPSIS
 Return Wi‑Fi profile names present on the system.
 .DESCRIPTION
 Parses `netsh wlan show profiles` output to extract profile names; returns an empty list if none found.
@@ -2922,29 +3015,52 @@ Array of Wi‑Fi profile name strings.
 #>
 function Get-WiFiProfileName {
     [CmdletBinding()]
-    [OutputType([System.Object[]])]
+    [OutputType([string[]])]
     param()
 
-    $lines = netsh wlan show profiles 2>$null
-    if (-not $lines) {
+    $result = Invoke-NetCleanNativeCapture `
+        -FilePath 'netsh.exe' `
+        -ArgumentList @('wlan', 'show', 'profiles') `
+        -Name 'List Wi-Fi profiles' `
+        -IgnoreExitCode
+
+    if (-not $result.Succeeded -or -not $result.Output -or $result.Output.Count -eq 0) {
+        Write-NetCleanLog -Level DEBUG -Message 'No Wi-Fi profiles returned by netsh.'
         return @()
     }
 
-    $profiles = New-Object System.Collections.Generic.List[string]
+    $profiles = [System.Collections.Generic.List[string]]::new()
 
-    foreach ($line in $lines) {
-        $m = [regex]::Match($line, ':\s*(.+)$')
-        if ($m.Success) {
-            $value = $m.Groups[1].Value.Trim()
-            if ([string]::IsNullOrWhiteSpace($value)) { continue }
+    foreach ($line in $result.Output) {
+        if ($null -eq $line) {
+            continue
+        }
 
-            $lc = $line.ToLowerInvariant()
-            if ($lc -like '*profile*' -or $lc -like '*profil*' -or $lc -like '*perfil*' -or $lc -like '*профил*' -or $lc -like '*配置文件*') {
-                [void]$profiles.Add($value)
+        $text = [string]$line
+
+        if ($text -match '^\s*All User Profile\s*:\s*(.+?)\s*$') {
+            $name = $matches[1].Trim()
+            if (-not [string]::IsNullOrWhiteSpace($name)) {
+                [void]$profiles.Add($name)
+            }
+            continue
+        }
+
+        if ($text -match '^\s*[^:]+:\s*(.+?)\s*$') {
+            $label = ($text -replace ':\s*.+$', '').Trim()
+            $name  = $matches[1].Trim()
+
+            if ($label -match 'Profile' -and -not [string]::IsNullOrWhiteSpace($name)) {
+                [void]$profiles.Add($name)
             }
         }
     }
-return $profiles.ToArray() | Sort-Object -Unique
+
+    $finalProfiles = @($profiles | Sort-Object -Unique)
+
+    Write-NetCleanLog -Level DEBUG -Message ("Detected Wi-Fi profiles: {0}" -f ($finalProfiles -join ', '))
+
+    return $finalProfiles
 }
 
 <#
@@ -2979,9 +3095,7 @@ function Export-WiFiProfile {
     )
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
-
-    $exported = New-Object System.Collections.Generic.List[string]
-    New-DirectoryIfNotExist -Path $Dest
+    $exported = [System.Collections.Generic.List[string]]::new()
 
     $listFile = Join-Path $Dest ("WiFiProfiles_{0}.txt" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
     $profiles = @(Get-WiFiProfileName)
@@ -2995,12 +3109,14 @@ function Export-WiFiProfile {
 
     if ($DryRun) {
         [void]$exported.Add($listFile)
+
         if ($canLog) {
             Write-NetCleanLog -Level INFO -Message ("Would write Wi-Fi profile list file: {0}" -f $listFile)
         }
 
         foreach ($wifiProfile in $profiles) {
             [void]$exported.Add("PROFILE:$wifiProfile")
+
             if ($canLog) {
                 Write-NetCleanLog -Level INFO -Message ("Would export Wi-Fi profile: {0}" -f $wifiProfile)
             }
@@ -3009,39 +3125,101 @@ function Export-WiFiProfile {
         return $exported.ToArray()
     }
 
-    # Attempt bulk export first (exports all profiles to XML when supported). If that fails, fall back to per-profile export.
-    $profiles | Out-File -FilePath $listFile -Encoding UTF8
+    New-DirectoryIfNotExist -Path $Dest
+
+    [System.IO.File]::WriteAllLines($listFile, $profiles, $script:Utf8NoBom)
     [void]$exported.Add($listFile)
 
-    if ($canLog) { Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile list: {0}" -f $listFile) }
+    if ($canLog) {
+        Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile list: {0}" -f $listFile)
+    }
 
     $bulkSucceeded = $false
+
     try {
-        $before = @(Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
-        & netsh wlan export profile folder="$Dest" key=clear 2>&1 | Out-Null
-        $after = @(Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
+        $before = @(
+            Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty FullName
+        )
+
+        $bulkResult = Invoke-ExternalCommandSafe `
+            -Name 'Export Wi-Fi profiles (bulk)' `
+            -FilePath 'netsh.exe' `
+            -ArgumentList @('wlan', 'export', 'profile', "folder=$Dest", 'key=clear') `
+            -IgnoreExitCode
+
+        $after = @(
+            Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue |
+                Select-Object -ExpandProperty FullName
+        )
+
         $newFiles = @($after | Where-Object { $_ -notin $before })
+
         if ($newFiles.Count -gt 0) {
-            foreach ($nf in $newFiles) { [void]$exported.Add($nf) }
+            foreach ($newFile in $newFiles) {
+                [void]$exported.Add($newFile)
+            }
+
             $bulkSucceeded = $true
-            if ($canLog) { foreach ($nf in $newFiles) { Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile to '{0}'" -f $nf) } }
+
+            if ($canLog) {
+                foreach ($newFile in $newFiles) {
+                    Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile to '{0}'" -f $newFile)
+                }
+            }
+        }
+        elseif ($canLog) {
+            Write-NetCleanLog -Level DEBUG -Message ("Bulk Wi-Fi export returned no new XML files. ExitCode={0}" -f $bulkResult.ExitCode)
         }
     }
     catch {
         $bulkSucceeded = $false
+
+        if ($canLog) {
+            Write-NetCleanLog -Level WARN -Message ("Bulk Wi-Fi export failed: {0}" -f $_.Exception.Message)
+        }
     }
 
     if (-not $bulkSucceeded) {
-        # Fallback to per-profile export
         foreach ($wifiProfile in $profiles) {
-            $before = @(Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
-            & netsh wlan export profile name="$wifiProfile" folder="$Dest" key=clear 2>&1 | Out-Null
-            $after = @(Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName)
-            $newFiles = @($after | Where-Object { $_ -notin $before })
+            try {
+                $before = @(
+                    Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue |
+                        Select-Object -ExpandProperty FullName
+                )
 
-            foreach ($newFile in $newFiles) {
-                [void]$exported.Add($newFile)
-                if ($canLog) { Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile '{0}' to '{1}'" -f $wifiProfile, $newFile) }
+                $profileResult = Invoke-ExternalCommandSafe `
+                    -Name ("Export Wi-Fi profile {0}" -f $wifiProfile) `
+                    -FilePath 'netsh.exe' `
+                    -ArgumentList @('wlan', 'export', 'profile', "name=$wifiProfile", "folder=$Dest", 'key=clear') `
+                    -IgnoreExitCode
+
+                $after = @(
+                    Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue |
+                        Select-Object -ExpandProperty FullName
+                )
+
+                $newFiles = @($after | Where-Object { $_ -notin $before })
+
+                if ($newFiles.Count -eq 0) {
+                    if ($canLog) {
+                        Write-NetCleanLog -Level DEBUG -Message ("No XML exported for Wi-Fi profile '{0}'. ExitCode={1}" -f $wifiProfile, $profileResult.ExitCode)
+                    }
+                    continue
+                }
+
+                foreach ($newFile in $newFiles) {
+                    [void]$exported.Add($newFile)
+
+                    if ($canLog) {
+                        Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile '{0}' to '{1}'" -f $wifiProfile, $newFile)
+                    }
+                }
+            }
+            catch {
+                if ($canLog) {
+                    Write-NetCleanLog -Level WARN -Message ("Per-profile Wi-Fi export failed for '{0}': {1}" -f $wifiProfile, $_.Exception.Message)
+                }
             }
         }
     }

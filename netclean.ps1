@@ -90,7 +90,7 @@ Import-Module -Name $modulePath -Force -ErrorAction Stop
 # Script state
 # ---------------------------------------------------------------------------
 
-$script:LogFile = $null
+# $script:LogFile = $null
 
 # Maximum items to show in lists; remaining count will be summarized.
 $script:SummaryListLimit = 20
@@ -115,79 +115,6 @@ function Show-TruncatedList {
         if ($count -gt $Limit) { Write-Information "  - ...and $($count - $Limit) more" -InformationAction Continue }
     }
     else { Write-Information '  - (none)' -InformationAction Continue }
-}
-
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
-
-<#
-.SYNOPSIS
-    Starts the NetClean logging.
-.DESCRIPTION
-    This function initializes the logging for the NetClean process.
-.PARAMETER Directory
-    The directory where log files will be stored.
-.EXAMPLE
-    Start-NetCleanLog -Directory "C:\Logs"
-.NOTES
-    The function creates the log directory if it does not exist.
-#>
-function Start-NetCleanLog {
-    [CmdletBinding(SupportsShouldProcess)]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string]$Directory
-    )
-
-    if (-not (Test-Path -LiteralPath $Directory)) {
-        if ($PSCmdlet.ShouldProcess($Directory, "Create directory")) {
-            New-Item -Path $Directory -ItemType Directory -Force | Out-Null
-        }
-    }
-
-    $script:LogFile = Join-Path $Directory ("NetClean_{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-    if ($PSCmdlet.ShouldProcess($script:LogFile, "Create log file")) {
-        "[$(Get-Date -Format s)] [INFO] Log started" | Out-File -FilePath $script:LogFile -Encoding UTF8
-    }
-}
-
-<#
-.SYNOPSIS
-    Writes a message to the NetClean log.
-.DESCRIPTION
-    This function writes a message to the NetClean log with the specified level.
-.PARAMETER Level
-    The level of the log message.
-.PARAMETER Message
-    The message to write to the log.
-.EXAMPLE
-    Write-NetCleanLog -Level 'INFO' -Message 'Starting NetClean process'
-.NOTES
-    The function uses the Convert-RegToProviderPath function to normalize the input path.
-#>
-function Write-NetCleanLog {
-    [CmdletBinding()]
-    param(
-        [ValidateSet('INFO', 'WARN', 'ERROR', 'DEBUG')]
-        [string]$Level = 'INFO',
-
-        [Parameter(Mandatory = $true)]
-        [string]$Message
-    )
-
-    $line = "[$(Get-Date -Format s)] [$Level] $Message"
-
-    if ($script:LogFile) {
-        $line | Out-File -FilePath $script:LogFile -Encoding UTF8 -Append
-    }
-
-    switch ($Level) {
-        'ERROR' { Write-Error $Message }
-        'WARN'  { Write-Warning $Message }
-        'DEBUG' { Write-Verbose $Message }
-        default { Write-Verbose $Message }
-    }
 }
 
 # ---------------------------------------------------------------------------
@@ -691,8 +618,9 @@ function Show-NetCleanSummary {
         Write-Information "Backup Path: $($Result.BackupPath)" -InformationAction Continue
     }
 
-    if ($script:LogFile) {
-        Write-Information "Log File: $script:LogFile" -InformationAction Continue
+    $logFile = Get-NetCleanLogFile
+    if ($logFile) {
+        Write-Information "Log File: $logFile" -InformationAction Continue
     }
 
     Write-Information '' -InformationAction Continue
@@ -742,8 +670,10 @@ function Show-PreviewSummary {
     Write-Information "Sanitizable artifacts: $($Result.Summary.SanitizableArtifactCount)" -InformationAction Continue
     Write-Information '' -InformationAction Continue
     Write-Information "Backup Path: $($Result.BackupPath)" -InformationAction Continue
-    if ($script:LogFile) {
-        Write-Information "Log File: $script:LogFile" -InformationAction Continue
+
+    $logFile = Get-NetCleanLogFile
+    if ($logFile) {
+        Write-Information "Log File: $logFile" -InformationAction Continue
     }
 
     # Show Wi‑Fi profiles found (from Protect.Manifest if available)
