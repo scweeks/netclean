@@ -4184,41 +4184,83 @@ function Clear-NetworkEventLogsSafe {
 
             $results.Add([pscustomobject]@{
                 Name      = "Clear event log $log"
+                LogName   = $log
                 Succeeded = $true
+                Cleared   = $false
+                DryRun    = $true
                 Skipped   = $false
                 Reason    = 'DryRun'
-                DryRun    = $true
-                LogName   = $log
+                ExitCode  = 0
+                Error     = $null
             })
+
             continue
         }
 
         if (-not $PSCmdlet.ShouldProcess($log, 'Clear event log')) {
             if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented clearing event log: {0}" -f $log)
+                Write-NetCleanLog -Level INFO -Message ("WhatIf prevented clearing event log: {0}" -f $log)
             }
 
             $results.Add([pscustomobject]@{
                 Name      = "Clear event log $log"
+                LogName   = $log
                 Succeeded = $false
+                Cleared   = $false
+                DryRun    = $false
                 Skipped   = $true
                 Reason    = 'WhatIf'
-                DryRun    = $false
-                LogName   = $log
+                ExitCode  = $null
+                Error     = $null
             })
+
             continue
         }
 
-        $result = Invoke-ExternalCommandSafe `
-            -Name "Clear event log $log" `
-            -FilePath 'wevtutil.exe' `
-            -ArgumentList @('cl', $log) `
-            -IgnoreExitCode
+        try {
+            $result = Invoke-ExternalCommandSafe `
+                -Name ("Clear event log {0}" -f $log) `
+                -FilePath 'wevtutil.exe' `
+                -ArgumentList @('cl', $log) `
+                -IgnoreExitCode
 
-        $results.Add($result)
+            $results.Add([pscustomobject]@{
+                Name      = $result.Name
+                LogName   = $log
+                Succeeded = [bool]$result.Succeeded
+                Cleared   = [bool]$result.Succeeded
+                DryRun    = $false
+                Skipped   = $false
+                Reason    = $(if ($result.Succeeded) { $null } else { 'CommandFailed' })
+                ExitCode  = $result.ExitCode
+                Error     = $result.Error
+            })
 
-        if ($canLog -and -not $result.Succeeded) {
-            Write-NetCleanLog -Level WARN -Message ("Failed to clear event log '{0}': {1}" -f $log, $result.Error)
+            if ($canLog) {
+                if ($result.Succeeded) {
+                    Write-NetCleanLog -Level INFO -Message ("Cleared event log: {0}" -f $log)
+                }
+                else {
+                    Write-NetCleanLog -Level WARN -Message ("Failed to clear event log '{0}': {1}" -f $log, $result.Error)
+                }
+            }
+        }
+        catch {
+            if ($canLog) {
+                Write-NetCleanLog -Level WARN -Message ("Exception clearing event log '{0}': {1}" -f $log, $_.Exception.Message)
+            }
+
+            $results.Add([pscustomobject]@{
+                Name      = "Clear event log $log"
+                LogName   = $log
+                Succeeded = $false
+                Cleared   = $false
+                DryRun    = $false
+                Skipped   = $false
+                Reason    = 'Exception'
+                ExitCode  = -1
+                Error     = $_.Exception.Message
+            })
         }
     }
 
