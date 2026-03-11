@@ -5232,12 +5232,14 @@ A context object containing detailed information about the operations performed 
 #>
 function Invoke-NetCleanWorkflow {
     [CmdletBinding(SupportsShouldProcess = $true)]
-    [OutputType([System.Object[]])]
+    [OutputType([pscustomobject])]
     param(
+        [Parameter(Mandatory = $true)]
         [ValidateSet('Preview', 'SafeConferencePrep', 'AdvancedRepair', 'PerformanceTune')]
-        [string]$Mode = 'SafeConferencePrep',
+        [string]$Mode,
 
-        [string]$BackupPath = "$env:ProgramData\NetClean\Backups",
+        [Parameter(Mandatory = $true)]
+        [string]$BackupPath,
 
         [switch]$DryRun,
         [switch]$SkipWifi,
@@ -5245,55 +5247,106 @@ function Invoke-NetCleanWorkflow {
         [switch]$SkipEventLogs,
         [switch]$SkipUserArtifacts,
         [switch]$SkipFirewallBackup,
-        [switch]$EnableConservativePerformanceTuning
+
+        [ValidateSet('Conservative', 'Optimal', 'Gaming', 'Default')]
+        [string]$PerformanceProfile
     )
 
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ('Workflow starting. Mode={0} BackupPath={1} DryRun={2}' -f $Mode, $BackupPath, [bool]$DryRun) }
+    if ($Mode -eq 'PerformanceTune' -and [string]::IsNullOrWhiteSpace($PerformanceProfile)) {
+        throw "PerformanceProfile is required when Mode is 'PerformanceTune'."
+    }
+
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) {
+        if ($Mode -eq 'PerformanceTune') {
+            Write-NetCleanLog -Level INFO -Message ('Workflow starting. Mode={0} BackupPath={1} DryRun={2} PerformanceProfile={3}' -f $Mode, $BackupPath, [bool]$DryRun, $PerformanceProfile)
+        }
+        else {
+            Write-NetCleanLog -Level INFO -Message ('Workflow starting. Mode={0} BackupPath={1} DryRun={2}' -f $Mode, $BackupPath, [bool]$DryRun)
+        }
+    }
 
     $timings = @{}
 
     # Phase 1 - Detect
     $t0 = Get-Date
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Detect start: {0}" -f $t0.ToString('s')) }
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) {
+        Write-NetCleanLog -Level INFO -Message ("Phase Detect start: {0}" -f $t0.ToString('s'))
+    }
+
     $ctx = Invoke-NetCleanPhase1Detect
+
     $t1 = Get-Date
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Detect end: {0} (duration: {1})" -f $t1.ToString('s'), ($t1 - $t0).ToString()) }
-    $timings.Detect = [pscustomobject]@{ Start=$t0; End=$t1; Duration=($t1 - $t0) }
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) {
+        Write-NetCleanLog -Level INFO -Message ("Phase Detect end: {0} (duration: {1})" -f $t1.ToString('s'), ($t1 - $t0).ToString())
+    }
+
+    $timings.Detect = [pscustomobject]@{
+        Start    = $t0
+        End      = $t1
+        Duration = ($t1 - $t0)
+    }
 
     # Phase 2 - Protect
     $t0 = Get-Date
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Protect start: {0}" -f $t0.ToString('s')) }
-    $ctx = Invoke-NetCleanPhase2Protect -Context $ctx -BackupPath $BackupPath -DryRun:$DryRun -SkipFirewallBackup:$SkipFirewallBackup
-    # preserve backup path reported by Protect phase for later summaries when intermediate phases
-    $backupPathFromProtect = $null
-    if ($ctx -and $ctx.PSObject.Properties.Name -contains 'BackupPath') { $backupPathFromProtect = $ctx.BackupPath }
-    $t1 = Get-Date
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Protect end: {0} (duration: {1})" -f $t1.ToString('s'), ($t1 - $t0).ToString()) }
-    $timings.Protect = [pscustomobject]@{ Start=$t0; End=$t1; Duration=($t1 - $t0) }
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) {
+        Write-NetCleanLog -Level INFO -Message ("Phase Protect start: {0}" -f $t0.ToString('s'))
+    }
 
-    # Populate cached Wi‑Fi and network profile lists into Protect.Summary for downstream use
+    $ctx = Invoke-NetCleanPhase2Protect `
+        -Context $ctx `
+        -BackupPath $BackupPath `
+        -DryRun:$DryRun `
+        -SkipFirewallBackup:$SkipFirewallBackup `
+        -WhatIf:$WhatIfPreference
+
+    $backupPathFromProtect = $null
+    if ($ctx -and $ctx.PSObject.Properties.Name -contains 'BackupPath') {
+        $backupPathFromProtect = $ctx.BackupPath
+    }
+
+    $t1 = Get-Date
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) {
+        Write-NetCleanLog -Level INFO -Message ("Phase Protect end: {0} (duration: {1})" -f $t1.ToString('s'), ($t1 - $t0).ToString())
+    }
+
+    $timings.Protect = [pscustomobject]@{
+        Start    = $t0
+        End      = $t1
+        Duration = ($t1 - $t0)
+    }
+
+    # Populate cached Wi-Fi and network profile lists
     try {
         if ($ctx.PSObject.Properties.Name -contains 'Protect' -and $ctx.Protect.PSObject.Properties.Name -contains 'Manifest') {
             $manifest = $ctx.Protect.Manifest
             $wifiFound = @()
+
             if ($manifest -and $manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {
                 foreach ($e in $manifest.WiFiExports) {
-                    if ($e -is [string] -and $e -like 'PROFILE:*') { $wifiFound += ($e -replace '^PROFILE:', '') }
-                    elseif ($e -is [string] -and $e -like '*.xml') { $wifiFound += [System.IO.Path]::GetFileNameWithoutExtension($e) }
+                    if ($e -is [string] -and $e -like 'PROFILE:*') {
+                        $wifiFound += ($e -replace '^PROFILE:', '')
+                    }
+                    elseif ($e -is [string] -and $e -like '*.xml') {
+                        $wifiFound += [System.IO.Path]::GetFileNameWithoutExtension($e)
+                    }
                 }
             }
-            if ($wifiFound.Count -eq 0) { $wifiFound = @(Get-WiFiProfileName) }
+
+            if ($wifiFound.Count -eq 0) {
+                $wifiFound = @(Get-WiFiProfileNames)
+            }
 
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName WiFiProfilesFound -NotePropertyValue @($wifiFound) -Force
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName WiFiProfilesFoundCount -NotePropertyValue $wifiFound.Count -Force
 
-            # Network list profile names from registry
-            $netProfiles = @(Get-NetworkListProfileName)
+            $netProfiles = @(Get-NetworkListProfileNames)
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName NetworkProfilesFound -NotePropertyValue @($netProfiles) -Force
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName NetworkProfilesFoundCount -NotePropertyValue $netProfiles.Count -Force
         }
     }
-    catch { Write-Verbose "Invoke-NetCleanWorkflow cache population: $($_.Exception.Message)" }
+    catch {
+        Write-Verbose "Invoke-NetCleanWorkflow cache population: $($_.Exception.Message)"
+    }
 
     if ($Mode -eq 'Preview') {
         Add-Member -InputObject $ctx -NotePropertyName Timings -NotePropertyValue $timings -Force
@@ -5302,61 +5355,121 @@ function Invoke-NetCleanWorkflow {
 
     # Phase 3 - Clean
     $t0 = Get-Date
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Clean start: {0}" -f $t0.ToString('s')) }
-    $ctx = Invoke-NetCleanPhase3Clean -Context $ctx -Mode $Mode -DryRun:$DryRun -SkipWifi:$SkipWifi -SkipDnsFlush:$SkipDnsFlush -SkipEventLogs:$SkipEventLogs -SkipUserArtifacts:$SkipUserArtifacts -EnableConservativePerformanceTuning:$EnableConservativePerformanceTuning
-    if ($backupPathFromProtect -and -not ($ctx.PSObject.Properties.Name -contains 'BackupPath')) { Add-Member -InputObject $ctx -NotePropertyName BackupPath -NotePropertyValue $backupPathFromProtect -Force }
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) {
+        Write-NetCleanLog -Level INFO -Message ("Phase Clean start: {0}" -f $t0.ToString('s'))
+    }
+
+    $ctx = Invoke-NetCleanPhase3Clean `
+        -Context $ctx `
+        -Mode $Mode `
+        -DryRun:$DryRun `
+        -SkipWifi:$SkipWifi `
+        -SkipDnsFlush:$SkipDnsFlush `
+        -SkipEventLogs:$SkipEventLogs `
+        -SkipUserArtifacts:$SkipUserArtifacts `
+        -PerformanceProfile $PerformanceProfile `
+        -WhatIf:$WhatIfPreference
+
+    if ($backupPathFromProtect -and -not ($ctx.PSObject.Properties.Name -contains 'BackupPath')) {
+        Add-Member -InputObject $ctx -NotePropertyName BackupPath -NotePropertyValue $backupPathFromProtect -Force
+    }
+
+    if ($Mode -eq 'PerformanceTune' -and $PerformanceProfile) {
+        Add-Member -InputObject $ctx -NotePropertyName PerformanceProfile -NotePropertyValue $PerformanceProfile -Force
+    }
+
     $t1 = Get-Date
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Clean end: {0} (duration: {1})" -f $t1.ToString('s'), ($t1 - $t0).ToString()) }
-    $timings.Clean = [pscustomobject]@{ Start=$t0; End=$t1; Duration=($t1 - $t0) }
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) {
+        Write-NetCleanLog -Level INFO -Message ("Phase Clean end: {0} (duration: {1})" -f $t1.ToString('s'), ($t1 - $t0).ToString())
+    }
+
+    $timings.Clean = [pscustomobject]@{
+        Start    = $t0
+        End      = $t1
+        Duration = ($t1 - $t0)
+    }
 
     # Phase 4 - Verify
     $t0 = Get-Date
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Verify start: {0}" -f $t0.ToString('s')) }
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) {
+        Write-NetCleanLog -Level INFO -Message ("Phase Verify start: {0}" -f $t0.ToString('s'))
+    }
+
     $ctx = Invoke-NetCleanPhase4Verify -Context $ctx
-    if ($backupPathFromProtect -and -not ($ctx.PSObject.Properties.Name -contains 'BackupPath')) { Add-Member -InputObject $ctx -NotePropertyName BackupPath -NotePropertyValue $backupPathFromProtect -Force }
+
+    if ($backupPathFromProtect -and -not ($ctx.PSObject.Properties.Name -contains 'BackupPath')) {
+        Add-Member -InputObject $ctx -NotePropertyName BackupPath -NotePropertyValue $backupPathFromProtect -Force
+    }
+
     $t1 = Get-Date
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ("Phase Verify end: {0} (duration: {1})" -f $t1.ToString('s'), ($t1 - $t0).ToString()) }
-    $timings.Verify = [pscustomobject]@{ Start=$t0; End=$t1; Duration=($t1 - $t0) }
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) {
+        Write-NetCleanLog -Level INFO -Message ("Phase Verify end: {0} (duration: {1})" -f $t1.ToString('s'), ($t1 - $t0).ToString())
+    }
+
+    $timings.Verify = [pscustomobject]@{
+        Start    = $t0
+        End      = $t1
+        Duration = ($t1 - $t0)
+    }
 
     Add-Member -InputObject $ctx -NotePropertyName Timings -NotePropertyValue $timings -Force
 
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ('Workflow complete. Mode={0} DryRun={1}' -f $Mode, [bool]$DryRun) }
+    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) {
+        Write-NetCleanLog -Level INFO -Message ('Workflow complete. Mode={0} DryRun={1}' -f $Mode, [bool]$DryRun)
+    }
 
-    # Final audit summary written to log and console
     if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) {
         $manifestFile = $null
-        if ($ctx.PSObject.Properties.Name -contains 'Protect' -and $ctx.Protect.PSObject.Properties.Name -contains 'ManifestFile') { $manifestFile = $ctx.Protect.ManifestFile }
+        if ($ctx.PSObject.Properties.Name -contains 'Protect' -and $ctx.Protect.PSObject.Properties.Name -contains 'ManifestFile') {
+            $manifestFile = $ctx.Protect.ManifestFile
+        }
 
         $backupPathVal = $null
-        if ($ctx -and $ctx.PSObject.Properties.Name -contains 'BackupPath') { $backupPathVal = $ctx.BackupPath }
-        Write-NetCleanLog -Level INFO -Message ('Final summary: Mode={0} DryRun={1} BackupPath={2} ManifestFile={3}' -f $Mode, [bool]$DryRun, ($backupPathVal -or '(none)'), $manifestFile)
+        if ($ctx -and $ctx.PSObject.Properties.Name -contains 'BackupPath') {
+            $backupPathVal = $ctx.BackupPath
+        }
 
-        # Wi‑Fi profiles removed or previewed
+        $backupPathDisplay = if ([string]::IsNullOrWhiteSpace($backupPathVal)) { '(none)' } else { $backupPathVal }
+
+        Write-NetCleanLog -Level INFO -Message ('Final summary: Mode={0} DryRun={1} BackupPath={2} ManifestFile={3}' -f $Mode, [bool]$DryRun, $backupPathDisplay, $manifestFile)
+
         $wifiProfiles = @()
-        if ($ctx.PSObject.Properties.Name -contains 'Clean' -and $ctx.Clean.PSObject.Properties.Name -contains 'WiFi') { $wifiProfiles = @($ctx.Clean.WiFi.Profiles) }
-        Write-NetCleanLog -Level INFO -Message ("Wi‑Fi profiles removed/wouldRemove: {0}" -f ($wifiProfiles -join ', '))
+        if ($ctx.PSObject.Properties.Name -contains 'Clean' -and $ctx.Clean.PSObject.Properties.Name -contains 'WiFi') {
+            $wifiProfiles = @($ctx.Clean.WiFi.Profiles)
+        }
+        Write-NetCleanLog -Level INFO -Message ("Wi-Fi profiles removed/wouldRemove: {0}" -f ($wifiProfiles -join ', '))
 
-        # Registry artifacts removed
-        $removedRegs = @()
+        $removedRegs = [System.Collections.Generic.List[string]]::new()
         if ($ctx.PSObject.Properties.Name -contains 'Clean' -and $ctx.Clean.PSObject.Properties.Name -contains 'RegistryArtifacts') {
             $results = @($ctx.Clean.RegistryArtifacts.Results)
-            foreach ($r in $results) { if ($r.Removed) { [void]$removedRegs.Add($r.RegistryPath) } }
+            foreach ($r in $results) {
+                if ($r.Removed) {
+                    [void]$removedRegs.Add($r.RegistryPath)
+                }
+            }
         }
-        Write-NetCleanLog -Level INFO -Message ("Registry artifacts removed count: {0}" -f $removedRegs.Count)
-        foreach ($rp in $removedRegs) { Write-NetCleanLog -Level INFO -Message ("Registry removed: {0}" -f $rp) }
 
-        # Event logs and user artifacts
+        Write-NetCleanLog -Level INFO -Message ("Registry artifacts removed count: {0}" -f $removedRegs.Count)
+        foreach ($rp in $removedRegs) {
+            Write-NetCleanLog -Level INFO -Message ("Registry removed: {0}" -f $rp)
+        }
+
         $eventCount = 0
-        if ($ctx.PSObject.Properties.Name -contains 'Clean' -and $ctx.Clean.PSObject.Properties.Name -contains 'EventLogs') { $eventCount = @($ctx.Clean.EventLogs).Count }
+        if ($ctx.PSObject.Properties.Name -contains 'Clean' -and $ctx.Clean.PSObject.Properties.Name -contains 'EventLogs') {
+            $eventCount = @($ctx.Clean.EventLogs).Count
+        }
         Write-NetCleanLog -Level INFO -Message ("Event logs touched: {0}" -f $eventCount)
 
-        $userTouched = @()
+        $userTouched = [System.Collections.Generic.List[string]]::new()
         if ($ctx.PSObject.Properties.Name -contains 'Clean' -and $ctx.Clean.PSObject.Properties.Name -contains 'UserArtifacts') {
-            foreach ($u in @($ctx.Clean.UserArtifacts)) { if ($u.Removed) { [void]$userTouched.Add($u.Path) } }
+            foreach ($u in @($ctx.Clean.UserArtifacts)) {
+                if ($u.Removed) {
+                    [void]$userTouched.Add($u.Path)
+                }
+            }
         }
         Write-NetCleanLog -Level INFO -Message ("User artifacts touched count: {0}" -f $userTouched.Count)
 
-        # Verification result
         if ($ctx.PSObject.Properties.Name -contains 'Verify') {
             Write-NetCleanLog -Level INFO -Message ("Verification passed: {0}" -f $ctx.Verify.Summary.Passed)
             Write-NetCleanLog -Level INFO -Message ("Missing vendors: {0}" -f (@($ctx.Verify.VendorComparison.Missing) -join ', '))
@@ -5364,8 +5477,12 @@ function Invoke-NetCleanWorkflow {
             Write-NetCleanLog -Level INFO -Message ("Missing services: {0}" -f (@($ctx.Verify.ServiceComparison.Missing) -join ', '))
         }
 
-        # Also emit a concise console summary
-        Write-Information ('NetClean final summary: Mode={0} DryRun={1} WiFiRemoved={2} RegistryRemoved={3} VerifyPassed={4}' -f $Mode, [bool]$DryRun, $wifiProfiles.Count, $removedRegs.Count, (if ($ctx.PSObject.Properties.Name -contains 'Verify') { $ctx.Verify.Summary.Passed } else { $false })) -InformationAction Continue
+        $verifyPassed = $false
+        if ($ctx.PSObject.Properties.Name -contains 'Verify') {
+            $verifyPassed = [bool]$ctx.Verify.Summary.Passed
+        }
+
+        Write-Information ('NetClean final summary: Mode={0} DryRun={1} WiFiRemoved={2} RegistryRemoved={3} VerifyPassed={4}' -f $Mode, [bool]$DryRun, $wifiProfiles.Count, $removedRegs.Count, $verifyPassed) -InformationAction Continue
     }
 
     return $ctx
