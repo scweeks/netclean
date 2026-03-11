@@ -437,57 +437,36 @@ function Show-ModeExplanation {
 #>
 function Read-NetCleanOption {
     [CmdletBinding()]
-    [OutputType([System.Object])]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory = $true)]
         [string]$SelectedMode,
+
         [switch]$DryRun,
         [switch]$SkipWifi,
         [switch]$SkipDnsFlush,
         [switch]$SkipEventLogs,
         [switch]$SkipUserArtifacts,
         [switch]$SkipFirewallBackup,
-        [switch]$EnableConservativePerformanceTuning
+
+        [ValidateSet('Conservative', 'Optimal', 'Gaming', 'Default')]
+        [string]$PerformanceProfile
     )
 
-    $options = [ordered]@{
-        Mode                              = $SelectedMode
-        DryRun                            = $DryRun
-        SkipWifi                          = $SkipWifi
-        SkipDnsFlush                      = $SkipDnsFlush
-        SkipEventLogs                     = $SkipEventLogs
-        SkipUserArtifacts                 = $SkipUserArtifacts
-        SkipFirewallBackup                = $SkipFirewallBackup
-        EnableConservativePerformanceTuning = $EnableConservativePerformanceTuning
+    if ($SelectedMode -eq 'PerformanceTune' -and [string]::IsNullOrWhiteSpace($PerformanceProfile)) {
+        throw "PerformanceProfile is required when SelectedMode is 'PerformanceTune'."
     }
 
-    if ($PSBoundParameters.ContainsKey('DryRun') -or
-        $PSBoundParameters.ContainsKey('SkipWifi') -or
-        $PSBoundParameters.ContainsKey('SkipDnsFlush') -or
-        $PSBoundParameters.ContainsKey('SkipEventLogs') -or
-        $PSBoundParameters.ContainsKey('SkipUserArtifacts') -or
-        $PSBoundParameters.ContainsKey('SkipFirewallBackup') -or
-        $PSBoundParameters.ContainsKey('EnableConservativePerformanceTuning')) {
-        return [pscustomobject]$options
+    return [pscustomobject]@{
+        SelectedMode        = $SelectedMode
+        DryRun              = [bool]$DryRun
+        SkipWifi            = [bool]$SkipWifi
+        SkipDnsFlush        = [bool]$SkipDnsFlush
+        SkipEventLogs       = [bool]$SkipEventLogs
+        SkipUserArtifacts   = [bool]$SkipUserArtifacts
+        SkipFirewallBackup  = [bool]$SkipFirewallBackup
+        PerformanceProfile  = $PerformanceProfile
     }
-
-    if ($SelectedMode -eq 'Preview') {
-        $options.DryRun = $true
-        return [pscustomobject]$options
-    }
-
-    $options.DryRun = Read-YesNo -Prompt 'Run in dry-run mode?' -DefaultNo $true
-    $options.SkipWifi = -not (Read-YesNo -Prompt 'Remove saved Wi-Fi profiles?' -DefaultNo $false)
-    $options.SkipDnsFlush = -not (Read-YesNo -Prompt 'Flush DNS cache?' -DefaultNo $false)
-    $options.SkipEventLogs = -not (Read-YesNo -Prompt 'Clear selected network-related event logs?' -DefaultNo $false)
-    $options.SkipUserArtifacts = -not (Read-YesNo -Prompt 'Clear selected user-level network artifacts (RDP / mapped drive history)?' -DefaultNo $false)
-    $options.SkipFirewallBackup = -not (Read-YesNo -Prompt 'Back up firewall policy?' -DefaultNo $false)
-
-    if ($SelectedMode -eq 'PerformanceTune') {
-        $options.EnableConservativePerformanceTuning = $true
-    }
-
-    return [pscustomobject]$options
 }
 
 <#
@@ -824,7 +803,19 @@ function Invoke-NetCleanLauncher {
         }
     }
 
+    $selectedPerformanceProfile = $null
+
+    if ($selectedMode -eq 'PerformanceTune') {
+        $selectedPerformanceProfile = Read-NetCleanPerformanceProfileSelection
+
+        if ($selectedPerformanceProfile -eq 'Cancel') {
+            Write-Information 'Performance tuning cancelled.' -InformationAction Continue
+            return
+        }
+    }
+
     Show-ModeExplanation -SelectedMode $selectedMode
+
     $options = Read-NetCleanOption `
         -SelectedMode $selectedMode `
         -DryRun:$DryRun `
@@ -833,7 +824,7 @@ function Invoke-NetCleanLauncher {
         -SkipEventLogs:$SkipEventLogs `
         -SkipUserArtifacts:$SkipUserArtifacts `
         -SkipFirewallBackup:$SkipFirewallBackup `
-        -EnableConservativePerformanceTuning:$EnableConservativePerformanceTuning
+        -PerformanceProfile $selectedPerformanceProfile
 
     if (-not $Force) {
         if (-not (Read-YesNo -Prompt 'Proceed with the selected NetClean operation?' -DefaultNo $true)) {
@@ -846,9 +837,16 @@ function Invoke-NetCleanLauncher {
         Start-NetCleanLog -Directory $LogPath
     }
 
-    Write-NetCleanLog -Level INFO -Message "NetClean starting. Mode=$selectedMode DryRun=$($options.DryRun)"
+    if ($selectedMode -eq 'PerformanceTune' -and $selectedPerformanceProfile) {
+        Write-NetCleanLog -Level INFO -Message ("NetClean starting. Mode={0} DryRun={1} PerformanceProfile={2}" -f $selectedMode, $options.DryRun, $selectedPerformanceProfile)
+    }
+    else {
+        Write-NetCleanLog -Level INFO -Message ("NetClean starting. Mode={0} DryRun={1}" -f $selectedMode, $options.DryRun)
+    }
 
-    New-DirectoryIfNotExist -Path $BackupPath
+    if (-not $options.DryRun) {
+        New-DirectoryIfNotExist -Path $BackupPath
+    }
 
     if ($selectedMode -eq 'Preview') {
         $ctx = Invoke-NetCleanPhase1Detect
@@ -871,7 +869,7 @@ function Invoke-NetCleanLauncher {
         -SkipEventLogs:$options.SkipEventLogs `
         -SkipUserArtifacts:$options.SkipUserArtifacts `
         -SkipFirewallBackup:$options.SkipFirewallBackup `
-        -EnableConservativePerformanceTuning:$options.EnableConservativePerformanceTuning
+        -PerformanceProfile $options.PerformanceProfile
 
     Show-NetCleanSummary -Result $result -SelectedMode $selectedMode
 
@@ -879,14 +877,13 @@ function Invoke-NetCleanLauncher {
     Invoke-PostRunAction -Action $postRunAction -DryRunMode:$options.DryRun
 
     if ($selectedMode -in @(
-    'SafeConferencePrep',
-    'AdvancedRepair',
-    'PerformanceTune'
-)) {
-
-    $powerChoice = Read-NetCleanPowerSelection
-    Invoke-NetCleanPowerAction -Action $powerChoice
-}
+        'SafeConferencePrep',
+        'AdvancedRepair',
+        'PerformanceTune'
+    )) {
+        $powerChoice = Read-NetCleanPowerSelection
+        Invoke-NetCleanPowerAction -Action $powerChoice
+    }
 }
 
 if (-not $script:NetCleanTestMode -and $MyInvocation.InvocationName -ne '.') {

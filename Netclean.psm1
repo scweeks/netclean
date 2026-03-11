@@ -4521,6 +4521,78 @@ function Invoke-AdvancedNetworkRepair {
 }
 
 <#
+    .SYNOPSIS
+    Prompts the user to select a network performance tuning profile.
+    .DESCRIPTION
+    Displays a list of available network performance tuning profiles and allows the user to make a selection.
+    .OUTPUTS
+    [string] The selected profile name.
+#>
+function Read-NetCleanPerformanceProfileSelection {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    while ($true) {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Network Performance Tuning Profiles' -InformationAction Continue
+        Write-Information '-----------------------------------' -InformationAction Continue
+        Write-Information '1. Conservative' -InformationAction Continue
+        Write-Information '   Safe baseline tuning with minimal change.' -InformationAction Continue
+        Write-Information '   Changes:' -InformationAction Continue
+        Write-Information '     - TCP autotuning = normal' -InformationAction Continue
+        Write-Information '   Why:' -InformationAction Continue
+        Write-Information '     - Restores a stable, low-risk TCP setting for most systems.' -InformationAction Continue
+        Write-Information '' -InformationAction Continue
+
+        Write-Information '2. Optimal' -InformationAction Continue
+        Write-Information '   Balanced general-use broadband tuning.' -InformationAction Continue
+        Write-Information '   Changes:' -InformationAction Continue
+        Write-Information '     - TCP autotuning = normal' -InformationAction Continue
+        Write-Information '     - ECN = enabled' -InformationAction Continue
+        Write-Information '     - TCP timestamps = disabled' -InformationAction Continue
+        Write-Information '   Why:' -InformationAction Continue
+        Write-Information '     - Aims for good general throughput and modern TCP behavior.' -InformationAction Continue
+        Write-Information '' -InformationAction Continue
+
+        Write-Information '3. Gaming' -InformationAction Continue
+        Write-Information '   Lower-latency focused tuning.' -InformationAction Continue
+        Write-Information '   Changes:' -InformationAction Continue
+        Write-Information '     - TCP autotuning = normal' -InformationAction Continue
+        Write-Information '     - ECN = disabled' -InformationAction Continue
+        Write-Information '     - TCP timestamps = disabled' -InformationAction Continue
+        Write-Information '   Why:' -InformationAction Continue
+        Write-Information '     - Prioritizes simpler, latency-oriented TCP behavior.' -InformationAction Continue
+        Write-Information '' -InformationAction Continue
+
+        Write-Information '4. Restore Default' -InformationAction Continue
+        Write-Information '   Restore NetClean-supported baseline values.' -InformationAction Continue
+        Write-Information '   Changes:' -InformationAction Continue
+        Write-Information '     - Reverts tuning changes made by NetClean profiles' -InformationAction Continue
+        Write-Information '   Why:' -InformationAction Continue
+        Write-Information '     - Gives you a rollback path if tuning does not help.' -InformationAction Continue
+        Write-Information '' -InformationAction Continue
+
+        Write-Information '5. Cancel' -InformationAction Continue
+        Write-Information '' -InformationAction Continue
+
+        $choice = Read-Host 'Select a profile (1-5)'
+
+        switch ($choice) {
+            '1' { return 'Conservative' }
+            '2' { return 'Optimal' }
+            '3' { return 'Gaming' }
+            '4' { return 'Default' }
+            '5' { return 'Cancel' }
+            default {
+                Write-Information '' -InformationAction Continue
+                Write-Information 'Invalid selection. Please choose 1 through 5.' -InformationAction Continue
+            }
+        }
+    }
+}
+
+<#
 .SYNOPSIS
 Performs conservative performance tuning by enabling normal autotuning, RSS, and ECN.
 .DESCRIPTION
@@ -4534,45 +4606,114 @@ An array of results for each performance tuning command executed, indicating the
 .NOTES
 - These performance tuning steps are generally safe and can provide benefits in typical network environments, but results may vary based on specific hardware and drivers.
 #>
-function Invoke-ConservativePerformanceTune {
+function Invoke-NetworkPerformanceTune {
     [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([System.Object[]])]
     param(
+        [ValidateSet('Conservative','Optimal','Gaming','Default')]
+        [string]$Profile = 'Conservative',
+
         [switch]$DryRun
     )
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    $commands = @(
-        [pscustomobject]@{
-            Name         = 'Enable TCP autotuning normal'
-            FilePath     = 'netsh.exe'
-            ArgumentList = @('int', 'tcp', 'set', 'global', 'autotuninglevel=normal')
-        },
-        [pscustomobject]@{
-            Name         = 'Enable ECN capability'
-            FilePath     = 'netsh.exe'
-            ArgumentList = @('int', 'tcp', 'set', 'global', 'ecncapability=enabled')
-        },
-        [pscustomobject]@{
-            Name         = 'Enable TCP timestamps'
-            FilePath     = 'netsh.exe'
-            ArgumentList = @('int', 'tcp', 'set', 'global', 'timestamps=enabled')
+    switch ($Profile) {
+        'Conservative' {
+            $commands = @(
+                [pscustomobject]@{
+                    Name         = 'Set TCP autotuning to normal'
+                    FilePath     = 'netsh.exe'
+                    ArgumentList = @('int', 'tcp', 'set', 'global', 'autotuninglevel=normal')
+                    Why          = 'Restores stable receive-window scaling behavior.'
+                }
+            )
         }
-    )
+
+        'Optimal' {
+            $commands = @(
+                [pscustomobject]@{
+                    Name         = 'Set TCP autotuning to normal'
+                    FilePath     = 'netsh.exe'
+                    ArgumentList = @('int', 'tcp', 'set', 'global', 'autotuninglevel=normal')
+                    Why          = 'Keeps adaptive receive-window sizing enabled.'
+                },
+                [pscustomobject]@{
+                    Name         = 'Enable ECN capability'
+                    FilePath     = 'netsh.exe'
+                    ArgumentList = @('int', 'tcp', 'set', 'global', 'ecncapability=enabled')
+                    Why          = 'Allows ECN-capable congestion signaling where supported.'
+                },
+                [pscustomobject]@{
+                    Name         = 'Disable TCP timestamps'
+                    FilePath     = 'netsh.exe'
+                    ArgumentList = @('int', 'tcp', 'set', 'global', 'timestamps=disabled')
+                    Why          = 'Reduces header overhead for most common client workloads.'
+                }
+            )
+        }
+
+        'Gaming' {
+            $commands = @(
+                [pscustomobject]@{
+                    Name         = 'Set TCP autotuning to normal'
+                    FilePath     = 'netsh.exe'
+                    ArgumentList = @('int', 'tcp', 'set', 'global', 'autotuninglevel=normal')
+                    Why          = 'Maintains modern TCP scaling without over-constraining throughput.'
+                },
+                [pscustomobject]@{
+                    Name         = 'Disable ECN capability'
+                    FilePath     = 'netsh.exe'
+                    ArgumentList = @('int', 'tcp', 'set', 'global', 'ecncapability=disabled')
+                    Why          = 'Avoids dependency on ECN behavior across network paths.'
+                },
+                [pscustomobject]@{
+                    Name         = 'Disable TCP timestamps'
+                    FilePath     = 'netsh.exe'
+                    ArgumentList = @('int', 'tcp', 'set', 'global', 'timestamps=disabled')
+                    Why          = 'Keeps packet overhead and TCP options simpler.'
+                }
+            )
+        }
+
+        'Default' {
+            $commands = @(
+                [pscustomobject]@{
+                    Name         = 'Set TCP autotuning to normal'
+                    FilePath     = 'netsh.exe'
+                    ArgumentList = @('int', 'tcp', 'set', 'global', 'autotuninglevel=normal')
+                    Why          = 'Restores the NetClean baseline autotuning state.'
+                },
+                [pscustomobject]@{
+                    Name         = 'Disable ECN capability'
+                    FilePath     = 'netsh.exe'
+                    ArgumentList = @('int', 'tcp', 'set', 'global', 'ecncapability=disabled')
+                    Why          = 'Restores the NetClean baseline ECN state.'
+                },
+                [pscustomobject]@{
+                    Name         = 'Disable TCP timestamps'
+                    FilePath     = 'netsh.exe'
+                    ArgumentList = @('int', 'tcp', 'set', 'global', 'timestamps=disabled')
+                    Why          = 'Restores the NetClean baseline timestamp state.'
+                }
+            )
+        }
+    }
 
     $results = [System.Collections.Generic.List[object]]::new()
 
     foreach ($cmd in $commands) {
         if ($DryRun) {
             if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Would perform conservative performance tuning action: {0}" -f $cmd.Name)
+                Write-NetCleanLog -Level INFO -Message ("Would apply tuning profile '{0}' action: {1}" -f $Profile, $cmd.Name)
             }
 
             $results.Add([pscustomobject]@{
+                Profile   = $Profile
                 Name      = $cmd.Name
                 FilePath  = $cmd.FilePath
                 Arguments = ($cmd.ArgumentList -join ' ')
+                Why       = $cmd.Why
                 Succeeded = $true
                 Applied   = $false
                 DryRun    = $true
@@ -4585,15 +4726,17 @@ function Invoke-ConservativePerformanceTune {
             continue
         }
 
-        if (-not $PSCmdlet.ShouldProcess($cmd.Name, 'Perform conservative performance tuning action')) {
+        if (-not $PSCmdlet.ShouldProcess($cmd.Name, "Apply network tuning profile '$Profile'")) {
             if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("WhatIf prevented conservative performance tuning action: {0}" -f $cmd.Name)
+                Write-NetCleanLog -Level INFO -Message ("WhatIf prevented tuning profile '{0}' action: {1}" -f $Profile, $cmd.Name)
             }
 
             $results.Add([pscustomobject]@{
+                Profile   = $Profile
                 Name      = $cmd.Name
                 FilePath  = $cmd.FilePath
                 Arguments = ($cmd.ArgumentList -join ' ')
+                Why       = $cmd.Why
                 Succeeded = $false
                 Applied   = $false
                 DryRun    = $false
@@ -4614,9 +4757,11 @@ function Invoke-ConservativePerformanceTune {
                 -IgnoreExitCode
 
             $results.Add([pscustomobject]@{
+                Profile   = $Profile
                 Name      = $result.Name
                 FilePath  = $cmd.FilePath
                 Arguments = ($cmd.ArgumentList -join ' ')
+                Why       = $cmd.Why
                 Succeeded = [bool]$result.Succeeded
                 Applied   = [bool]$result.Succeeded
                 DryRun    = $false
@@ -4628,22 +4773,24 @@ function Invoke-ConservativePerformanceTune {
 
             if ($canLog) {
                 if ($result.Succeeded) {
-                    Write-NetCleanLog -Level INFO -Message ("Completed conservative performance tuning action: {0}" -f $cmd.Name)
+                    Write-NetCleanLog -Level INFO -Message ("Applied tuning profile '{0}' action: {1}" -f $Profile, $cmd.Name)
                 }
                 else {
-                    Write-NetCleanLog -Level WARN -Message ("Failed conservative performance tuning action '{0}': {1}" -f $cmd.Name, $result.Error)
+                    Write-NetCleanLog -Level WARN -Message ("Failed tuning profile '{0}' action '{1}': {2}" -f $Profile, $cmd.Name, $result.Error)
                 }
             }
         }
         catch {
             if ($canLog) {
-                Write-NetCleanLog -Level WARN -Message ("Exception during conservative performance tuning action '{0}': {1}" -f $cmd.Name, $_.Exception.Message)
+                Write-NetCleanLog -Level WARN -Message ("Exception applying tuning profile '{0}' action '{1}': {2}" -f $Profile, $cmd.Name, $_.Exception.Message)
             }
 
             $results.Add([pscustomobject]@{
+                Profile   = $Profile
                 Name      = $cmd.Name
                 FilePath  = $cmd.FilePath
                 Arguments = ($cmd.ArgumentList -join ' ')
+                Why       = $cmd.Why
                 Succeeded = $false
                 Applied   = $false
                 DryRun    = $false
