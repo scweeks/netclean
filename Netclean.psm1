@@ -77,7 +77,7 @@
     }
 
     ## Read human-friendly network profile names directly from the registry.
-    function Get-NetworkListProfileName {
+    function Get-NetworkListProfileNames {
         [CmdletBinding()]
         param()
 
@@ -91,11 +91,11 @@
                         $pn = Get-ItemProperty -Path $c.PSPath -Name 'ProfileName' -ErrorAction SilentlyContinue
                         if ($pn -and $pn.ProfileName) { [void]$names.Add($pn.ProfileName) }
                     }
-                    catch { Write-Verbose "Get-NetworkListProfileName child: $($_.Exception.Message)" }
+                    catch { Write-Verbose "Get-NetworkListProfileNames child: $($_.Exception.Message)" }
                 }
             }
         }
-        catch { Write-Verbose "Get-NetworkListProfileName: $($_.Exception.Message)" }
+        catch { Write-Verbose "Get-NetworkListProfileNames: $($_.Exception.Message)" }
 
         return $names.ToArray() | Sort-Object -Unique
     }
@@ -3013,7 +3013,7 @@ Parses `netsh wlan show profiles` output to extract profile names; returns an em
 .OUTPUTS
 Array of Wi‑Fi profile name strings.
 #>
-function Get-WiFiProfileName {
+function Get-WiFiProfileNames {
     [CmdletBinding()]
     [OutputType([string[]])]
     param()
@@ -3098,7 +3098,7 @@ function Export-WiFiProfile {
     $exported = [System.Collections.Generic.List[string]]::new()
 
     $listFile = Join-Path $Dest ("WiFiProfiles_{0}.txt" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-    $profiles = @(Get-WiFiProfileName)
+    $profiles = @(Get-WiFiProfileNames)
 
     if ($profiles.Count -eq 0) {
         if ($canLog) {
@@ -3675,7 +3675,7 @@ function Remove-WiFiProfilesSafe {
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     if ($PSBoundParameters.ContainsKey('Profiles') -and $Profiles) { $profiles = @($Profiles) }
-    else { $profiles = @(Get-WiFiProfileName) }
+    else { $profiles = @(Get-WiFiProfileNames) }
     $removed = New-Object System.Collections.Generic.List[string]
     $operations = New-Object System.Collections.Generic.List[object]
 
@@ -4600,7 +4600,7 @@ Executes a set of commands to enable normal autotuning, Receive Side Scaling (RS
 .PARAMETER DryRun
 If specified, all operations are simulated and no actual changes are made to the system. Results will indicate what would have been done.
 .EXAMPLE
-Invoke-ConservativePerformanceTune -DryRun
+Invoke-NetworkPerformanceTune -DryRun
 .OUTPUTS
 An array of results for each performance tuning command executed, indicating the name of the command, whether it succeeded, if it was a dry run, and any error messages if applicable.
 .NOTES
@@ -4935,7 +4935,7 @@ function Invoke-NetCleanPhase3Clean {
 
     $tuningResults = @()
     if ($Mode -eq 'PerformanceTune' -or $EnableConservativePerformanceTuning) {
-        $tuningResults = @(Invoke-ConservativePerformanceTune -DryRun:$DryRun)
+        $tuningResults = @(Invoke-NetworkPerformanceTune -DryRun:$DryRun)
     }
 
     Add-Member -InputObject $newContext -NotePropertyName Phase -NotePropertyValue 'Clean' -Force
@@ -5339,7 +5339,7 @@ function Invoke-NetCleanWorkflow {
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName WiFiProfilesFound -NotePropertyValue @($wifiFound) -Force
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName WiFiProfilesFoundCount -NotePropertyValue $wifiFound.Count -Force
 
-            $netProfiles = @(Get-NetworkListProfileNames)
+            $netProfiles = @(Get-NetworkListProfileNamess)
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName NetworkProfilesFound -NotePropertyValue @($netProfiles) -Force
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName NetworkProfilesFoundCount -NotePropertyValue $netProfiles.Count -Force
         }
@@ -5671,7 +5671,7 @@ Export-ModuleMember -Function @(
     'Invoke-NetCleanPhase1Detect',
     'Export-ProtectedRegistryKey',
     'Export-NetworkList',
-    'Get-WiFiProfileName',
+    'Get-WiFiProfileNames',
     'Export-WiFiProfile',
     'Export-FirewallPolicy',
     'Export-ProtectionInventory',
@@ -5688,7 +5688,7 @@ Export-ModuleMember -Function @(
     'Clear-NetworkEventLogsSafe',
     'Clear-UserNetworkArtifactsSafe',
     'Invoke-AdvancedNetworkRepair',
-    'Invoke-ConservativePerformanceTune',
+    'Invoke-NetworkPerformanceTune',
     'Invoke-NetCleanPhase3Clean',
     'Test-NetCleanPostState',
     'Invoke-NetCleanPhase4Verify',
