@@ -14,59 +14,150 @@ Remove-WiFiProfilesSafe -DryRun
 #>
 function Remove-WiFiProfilesSafe {
     [CmdletBinding(SupportsShouldProcess = $true)]
-    [OutputType([System.Object])]
+    [OutputType([pscustomobject])]
     param(
         [switch]$DryRun,
-        [string[]]$Profiles
+
+        [string[]]$WifiProfiles
     )
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    if ($PSBoundParameters.ContainsKey('Profiles') -and $Profiles) { $profiles = @($Profiles) }
-    else { $profiles = @(Get--WiFiProfileName) }
-    $removed = New-Object System.Collections.Generic.List[string]
-    $operations = New-Object System.Collections.Generic.List[object]
+    if ($PSBoundParameters.ContainsKey('WifiProfiles') -and $WifiProfiles) {
+        $profiles = @($WifiProfiles)
+    }
+    else {
+        $profiles = @(Get-WiFiProfileName)
+    }
+
+    $removed = [System.Collections.Generic.List[string]]::new()
+    $operations = [System.Collections.Generic.List[object]]::new()
+
+    if ($profiles.Count -eq 0) {
+        if ($canLog) {
+            Write-NetCleanLog -Level INFO -Message 'No Wi-Fi profiles found to remove.'
+        }
+
+        return [pscustomobject]@{
+            Removed    = 0
+            Profiles   = @()
+            Operations = @()
+        }
+    }
 
     if ($DryRun) {
         foreach ($wifiProfile in $profiles) {
-            if ($canLog) { Write-NetCleanLog -Level INFO -Message ("Would remove Wi-Fi profile: {0}" -f $wifiProfile) }
-            $operations.Add([pscustomobject]@{ Name = $wifiProfile; Succeeded = $true; Skipped = $false; Reason = 'DryRun' })
+            if ($canLog) {
+                Write-NetCleanLog -Level INFO -Message ("Would remove Wi-Fi profile: {0}" -f $wifiProfile)
+            }
+
+            $operations.Add([pscustomobject]@{
+                Name      = $wifiProfile
+                Succeeded = $true
+                Skipped   = $false
+                Reason    = 'DryRun'
+            })
+
             [void]$removed.Add($wifiProfile)
         }
     }
     else {
         $toProcess = @()
+
         foreach ($wifiProfile in $profiles) {
             if (-not $PSCmdlet.ShouldProcess("Wi-Fi profile '$wifiProfile'", 'Delete')) {
-                if ($canLog) { Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented Wi-Fi profile removal: {0}" -f $wifiProfile) }
-                $operations.Add([pscustomobject]@{ Name = $wifiProfile; Succeeded = $false; Skipped = $true; Reason = 'WhatIf' })
+                if ($canLog) {
+                    Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented Wi-Fi profile removal: {0}" -f $wifiProfile)
+                }
+
+                $operations.Add([pscustomobject]@{
+                    Name      = $wifiProfile
+                    Succeeded = $false
+                    Skipped   = $true
+                    Reason    = 'WhatIf'
+                })
+
                 continue
             }
+
             $toProcess += $wifiProfile
         }
 
         if ($toProcess.Count -gt 0) {
-            # Use parallel jobs to delete profiles in batches for speed; fallback to sequential if job unavailable
             $sb = {
                 param($p)
-                & netsh wlan delete profile name="$p" 2>&1 | Out-Null
-                if ($LASTEXITCODE -eq 0) { [pscustomobject]@{ Name = $p; Succeeded = $true; Skipped = $false; Reason = 'Removed' } }
-                else { [pscustomobject]@{ Name = $p; Succeeded = $false; Skipped = $false; Reason = 'Failed' } }
+
+                & netsh.exe wlan delete profile name="$p" 2>&1 | Out-Null
+
+                if ($LASTEXITCODE -eq 0) {
+                    [pscustomobject]@{
+                        Name      = $p
+                        Succeeded = $true
+                        Skipped   = $false
+                        Reason    = 'Removed'
+                    }
+                }
+                else {
+                    [pscustomobject]@{
+                        Name      = $p
+                        Succeeded = $false
+                        Skipped   = $false
+                        Reason    = 'Failed'
+                    }
+                }
             }
 
             try {
-                $res = Invoke-InParallel -ScriptBlock $sb -InputObjects $toProcess -ThrottleLimit ([System.Math]::Max(1, [System.Environment]::ProcessorCount))
+                $res = Invoke-InParallel `
+                    -ScriptBlock $sb `
+                    -InputObjects $toProcess `
+                    -ThrottleLimit ([System.Math]::Max(1, [System.Environment]::ProcessorCount))
             }
             catch {
-                $res = @()
+                if ($canLog) {
+                    Write-NetCleanLog -Level WARN -Message ("Parallel Wi-Fi profile removal failed, falling back to sequential processing: {0}" -f $_.Exception.Message)
+                }
+
+                $res = foreach ($wifiProfile in $toProcess) {
+                    & netsh.exe wlan delete profile name="$wifiProfile" 2>&1 | Out-Null
+
+                    if ($LASTEXITCODE -eq 0) {
+                        [pscustomobject]@{
+                            Name      = $wifiProfile
+                            Succeeded = $true
+                            Skipped   = $false
+                            Reason    = 'Removed'
+                        }
+                    }
+                    else {
+                        [pscustomobject]@{
+                            Name      = $wifiProfile
+                            Succeeded = $false
+                            Skipped   = $false
+                            Reason    = 'Failed'
+                        }
+                    }
+                }
             }
 
             foreach ($r in $res) {
-                if ($r -and $r.Succeeded) { [void]$removed.Add($r.Name) }
+                if ($null -eq $r) {
+                    continue
+                }
+
+                if ($r.Succeeded) {
+                    [void]$removed.Add($r.Name)
+                }
+
                 $operations.Add($r)
+
                 if ($canLog) {
-                    if ($r.Succeeded) { Write-NetCleanLog -Level INFO -Message ("Removed Wi-Fi profile: {0}" -f $r.Name) }
-                    else { Write-NetCleanLog -Level WARN -Message ("Failed to remove Wi-Fi profile '{0}': {1}" -f $r.Name, $r.Reason) }
+                    if ($r.Succeeded) {
+                        Write-NetCleanLog -Level INFO -Message ("Removed Wi-Fi profile: {0}" -f $r.Name)
+                    }
+                    else {
+                        Write-NetCleanLog -Level WARN -Message ("Failed to remove Wi-Fi profile '{0}': {1}" -f $r.Name, $r.Reason)
+                    }
                 }
             }
         }
@@ -1356,7 +1447,7 @@ function Invoke-NetCleanPhase3Clean {
         # Event logs (be defensive: test for properties before accessing them)
         foreach ($l in @($logResults)) {
             $cmd = $null
-            if ($l -ne $null) {
+            if ($null -ne $l) {
                 if ($l.PSObject.Properties.Name -contains 'Command') { $cmd = $l.Command }
                 elseif ($l.PSObject.Properties.Name -contains 'Name') { $cmd = $l.Name }
                 elseif ($l.PSObject.Properties.Name -contains 'LogName') { $cmd = $l.LogName }
