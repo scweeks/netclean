@@ -1026,7 +1026,6 @@ function Get-VendorSignature {
     }
 }
 
-
 function Test-VendorPatternMatch {
     [CmdletBinding()]
     [OutputType([System.Boolean])]
@@ -1278,8 +1277,6 @@ function Get-AdapterRegistryCorrelation {
     return $results.ToArray()
 }
 
-
-
 function Invoke-RegExport {
     [CmdletBinding()]
     [OutputType([System.String])]
@@ -1314,9 +1311,6 @@ function Invoke-RegExport {
 
     return $FilePath
 }
-
-
-
 
 <#
 .SYNOPSIS
