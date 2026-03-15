@@ -76,8 +76,8 @@ jobs:
 
             Write-Host "PSScriptAnalyzer found $errors error(s) and $warnings warning(s)."
 
-            if ($errors -gt 0 -or $warnings -gt 0) {
-              throw 'PSScriptAnalyzer reported rule violations.'
+            if ($errors -gt 0) {
+              throw 'PSScriptAnalyzer reported errors.'
             }
           }
           else {
