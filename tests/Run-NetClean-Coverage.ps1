@@ -95,6 +95,13 @@ Write-Information "JUnit XML:  $testXml" -InformationAction Continue
 Write-Information "JaCoCo XML: $coverageXml" -InformationAction Continue
 Write-Information '' -InformationAction Continue
 
+$minimumCoverage = 95
+
+if ($result.CodeCoverage.CoveragePercent -lt $minimumCoverage) {
+    Write-Error "Coverage below required threshold ($minimumCoverage%)."
+    exit 1
+}
+
 if ($PassThru) {
     return $result
 }

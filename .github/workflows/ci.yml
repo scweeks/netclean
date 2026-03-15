@@ -12,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 jobs:
   test-and-analyze:
@@ -76,8 +77,8 @@ jobs:
 
             Write-Host "PSScriptAnalyzer found $errors error(s) and $warnings warning(s)."
 
-            if ($errors -gt 0) {
-              throw 'PSScriptAnalyzer reported errors.'
+            if ($errors -gt 0 -or $warnings -gt 0) {
+              throw 'PSScriptAnalyzer reported rule violations.'
             }
           }
           else {
@@ -88,6 +89,18 @@ jobs:
         run: |
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
           .\tests\Run-NetClean-Coverage.ps1
+
+      - name: Comment PR with coverage summary
+        if: github.event_name == 'pull_request'
+        uses: madrapps/jacoco-report@v1.7.2
+        with:
+          paths: |
+            ${{ github.workspace }}/tests/TestResults/coverage.xml
+          token: ${{ secrets.GITHUB_TOKEN }}
+          min-coverage-overall: 95
+          min-coverage-changed-files: 95
+          title: NetClean Coverage Report
+          update-comment: true
 
       - name: Upload test and coverage artifacts
         if: always()
