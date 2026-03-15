@@ -18,10 +18,10 @@ Set-StrictMode -Version Latest
 
 $script:ModuleRoot = Split-Path -Parent $PSCommandPath
 
-. (Join-Path $script:ModuleRoot 'NetCleanPhase1.psm1')
-. (Join-Path $script:ModuleRoot 'NetCleanPhase2.psm1')
-. (Join-Path $script:ModuleRoot 'NetCleanPhase3.psm1')
-. (Join-Path $script:ModuleRoot 'NetCleanPhase4.psm1')
+. (Join-Path $script:ModuleRoot 'NetCleanPhase1.ps1')
+. (Join-Path $script:ModuleRoot 'NetCleanPhase2.ps1')
+. (Join-Path $script:ModuleRoot 'NetCleanPhase3.ps1')
+. (Join-Path $script:ModuleRoot 'NetCleanPhase4.ps1')
 
 # Returns $true when the runtime supports simple parallelism helpers we use (Start-Job batching)
 function Test-ParallelCapability {
