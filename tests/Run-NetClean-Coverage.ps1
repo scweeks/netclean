@@ -68,7 +68,7 @@ $config.CodeCoverage.OutputFormat = 'JaCoCo'
 $config.CodeCoverage.OutputPath = $coverageXml
 
 Write-Information '' -InformationAction Continue
-Write-Information 'Running Pester with coverage...' -ForegroundColor Cyan -InformationAction Continue
+Write-Information 'Running Pester with coverage...'-InformationAction Continue
 Write-Information "RepoRoot:    $RepoRoot" -InformationAction Continue
 Write-Information "Tests:       $($testFiles.Count)" -InformationAction Continue
 Write-Information "Coverage on: $($coverageFiles.Count) files" -InformationAction Continue
@@ -77,14 +77,14 @@ Write-Information ''
 $result = Invoke-Pester -Configuration $config
 
 Write-Information '' -InformationAction Continue
-Write-Information 'Pester summary' -ForegroundColor Cyan -InformationAction Continue
+Write-Information 'Pester summary'-InformationAction Continue
 Write-Information "Passed: $($result.PassedCount)" -InformationAction Continue
 Write-Information "Failed: $($result.FailedCount)" -InformationAction Continue
 Write-Information "Skipped: $($result.SkippedCount)" -InformationAction Continue
 Write-Information '' -InformationAction Continue
 
 if ($null -ne $result.CodeCoverage) {
-    Write-Information 'Coverage summary' -ForegroundColor Cyan -InformationAction Continue
+    Write-Information 'Coverage summary'-InformationAction Continue
     Write-Information ("Commands analyzed: {0}" -f $result.CodeCoverage.NumberOfCommandsAnalyzed) -InformationAction Continue
     Write-Information ("Commands executed: {0}" -f $result.CodeCoverage.NumberOfCommandsExecuted) -InformationAction Continue
     Write-Information ("Percent covered:   {0:N2}%" -f $result.CodeCoverage.CoveragePercent) -InformationAction Continue
