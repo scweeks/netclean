@@ -1,16 +1,11 @@
 BeforeAll {
-    $modulePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'NetClean.psm1'
-    $scriptPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'NetClean.ps1'
-
-    if (-not (Test-Path $modulePath)) {
-        throw "NetClean.psm1 not found at path: $modulePath"
+    $manifestPath = Join-Path $repoRoot 'Netclean.psd1'
+    if (-not (Test-Path $manifestPath)) {
+        throw "Netclean.psd1 not found at path: $manifestPath"
     }
 
-    if (-not (Test-Path $scriptPath)) {
-        throw "NetClean.ps1 not found at path: $scriptPath"
-    }
-
-    Import-Module $modulePath -Force -ErrorAction Stop
+    Remove-Module NetClean, NetCleanPhase1, NetCleanPhase2, NetCleanPhase3, NetCleanPhase4 -ErrorAction SilentlyContinue
+    Import-Module $manifestPath -Force
 }
 
 Describe 'NetClean.ps1 launcher / UX functions' {

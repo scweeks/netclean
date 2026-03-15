@@ -1,17 +1,17 @@
 BeforeAll {
-    $modulePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'NetClean.psm1'
-
-    if (-not (Test-Path $modulePath)) {
-        throw "NetClean.psm1 not found at path: $modulePath"
+    $manifestPath = Join-Path $PSScriptRoot '..\Netclean.psd1'
+    if (-not (Test-Path $manifestPath)) {
+        throw "Netclean.psd1 not found at path: $manifestPath"
     }
 
-    Import-Module $modulePath -Force -ErrorAction Stop
+    Remove-Module NetClean, NetCleanPhase1, NetCleanPhase2, NetCleanPhase3, NetCleanPhase4 -ErrorAction SilentlyContinue
+    Import-Module $manifestPath -Force
 }
 
 Describe 'NetClean.psm1 import/export surface' {
-    It 'imports the module without throwing' {
-        $modulePath = Join-Path (Split-Path -Parent $PSScriptRoot) 'NetClean.psm1'
-        { Import-Module $modulePath -Force } | Should -Not -Throw
+    It 'imports the module manifest without throwing' {
+        $manifestPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'Netclean.psd1'
+        { Import-Module $manifestPath -Force } | Should -Not -Throw
     }
 
     It 'exports the expected primary phase functions' {
