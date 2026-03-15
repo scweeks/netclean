@@ -66,7 +66,7 @@ function Export-ProtectedRegistryKey {
 }
 
 ## Read human-friendly network profile names directly from the registry.
-function Get-NetworkListProfileNames {
+function Get-NetworkListProfileName {
     [CmdletBinding()]
     param()
 
@@ -80,11 +80,11 @@ function Get-NetworkListProfileNames {
                     $pn = Get-ItemProperty -Path $c.PSPath -Name 'ProfileName' -ErrorAction SilentlyContinue
                     if ($pn -and $pn.ProfileName) { [void]$names.Add($pn.ProfileName) }
                 }
-                catch { Write-Verbose "Get-NetworkListProfileNames child: $($_.Exception.Message)" }
+                catch { Write-Verbose "Get-NetworkListProfileName child: $($_.Exception.Message)" }
             }
         }
     }
-    catch { Write-Verbose "Get-NetworkListProfileNames: $($_.Exception.Message)" }
+    catch { Write-Verbose "Get-NetworkListProfileName: $($_.Exception.Message)" }
 
     return $names.ToArray() | Sort-Object -Unique
 }

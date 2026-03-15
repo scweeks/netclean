@@ -39,7 +39,8 @@ param(
     [switch]$SkipEventLogs,
     [switch]$SkipUserArtifacts,
     [switch]$SkipFirewallBackup,
-    [switch]$EnableConservativePerformanceTuning,
+    [ValidateSet('Conservative', 'Optimal', 'Gaming', 'Default')]
+    [string]$PerformanceProfile = 'Default',
     [switch]$RebootNow
 )
 
@@ -69,7 +70,7 @@ if ($false) {
     $null = $SkipEventLogs
     $null = $SkipUserArtifacts
     $null = $SkipFirewallBackup
-    $null = $EnableConservativePerformanceTuning
+    $null = $PerformanceProfile
     $null = $RebootNow
 }
 

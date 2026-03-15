@@ -1,80 +1,102 @@
-﻿    # Returns $true when the runtime supports simple parallelism helpers we use (Start-Job batching)
-    function Test-ParallelCapability {
-        [CmdletBinding()]
-        param()
+﻿<#
+.SYNOPSIS
+    NetClean PowerShell module
+.DESCRIPTION
+    Phase-oriented engine for:
+    - Phase 1: Detect
+    - Phase 2: Protect
+    - Phase 3: Clean
+    - Phase 4: Verify
+.FUNCTIONALITY
+    System, Security, Diagnostics
+    Goal:
+    Remove user/environment-identifying network history and metadata while
+    preserving required security, virtualization, firewall, VPN, and network
+    infrastructure software.
+#>
+$moduleRoot = Split-Path -Parent $PSCommandPath
+. (Join-Path $moduleRoot 'NetCleanPhase1.psm1')
+. (Join-Path $moduleRoot 'NetCleanPhase2.psm1')
+. (Join-Path $moduleRoot 'NetCleanPhase3.psm1')
+. (Join-Path $moduleRoot 'NetCleanPhase4.psm1')
 
-        return $true
+# Returns $true when the runtime supports simple parallelism helpers we use (Start-Job batching)
+function Test-ParallelCapability {
+    [CmdletBinding()]
+    param()
+
+    return $true
+}
+
+# Invoke a scriptblock over an input list in parallel using Start-Job with simple throttling.
+# Returns an array of results collected from each job's output. This is compatible with Windows PowerShell.
+function Invoke-InParallel {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$ScriptBlock,
+
+        [Parameter(Mandatory = $true)]
+        [object[]]$InputObjects,
+
+        [int]$ThrottleLimit = ([System.Environment]::ProcessorCount)
+    )
+    # Prefer PowerShell 7+ runspace parallelism when available for efficiency.
+    if ($PSVersionTable.PSVersion -and $PSVersionTable.PSVersion.Major -ge 7) {
+        try {
+            $ps7Results = @()
+            $InputObjects | ForEach-Object -Parallel {
+                try {
+                    $res = & $using:ScriptBlock $_
+                    if ($res) { $res }
+                }
+                catch { Write-Verbose "Invoke-InParallel (PS7): $($_.Exception.Message)" }
+            } -ThrottleLimit $ThrottleLimit -ErrorAction Stop | ForEach-Object { $ps7Results += $_ }
+
+            return , $ps7Results
+        }
+        catch { Write-Verbose "Invoke-InParallel PS7 fallback: $($_.Exception.Message)" }
     }
 
-    # Invoke a scriptblock over an input list in parallel using Start-Job with simple throttling.
-    # Returns an array of results collected from each job's output. This is compatible with Windows PowerShell.
-    function Invoke-InParallel {
-        [CmdletBinding()]
-        param(
-            [Parameter(Mandatory=$true)]
-            [scriptblock]$ScriptBlock,
+    # Fallback: Start-Job batching for Windows PowerShell compatibility
+    $jobs = @()
+    $results = New-Object System.Collections.Generic.List[object]
 
-            [Parameter(Mandatory=$true)]
-            [object[]]$InputObjects,
-
-            [int]$ThrottleLimit = ([System.Environment]::ProcessorCount)
-        )
-        # Prefer PowerShell 7+ runspace parallelism when available for efficiency.
-        if ($PSVersionTable.PSVersion -and $PSVersionTable.PSVersion.Major -ge 7) {
-            try {
-                $ps7Results = @()
-                $InputObjects | ForEach-Object -Parallel {
-                    try {
-                        $res = & $using:ScriptBlock $_
-                        if ($res) { $res }
-                    }
-                    catch { Write-Verbose "Invoke-InParallel (PS7): $($_.Exception.Message)" }
-                } -ThrottleLimit $ThrottleLimit -ErrorAction Stop | ForEach-Object { $ps7Results += $_ }
-
-                return ,$ps7Results
-            }
-            catch { Write-Verbose "Invoke-InParallel PS7 fallback: $($_.Exception.Message)" }
-        }
-
-        # Fallback: Start-Job batching for Windows PowerShell compatibility
-        $jobs = @()
-        $results = New-Object System.Collections.Generic.List[object]
-
-        foreach ($item in $InputObjects) {
-            while ($jobs.Count -ge $ThrottleLimit) {
-                [void](Wait-Job -Job $jobs -Any -Timeout 1)
-                $finished = $jobs | Where-Object { $_.State -ne 'Running' }
-                foreach ($j in $finished) {
-                    try {
-                        $r = Receive-Job -Job $j -ErrorAction SilentlyContinue
-                        if ($r) {
-                            foreach ($itemOut in $r) { $results.Add($itemOut) }
-                        }
-                    }
-                    catch { Write-Verbose "Invoke-InParallel (Receive-Job): $($_.Exception.Message)" }
-                    Remove-Job -Job $j -Force -ErrorAction SilentlyContinue
-                }
-                $jobs = $jobs | Where-Object { $_.State -eq 'Running' }
-            }
-
-            $jobs += Start-Job -ArgumentList $item -ScriptBlock $ScriptBlock
-        }
-
-        # Wait for remaining
-        if ($jobs.Count -gt 0) {
-            Wait-Job -Job $jobs
-            foreach ($j in $jobs) {
+    foreach ($item in $InputObjects) {
+        while ($jobs.Count -ge $ThrottleLimit) {
+            [void](Wait-Job -Job $jobs -Any -Timeout 1)
+            $finished = $jobs | Where-Object { $_.State -ne 'Running' }
+            foreach ($j in $finished) {
                 try {
                     $r = Receive-Job -Job $j -ErrorAction SilentlyContinue
-                    if ($r) { foreach ($itemOut in $r) { $results.Add($itemOut) } }
+                    if ($r) {
+                        foreach ($itemOut in $r) { $results.Add($itemOut) }
+                    }
                 }
-                catch { Write-Verbose "Invoke-InParallel (final Receive-Job): $($_.Exception.Message)" }
+                catch { Write-Verbose "Invoke-InParallel (Receive-Job): $($_.Exception.Message)" }
                 Remove-Job -Job $j -Force -ErrorAction SilentlyContinue
             }
+            $jobs = $jobs | Where-Object { $_.State -eq 'Running' }
         }
 
-        return $results.ToArray()
+        $jobs += Start-Job -ArgumentList $item -ScriptBlock $ScriptBlock
     }
+
+    # Wait for remaining
+    if ($jobs.Count -gt 0) {
+        Wait-Job -Job $jobs
+        foreach ($j in $jobs) {
+            try {
+                $r = Receive-Job -Job $j -ErrorAction SilentlyContinue
+                if ($r) { foreach ($itemOut in $r) { $results.Add($itemOut) } }
+            }
+            catch { Write-Verbose "Invoke-InParallel (final Receive-Job): $($_.Exception.Message)" }
+            Remove-Job -Job $j -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    return $results.ToArray()
+}
 
 
 <#
@@ -179,7 +201,7 @@ function Start-NetCleanLog {
 function Write-NetCleanLog {
     [CmdletBinding()]
     param(
-        [ValidateSet('INFO','WARN','ERROR','DEBUG','TRACE')]
+        [ValidateSet('INFO', 'WARN', 'ERROR', 'DEBUG', 'TRACE')]
         [string]$Level = 'INFO',
 
         [Parameter(Mandatory = $true)]
@@ -200,8 +222,8 @@ function Write-NetCleanLog {
 
     switch ($Level) {
         'ERROR' { Write-Error $Message }
-        'WARN'  { Write-Warning $Message }
-        'INFO'  { Write-Information $Message -InformationAction Continue }
+        'WARN' { Write-Warning $Message }
+        'INFO' { Write-Information $Message -InformationAction Continue }
         'DEBUG' { Write-Verbose $Message }
         'TRACE' { Write-Debug $Message }
     }
@@ -309,17 +331,17 @@ function Convert-RegToProviderPath {
     $p = Convert-RegKeyPath -Path $RegistryPath
 
     switch -Regex ($p) {
-        '^HKLM\\'               { return ('Registry::HKEY_LOCAL_MACHINE\' + $p.Substring(5)) }
+        '^HKLM\\' { return ('Registry::HKEY_LOCAL_MACHINE\' + $p.Substring(5)) }
         '^HKEY_LOCAL_MACHINE\\' { return ('Registry::' + $p) }
-        '^HKCU\\'               { return ('Registry::HKEY_CURRENT_USER\' + $p.Substring(5)) }
-        '^HKEY_CURRENT_USER\\'  { return ('Registry::' + $p) }
-        '^HKCR\\'               { return ('Registry::HKEY_CLASSES_ROOT\' + $p.Substring(5)) }
-        '^HKEY_CLASSES_ROOT\\'  { return ('Registry::' + $p) }
-        '^HKU\\'                { return ('Registry::HKEY_USERS\' + $p.Substring(4)) }
-        '^HKEY_USERS\\'         { return ('Registry::' + $p) }
-        '^HKCC\\'               { return ('Registry::HKEY_CURRENT_CONFIG\' + $p.Substring(5)) }
-        '^HKEY_CURRENT_CONFIG\\'{ return ('Registry::' + $p) }
-        default                 { throw "Unsupported registry root in path '$RegistryPath'" }
+        '^HKCU\\' { return ('Registry::HKEY_CURRENT_USER\' + $p.Substring(5)) }
+        '^HKEY_CURRENT_USER\\' { return ('Registry::' + $p) }
+        '^HKCR\\' { return ('Registry::HKEY_CLASSES_ROOT\' + $p.Substring(5)) }
+        '^HKEY_CLASSES_ROOT\\' { return ('Registry::' + $p) }
+        '^HKU\\' { return ('Registry::HKEY_USERS\' + $p.Substring(4)) }
+        '^HKEY_USERS\\' { return ('Registry::' + $p) }
+        '^HKCC\\' { return ('Registry::HKEY_CURRENT_CONFIG\' + $p.Substring(5)) }
+        '^HKEY_CURRENT_CONFIG\\' { return ('Registry::' + $p) }
+        default { throw "Unsupported registry root in path '$RegistryPath'" }
     }
 }
 
@@ -540,7 +562,7 @@ function Compare-StringSet {
     )
 
     $beforeSet = @(Get-UniqueNonEmptyString -InputObject $Before)
-    $afterSet  = @(Get-UniqueNonEmptyString -InputObject $After)
+    $afterSet = @(Get-UniqueNonEmptyString -InputObject $After)
 
     return [pscustomobject]@{
         Before  = $beforeSet
@@ -665,24 +687,24 @@ function Resolve-VendorFromText {
     $joined = $joined.ToLowerInvariant()
 
     $vendorHints = @{
-        'Microsoft'           = @('microsoft', 'windows defender', 'microsoft corporation', 'hyper-v')
-        'VMware'              = @('vmware', 'vmware, inc')
-        'VirtualBox'          = @('virtualbox', 'oracle virtualbox')
-        'Parallels'           = @('parallels')
-        'CrowdStrike'         = @('crowdstrike', 'falcon')
-        'SentinelOne'         = @('sentinelone', 'sentinel')
-        'Sophos'              = @('sophos')
-        'Bitdefender'         = @('bitdefender')
-        'Malwarebytes'        = @('malwarebytes', 'mbam')
-        'Symantec'            = @('symantec', 'broadcom endpoint', 'sep')
-        'Trellix/McAfee'      = @('trellix', 'mcafee', 'mfe')
-        'Palo Alto Networks'  = @('palo alto', 'cortex', 'globalprotect', 'traps')
-        'Cisco'               = @('cisco', 'anyconnect', 'secure client', 'umbrella', 'amp')
-        'Zscaler'             = @('zscaler')
-        'ESET'                = @('eset')
-        'Trend Micro'         = @('trend micro', 'apex one')
-        'Check Point'         = @('check point', 'capsule', 'snx')
-        'Fortinet'            = @('fortinet', 'forticlient', 'fortiedr')
+        'Microsoft'          = @('microsoft', 'windows defender', 'microsoft corporation', 'hyper-v')
+        'VMware'             = @('vmware', 'vmware, inc')
+        'VirtualBox'         = @('virtualbox', 'oracle virtualbox')
+        'Parallels'          = @('parallels')
+        'CrowdStrike'        = @('crowdstrike', 'falcon')
+        'SentinelOne'        = @('sentinelone', 'sentinel')
+        'Sophos'             = @('sophos')
+        'Bitdefender'        = @('bitdefender')
+        'Malwarebytes'       = @('malwarebytes', 'mbam')
+        'Symantec'           = @('symantec', 'broadcom endpoint', 'sep')
+        'Trellix/McAfee'     = @('trellix', 'mcafee', 'mfe')
+        'Palo Alto Networks' = @('palo alto', 'cortex', 'globalprotect', 'traps')
+        'Cisco'              = @('cisco', 'anyconnect', 'secure client', 'umbrella', 'amp')
+        'Zscaler'            = @('zscaler')
+        'ESET'               = @('eset')
+        'Trend Micro'        = @('trend micro', 'apex one')
+        'Check Point'        = @('check point', 'capsule', 'snx')
+        'Fortinet'           = @('fortinet', 'forticlient', 'fortiedr')
     }
 
     foreach ($vendor in $vendorHints.Keys) {
@@ -925,9 +947,9 @@ function Get-VendorSignature {
     param()
 
     @{
-        'Microsoft' = @{
-            Categories = @('AV', 'Firewall', 'Hypervisor', 'VirtualAdapter', 'NetworkFilter', 'EndpointAgent')
-            Patterns   = @(
+        'Microsoft'          = @{
+            Categories    = @('AV', 'Firewall', 'Hypervisor', 'VirtualAdapter', 'NetworkFilter', 'EndpointAgent')
+            Patterns      = @(
                 'microsoft defender', 'windows defender', 'msmpsvc', 'windefend', 'sense',
                 'wdfilter', 'vmcompute', 'vmms', 'vmswitch', 'vmsmp', 'hns', 'hyper-v',
                 'vethernet', 'microsoft'
@@ -938,93 +960,94 @@ function Get-VendorSignature {
                 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Virtualization'
             )
         }
-        'Bitdefender' = @{
-            Categories = @('AV', 'Firewall', 'EndpointAgent', 'NetworkFilter')
-            Patterns   = @('bitdefender', 'vsserv', 'bdservice', 'bdredline', 'bdc', 'epsecurityservice')
+        'Bitdefender'        = @{
+            Categories    = @('AV', 'Firewall', 'EndpointAgent', 'NetworkFilter')
+            Patterns      = @('bitdefender', 'vsserv', 'bdservice', 'bdredline', 'bdc', 'epsecurityservice')
             RegistryRoots = @('HKLM\SOFTWARE\Bitdefender')
         }
-        'Malwarebytes' = @{
-            Categories = @('AV', 'EndpointAgent')
-            Patterns   = @('malwarebytes', 'mbamservice', 'mbamprotector', 'mbam')
+        'Malwarebytes'       = @{
+            Categories    = @('AV', 'EndpointAgent')
+            Patterns      = @('malwarebytes', 'mbamservice', 'mbamprotector', 'mbam')
             RegistryRoots = @('HKLM\SOFTWARE\Malwarebytes')
         }
-        'CrowdStrike' = @{
-            Categories = @('EDR', 'XDR', 'EndpointAgent', 'NetworkFilter')
-            Patterns   = @('crowdstrike', 'falcon', 'csfalconservice', 'csagent', 'crowdstrike falcon')
+        'CrowdStrike'        = @{
+            Categories    = @('EDR', 'XDR', 'EndpointAgent', 'NetworkFilter')
+            Patterns      = @('crowdstrike', 'falcon', 'csfalconservice', 'csagent', 'crowdstrike falcon')
             RegistryRoots = @('HKLM\SOFTWARE\CrowdStrike')
         }
-        'SentinelOne' = @{
-            Categories = @('EDR', 'XDR', 'EndpointAgent', 'NetworkFilter')
-            Patterns   = @('sentinelone', 'sentinelagent', 'sentinelctl', 'sentinel')
+        'SentinelOne'        = @{
+            Categories    = @('EDR', 'XDR', 'EndpointAgent', 'NetworkFilter')
+            Patterns      = @('sentinelone', 'sentinelagent', 'sentinelctl', 'sentinel')
             RegistryRoots = @('HKLM\SOFTWARE\SentinelOne')
         }
-        'Sophos' = @{
-            Categories = @('AV', 'Firewall', 'EndpointAgent', 'NetworkFilter')
-            Patterns   = @('sophos', 'savservice', 'sophos endpoint', 'hitmanpro', 'sntp')
+        'Sophos'             = @{
+            Categories    = @('AV', 'Firewall', 'EndpointAgent', 'NetworkFilter')
+            Patterns      = @('sophos', 'savservice', 'sophos endpoint', 'hitmanpro', 'sntp')
             RegistryRoots = @('HKLM\SOFTWARE\Sophos')
         }
-        'Symantec' = @{
-            Categories = @('AV', 'EndpointAgent', 'Firewall')
-            Patterns   = @('symantec', 'broadcom endpoint', 'sep', 'smc', 'symcorpui')
+        'Symantec'           = @{
+            Categories    = @('AV', 'EndpointAgent', 'Firewall')
+            Patterns      = @('symantec', 'broadcom endpoint', 'sep', 'smc', 'symcorpui')
             RegistryRoots = @('HKLM\SOFTWARE\Symantec')
         }
-        'Trellix/McAfee' = @{
-            Categories = @('AV', 'EDR', 'Firewall', 'EndpointAgent', 'NetworkFilter')
-            Patterns   = @('mcafee', 'trellix', 'mfe', 'ens', 'mfefire', 'mfewfpk')
+        'Trellix/McAfee'     = @{
+            Categories    = @('AV', 'EDR', 'Firewall', 'EndpointAgent', 'NetworkFilter')
+            Patterns      = @('mcafee', 'trellix', 'mfe', 'ens', 'mfefire', 'mfewfpk')
             RegistryRoots = @('HKLM\SOFTWARE\McAfee', 'HKLM\SOFTWARE\Trellix')
         }
         'Palo Alto Networks' = @{
-            Categories = @('EDR', 'XDR', 'Firewall', 'VPN', 'EndpointAgent', 'NetworkFilter')
-            Patterns   = @('palo alto', 'cortex', 'globalprotect', 'traps', 'pangps', 'pangpd')
+            Categories    = @('EDR', 'XDR', 'Firewall', 'VPN', 'EndpointAgent', 'NetworkFilter')
+            Patterns      = @('palo alto', 'cortex', 'globalprotect', 'traps', 'pangps', 'pangpd')
             RegistryRoots = @('HKLM\SOFTWARE\Palo Alto Networks')
         }
-        'Cisco' = @{
-            Categories = @('Firewall', 'VPN', 'EndpointAgent', 'NetworkFilter')
-            Patterns   = @('cisco', 'anyconnect', 'secure client', 'amp', 'umbrella', 'ciscosecureclient')
+        'Cisco'              = @{
+            Categories    = @('Firewall', 'VPN', 'EndpointAgent', 'NetworkFilter')
+            Patterns      = @('cisco', 'anyconnect', 'secure client', 'amp', 'umbrella', 'ciscosecureclient')
             RegistryRoots = @('HKLM\SOFTWARE\Cisco')
         }
-        'Zscaler' = @{
-            Categories = @('Firewall', 'VPN', 'EndpointAgent', 'NetworkFilter')
-            Patterns   = @('zscaler', 'zsa', 'zsatray', 'zscaler tunnel', 'zcc')
+        'Zscaler'            = @{
+            Categories    = @('Firewall', 'VPN', 'EndpointAgent', 'NetworkFilter')
+            Patterns      = @('zscaler', 'zsa', 'zsatray', 'zscaler tunnel', 'zcc')
             RegistryRoots = @('HKLM\SOFTWARE\Zscaler')
         }
-        'VMware' = @{
-            Categories = @('Hypervisor', 'VirtualAdapter')
-            Patterns   = @('vmware', 'vmnet', 'vmnat', 'vmwarehostd', 'vmx86', 'vmci', 'vmusb', 'vmware network adapter')
+        'VMware'             = @{
+            Categories    = @('Hypervisor', 'VirtualAdapter')
+            Patterns      = @('vmware', 'vmnet', 'vmnat', 'vmwarehostd', 'vmx86', 'vmci', 'vmusb', 'vmware network adapter')
             RegistryRoots = @('HKLM\SOFTWARE\VMware, Inc.')
         }
-        'VirtualBox' = @{
-            Categories = @('Hypervisor', 'VirtualAdapter')
-            Patterns   = @('virtualbox', 'oracle virtualbox', 'vbox', 'vboxnet', 'vboxdrv')
+        'VirtualBox'         = @{
+            Categories    = @('Hypervisor', 'VirtualAdapter')
+            Patterns      = @('virtualbox', 'oracle virtualbox', 'vbox', 'vboxnet', 'vboxdrv')
             RegistryRoots = @('HKLM\SOFTWARE\Oracle\VirtualBox')
         }
-        'Parallels' = @{
-            Categories = @('Hypervisor', 'VirtualAdapter')
-            Patterns   = @('parallels', 'prl_', 'prl net', 'prl networking')
+        'Parallels'          = @{
+            Categories    = @('Hypervisor', 'VirtualAdapter')
+            Patterns      = @('parallels', 'prl_', 'prl net', 'prl networking')
             RegistryRoots = @('HKLM\SOFTWARE\Parallels')
         }
-        'ESET' = @{
-            Categories = @('AV', 'EndpointAgent', 'Firewall', 'NetworkFilter')
-            Patterns   = @('eset', 'ekrn', 'epfw', 'epfwlwf')
+        'ESET'               = @{
+            Categories    = @('AV', 'EndpointAgent', 'Firewall', 'NetworkFilter')
+            Patterns      = @('eset', 'ekrn', 'epfw', 'epfwlwf')
             RegistryRoots = @('HKLM\SOFTWARE\ESET')
         }
-        'Trend Micro' = @{
-            Categories = @('AV', 'EDR', 'EndpointAgent', 'NetworkFilter')
-            Patterns   = @('trend micro', 'tmlisten', 'ntrtscan', 'ds_agent', 'apex one')
+        'Trend Micro'        = @{
+            Categories    = @('AV', 'EDR', 'EndpointAgent', 'NetworkFilter')
+            Patterns      = @('trend micro', 'tmlisten', 'ntrtscan', 'ds_agent', 'apex one')
             RegistryRoots = @('HKLM\SOFTWARE\TrendMicro')
         }
-        'Check Point' = @{
-            Categories = @('Firewall', 'VPN', 'EndpointAgent', 'NetworkFilter')
-            Patterns   = @('check point', 'endpoint security', 'tracsrvwrapper', 'snx', 'capsule')
+        'Check Point'        = @{
+            Categories    = @('Firewall', 'VPN', 'EndpointAgent', 'NetworkFilter')
+            Patterns      = @('check point', 'endpoint security', 'tracsrvwrapper', 'snx', 'capsule')
             RegistryRoots = @('HKLM\SOFTWARE\CheckPoint')
         }
-        'Fortinet' = @{
-            Categories = @('Firewall', 'VPN', 'EndpointAgent', 'NetworkFilter')
-            Patterns   = @('fortinet', 'forticlient', 'fortiedr', 'fortishield')
+        'Fortinet'           = @{
+            Categories    = @('Firewall', 'VPN', 'EndpointAgent', 'NetworkFilter')
+            Patterns      = @('fortinet', 'forticlient', 'fortiedr', 'fortishield')
             RegistryRoots = @('HKLM\SOFTWARE\Fortinet')
         }
     }
 }
+
 
 function Test-VendorPatternMatch {
     [CmdletBinding()]
@@ -1105,18 +1128,18 @@ function Get-FileMetadatum {
         try {
             if (-not (Test-Path -LiteralPath $resolvedPath -ErrorAction Stop)) {
                 return [pscustomobject]@{
-                    Path            = $resolvedPath
-                    Exists          = $false
-                    CompanyName     = $null
-                    FileDescription = $null
-                    ProductName     = $null
-                    OriginalName    = $null
-                    FileVersion     = $null
-                    SignerSubject   = $null
-                    SignerIssuer    = $null
-                    SignerThumbprint= $null
-                    SignatureStatus = $null
-                    InferredVendor  = $null
+                    Path             = $resolvedPath
+                    Exists           = $false
+                    CompanyName      = $null
+                    FileDescription  = $null
+                    ProductName      = $null
+                    OriginalName     = $null
+                    FileVersion      = $null
+                    SignerSubject    = $null
+                    SignerIssuer     = $null
+                    SignerThumbprint = $null
+                    SignatureStatus  = $null
+                    InferredVendor   = $null
                 }
             }
         }
@@ -1257,25 +1280,26 @@ function Get-AdapterRegistryCorrelation {
             $candidateConnection = "$candidateNetwork\Connection"
             $candidateInterface = "$tcpipInterfacesRoot\{$guid}"
 
-            if (Test-RegistryPathExist -RegistryPath $candidateNetwork)   { $networkPath = $candidateNetwork }
-            if (Test-RegistryPathExist -RegistryPath $candidateConnection){ $connectionPath = $candidateConnection }
+            if (Test-RegistryPathExist -RegistryPath $candidateNetwork) { $networkPath = $candidateNetwork }
+            if (Test-RegistryPathExist -RegistryPath $candidateConnection) { $connectionPath = $candidateConnection }
             if (Test-RegistryPathExist -RegistryPath $candidateInterface) { $interfacePath = $candidateInterface }
 
             $results.Add([pscustomobject]@{
-                InterfaceGuid  = $guid
-                ClassPath      = $classPath
-                NetworkPath    = $networkPath
-                ConnectionPath = $connectionPath
-                TcpipPath      = $interfacePath
-                ComponentId    = $componentId
-                DriverDesc     = $driverDesc
-                ProviderName   = $providerName
-            })
+                    InterfaceGuid  = $guid
+                    ClassPath      = $classPath
+                    NetworkPath    = $networkPath
+                    ConnectionPath = $connectionPath
+                    TcpipPath      = $interfacePath
+                    ComponentId    = $componentId
+                    DriverDesc     = $driverDesc
+                    ProviderName   = $providerName
+                })
         }
     }
 
     return $results.ToArray()
 }
+
 
 function Invoke-RegExport {
     [CmdletBinding()]
@@ -1515,13 +1539,13 @@ function Invoke-NetCleanWorkflow {
             }
 
             if ($wifiFound.Count -eq 0) {
-                $wifiFound = @(Get-WiFiProfileNames)
+                $wifiFound = @(Get-WiFiProfileName)
             }
 
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName WiFiProfilesFound -NotePropertyValue @($wifiFound) -Force
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName WiFiProfilesFoundCount -NotePropertyValue $wifiFound.Count -Force
 
-            $netProfiles = @(Get-NetworkListProfileNamess)
+            $netProfiles = @(Get-NetworkListProfileName)
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName NetworkProfilesFound -NotePropertyValue @($netProfiles) -Force
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName NetworkProfilesFoundCount -NotePropertyValue $netProfiles.Count -Force
         }
@@ -1788,9 +1812,9 @@ function Get-ProtectionList {
     $registryPaths = New-Object System.Collections.Generic.List[string]
 
     foreach ($item in $inventory) {
-        foreach ($svc in @($item.Services))   { if ($svc) { [void]$services.Add($svc) } }
-        foreach ($drv in @($item.Drivers))    { if ($drv) { [void]$drivers.Add($drv) } }
-        foreach ($adp in @($item.Adapters))   { if ($adp) { [void]$adapters.Add($adp) } }
+        foreach ($svc in @($item.Services)) { if ($svc) { [void]$services.Add($svc) } }
+        foreach ($drv in @($item.Drivers)) { if ($drv) { [void]$drivers.Add($drv) } }
+        foreach ($adp in @($item.Adapters)) { if ($adp) { [void]$adapters.Add($adp) } }
         foreach ($reg in @($item.RegistryKeys)) { if ($reg) { [void]$registryPaths.Add($reg) } }
     }
 
@@ -1829,37 +1853,23 @@ Export-ModuleMember -Function @(
     'Invoke-NetCleanPhase3Clean',
     'Invoke-NetCleanPhase4Verify',
     'Invoke-NetCleanWorkflow',
-    'Export-ProtectedRegistryKey',
-    'Export-NetworkList',
-    'Get-WiFiProfileNames',
-    'Export-WiFiProfile',
-    'Export-FirewallPolicy',
-    'Export-ProtectionInventory',
-    'Export-ProtectionRegistryMap',
-    'Export-SanitizableNetworkArtifact',
-    'Export-NetCleanManifest',
-    'Remove-WiFiProfilesSafe',
-    'Clear-DnsCacheSafe',
-    'Clear-ArpCacheSafe',
-    'Remove-RegistryPathSafe',
-    'Remove-NetworkPrivacyArtifactsSafe',
-    'Clear-NlaProbeStateSafe',
-    'Clear-NetworkEventLogsSafe',
-    'Clear-UserNetworkArtifactsSafe',
     'Invoke-AdvancedNetworkRepair',
     'Invoke-NetworkPerformanceTune',
-    'Test-NetCleanPostState',
-    'Get-InstalledAV',
-    'Get-AVServicePattern',
-    'Get-FileMetadatum',
-    'Get-ProtectionList'
+    'Get-WiFiProfileNames',
+    'Export-WiFiProfile',
+    'Export-NetworkList',
+    'Export-ProtectedRegistryKey',
+    'Export-NetCleanManifest',
+    'Clear-DnsCacheSafe',
+    'Clear-ArpCacheSafe',
+    'Clear-NetworkEventLogsSafe',
+    'Clear-UserNetworkArtifactsSafe',
+    'Remove-WiFiProfilesSafe',
+    'Remove-RegistryPathSafe',
+    'Remove-NetworkPrivacyArtifactsSafe',
+    'Test-NetCleanPostState'
 ) -Alias @(
-    'Normalize-Guid',
-    'Backup-ProtectedRegistryKeys',
-    'Backup-NetworkList',
     'Backup-WiFiProfiles',
-    'Get-ProtectionLists',
-    'Get-AVServicePatterns',
-    'Export-ProtectedRegistryKeys',
-    'Get-FileMetadata'
+    'Backup-NetworkList',
+    'Backup-ProtectedRegistryKeys'
 )
