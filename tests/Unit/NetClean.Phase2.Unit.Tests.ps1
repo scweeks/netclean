@@ -194,6 +194,39 @@ Describe 'NetClean Phase 2 unit tests' {
                 Should -Invoke Invoke-ExternalCommandSafe -Times 1 -ParameterFilter { $Name -eq 'Export Wi-Fi profile HomeSSID' }
                 Should -Invoke Invoke-ExternalCommandSafe -Times 1 -ParameterFilter { $Name -eq 'Export Wi-Fi profile OfficeSSID' }
             }
+
+            It 'continues when a per-profile export fails and still returns successful exports' {
+                Mock Get-WiFiProfileName { @('FailSSID', 'GoodSSID') }
+
+                Mock Invoke-ExternalCommandSafe {
+                    if ($Name -match 'FailSSID') { [pscustomobject]@{ Name=$Name; ExitCode=1; Succeeded=$false; Error='fail' } }
+                    else { [pscustomobject]@{ Name=$Name; ExitCode=0; Succeeded=$true; Error=$null } }
+                }
+
+                $script:ChildItemCall = 0
+                Mock Get-ChildItem {
+                    $script:ChildItemCall++
+
+                    switch ($script:ChildItemCall) {
+                        1 { @() } # bulk before
+                        2 { @() } # bulk after -> no new files
+                        3 { @() } # FailSSID before
+                        4 { @() } # FailSSID after -> still no file
+                        5 { @() } # GoodSSID before
+                        6 { @([pscustomobject]@{ FullName = 'C:\backup\Wi-Fi-GoodSSID.xml' }) } # GoodSSID after
+                        default { @() }
+                    }
+                }
+
+                Mock WriteAllLines {}
+
+                $result = @(Export-WiFiProfile -Dest 'C:\backup')
+
+                # list file + one successful xml
+                $result.Count | Should -Be 2
+                $result | Should -Contain 'C:\backup\Wi-Fi-GoodSSID.xml'
+                $result | Should -Not -Contain 'C:\backup\Wi-Fi-FailSSID.xml'
+            }
         }
 
         Context 'Export-NetworkList' {
@@ -244,6 +277,19 @@ Describe 'NetClean Phase 2 unit tests' {
             It 'returns empty when no registry paths are supplied' {
                 $result = @(Export-ProtectedRegistryKey -RegistryPaths @() -Dest 'C:\backup')
                 $result.Count | Should -Be 0
+            }
+
+            It 'skips invalid registry paths and continues exporting valid ones' {
+                Mock Convert-RegKeyPath {
+                    if ($Path -eq 'badpath') { throw 'invalid' } else { 'Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Good' }
+                }
+
+                Mock Invoke-RegExport { param($Key, $OutputPath, $DryRun) $OutputPath }
+
+                $result = @(Export-ProtectedRegistryKey -RegistryPaths @('badpath', 'HKLM\\SOFTWARE\\Good') -Dest 'C:\\backup' -DryRun)
+
+                $result.Count | Should -Be 1
+                $result[0] | Should -Match 'reg_backup'
             }
         }
 

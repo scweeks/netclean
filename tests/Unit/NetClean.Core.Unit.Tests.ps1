@@ -369,6 +369,19 @@ Describe 'NetClean core/shared helper unit tests' {
                 { Invoke-NetCleanNativeCapture -FilePath 'cmd.exe' -ArgumentList @('/c', 'echo ok') -IgnoreExitCode } |
                     Should -Not -Throw
             }
+
+            It 'captures non-zero exit code and respects IgnoreExitCode' {
+                $bat = Join-Path $TestDrive 'exit5.bat'
+                Set-Content -Path $bat -Value 'exit /b 5' -NoNewline
+
+                $r = Invoke-NetCleanNativeCapture -FilePath $bat -ArgumentList @()
+
+                $r.Succeeded | Should -BeFalse
+                $r.ExitCode | Should -Be 5
+
+                $r2 = Invoke-NetCleanNativeCapture -FilePath $bat -ArgumentList @() -IgnoreExitCode
+                $r2.Succeeded | Should -BeTrue
+            }
         }
     }
 }

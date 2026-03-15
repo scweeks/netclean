@@ -243,6 +243,17 @@ Describe 'NetClean Phase 1 unit tests' {
                 $result = @(Get-ProtectionEvidence)
                 $result.Count | Should -Be 0
             }
+
+            It 'continues when Get-CimInstance throws for some classes' {
+                Mock Get-CimInstance {
+                    if ($ClassName -eq 'AntivirusProduct') { throw 'cim-failure' }
+                    else { @() }
+                }
+
+                { Get-ProtectionEvidence } | Should -Not -Throw
+                $res = @(Get-ProtectionEvidence)
+                $res | Should -Be @() -Because 'No other evidence providers were mocked to return results'
+            }
         }
 
         Context 'Get-ProtectionInventory' {
