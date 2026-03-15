@@ -1,6 +1,6 @@
 BeforeAll {
     $repoRoot = Split-Path -Parent $PSScriptRoot
-    $manifestPath = Join-Path $repoRoot 'Netclean.psd1'
+    $manifestPath = Join-Path $repoRoot 'NetClean.psd1'
 
     if (-not (Test-Path -LiteralPath $manifestPath)) {
         throw "Netclean.psd1 not found at path: $manifestPath"
@@ -43,7 +43,7 @@ Describe 'NetClean.ps1 launcher / UX functions' {
 
     It 'Read-NetCleanOption forces DryRun in Preview mode' {
         $r = Read-NetCleanOption -SelectedMode Preview
-        $r.Mode   | Should -Be 'Preview'
+        $r.SelectedMode   | Should -Be 'Preview'
         $r.DryRun | Should -BeTrue
     }
 
@@ -173,7 +173,7 @@ Describe 'NetClean.ps1 launcher orchestration' {
 
         Mock Show-NetCleanSummary {}
 
-        $Mode = 'SafeConferencePrep'
+        $SelectedMode = 'SafeConferencePrep'
         Invoke-NetCleanLauncher
 
         Should -Invoke Invoke-NetCleanWorkflow -Times 1

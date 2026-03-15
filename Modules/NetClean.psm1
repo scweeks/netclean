@@ -1854,6 +1854,7 @@ Export-ModuleMember -Function @(
     'Invoke-NetCleanPhase3Clean',
     'Invoke-NetCleanPhase4Verify',
     'Invoke-NetCleanWorkflow',
+    'New-DirectoryIfNotExist',
     'Start-NetCleanLog',
     'Write-NetCleanLog'
 ) -Alias @(

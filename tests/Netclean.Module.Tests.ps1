@@ -1,17 +1,25 @@
 BeforeAll {
-    $manifestPath = Join-Path $PSScriptRoot '..\Netclean.psd1'
+    $manifestPath = Join-Path $PSScriptRoot '..\NetClean.psd1'
 
     if (-not (Test-Path -LiteralPath $manifestPath)) {
-        throw "Netclean.psd1 not found at path: $manifestPath"
+        throw "NetClean.psd1 not found at path: $manifestPath"
     }
 
-    Remove-Module Netclean, NetClean, NetCleanPhase1, NetCleanPhase2, NetCleanPhase3, NetCleanPhase4 -ErrorAction SilentlyContinue
+    Remove-Module NetClean, NetCleanPhase1, NetCleanPhase2, NetCleanPhase3, NetCleanPhase4 -ErrorAction SilentlyContinue
     Import-Module $manifestPath -Force
+
+    $script:ModuleName = (Get-Module | Where-Object {
+        $_.Path -and ((Resolve-Path $_.Path).Path -eq (Resolve-Path $manifestPath).Path)
+    } | Select-Object -ExpandProperty Name -First 1)
+
+    if (-not $script:ModuleName) {
+        throw "Failed to resolve loaded module name from manifest: $manifestPath"
+    }
 }
 
 Describe 'NetClean module import/export surface' {
     It 'imports the module manifest without throwing' {
-        $manifestPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'Netclean.psd1'
+        $manifestPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'NetClean.psd1'
         { Import-Module $manifestPath -Force } | Should -Not -Throw
     }
 
@@ -34,7 +42,7 @@ Describe 'NetClean module import/export surface' {
 }
 
 Describe 'NetClean.psm1 utility helpers' {
-    InModuleScope 'NetClean' {
+    InModuleScope $script:ModuleName {
         It 'Convert-RegKeyPath normalizes registry provider paths' {
             Convert-RegKeyPath -Path 'Microsoft.PowerShell.Core\Registry::HKLM:\SOFTWARE\Test' |
                 Should -Be 'HKLM\SOFTWARE\Test'
@@ -43,7 +51,7 @@ Describe 'NetClean.psm1 utility helpers' {
 }
 
 Describe 'NetClean.psm1 external command helper' {
-    InModuleScope 'NetClean' {
+    InModuleScope $script:ModuleName {
         It 'Invoke-ExternalCommandSafe returns a successful dry-run result' {
             $r = Invoke-ExternalCommandSafe -Name Test -FilePath cmd.exe -ArgumentList '/c','echo ok' -DryRun
             $r.Succeeded | Should -BeTrue
@@ -69,7 +77,7 @@ Describe 'NetClean.psm1 external command helper' {
 }
 
 Describe 'NetClean.psm1 phase orchestration' {
-    InModuleScope 'NetClean' {
+    InModuleScope $script:ModuleName {
         Context 'Phase 1 detect' {
             BeforeEach {
                 Mock Get-ProtectionInventory {
