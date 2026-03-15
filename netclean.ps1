@@ -33,7 +33,7 @@ param(
     [ValidateNotNullOrEmpty()]
     [string]$BackupPath = "$env:ProgramData\NetClean\Backups",
     [ValidateNotNullOrEmpty()]
-    [string]$LogPath    = "$env:ProgramData\NetClean\Logs",
+    [string]$LogPath = "$env:ProgramData\NetClean\Logs",
     [switch]$SkipWifi,
     [switch]$SkipDnsFlush,
     [switch]$SkipEventLogs,
@@ -99,11 +99,11 @@ $script:SummaryListLimit = 20
 function Show-TruncatedList {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)]
+        [Parameter(Mandatory = $true)]
         [object[]]$Items,
-        [Parameter(Mandatory=$false)]
+        [Parameter(Mandatory = $false)]
         [string]$Heading = 'Items',
-        [Parameter(Mandatory=$false)]
+        [Parameter(Mandatory = $false)]
         [int]$Limit
     )
     if (-not $Limit) { $Limit = $script:SummaryListLimit }
@@ -111,7 +111,7 @@ function Show-TruncatedList {
     Write-Information $Heading -InformationAction Continue
     if ($Items -and $Items.Count -gt 0) {
         $count = $Items.Count
-        $toShow = $Items[0..([Math]::Min($Limit-1, $count-1))]
+        $toShow = $Items[0..([Math]::Min($Limit - 1, $count - 1))]
         foreach ($i in $toShow) { Write-Information "  - $i" -InformationAction Continue }
         if ($count -gt $Limit) { Write-Information "  - ...and $($count - $Limit) more" -InformationAction Continue }
     }
@@ -335,7 +335,7 @@ function Invoke-NetCleanPowerAction {
 
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('Restart','Shutdown','Later')]
+        [ValidateSet('Restart', 'Shutdown', 'Later')]
         [string]$Action
     )
 
@@ -459,14 +459,14 @@ function Read-NetCleanOption {
     }
 
     return [pscustomobject]@{
-        SelectedMode        = $SelectedMode
-        DryRun              = [bool]$DryRun
-        SkipWifi            = [bool]$SkipWifi
-        SkipDnsFlush        = [bool]$SkipDnsFlush
-        SkipEventLogs       = [bool]$SkipEventLogs
-        SkipUserArtifacts   = [bool]$SkipUserArtifacts
-        SkipFirewallBackup  = [bool]$SkipFirewallBackup
-        PerformanceProfile  = $PerformanceProfile
+        SelectedMode       = $SelectedMode
+        DryRun             = [bool]$DryRun
+        SkipWifi           = [bool]$SkipWifi
+        SkipDnsFlush       = [bool]$SkipDnsFlush
+        SkipEventLogs      = [bool]$SkipEventLogs
+        SkipUserArtifacts  = [bool]$SkipUserArtifacts
+        SkipFirewallBackup = [bool]$SkipFirewallBackup
+        PerformanceProfile = $PerformanceProfile
     }
 }
 
@@ -548,7 +548,7 @@ function Show-NetCleanSummary {
 
         # Removed Wi‑Fi profiles (names)
         if ($clean.WiFi -and $clean.WiFi.Profiles) {
-                Show-TruncatedList -Items @($clean.WiFi.Profiles) -Heading 'Wi-Fi Profiles - Removed'
+            Show-TruncatedList -Items @($clean.WiFi.Profiles) -Heading 'Wi-Fi Profiles - Removed'
 
             # Compute remaining if we have the original found list
             if ($Result.PSObject.Properties.Name -contains 'Protect' -and $Result.Protect.Manifest -and $Result.Protect.Manifest.WiFiExports) {
@@ -878,10 +878,10 @@ function Invoke-NetCleanLauncher {
     Invoke-PostRunAction -Action $postRunAction -DryRunMode:$options.DryRun
 
     if ($selectedMode -in @(
-        'SafeConferencePrep',
-        'AdvancedRepair',
-        'PerformanceTune'
-    )) {
+            'SafeConferencePrep',
+            'AdvancedRepair',
+            'PerformanceTune'
+        )) {
         $powerChoice = Read-NetCleanPowerSelection
         Invoke-NetCleanPowerAction -Action $powerChoice
     }

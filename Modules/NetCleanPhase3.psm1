@@ -30,7 +30,7 @@ function Remove-WiFiProfilesSafe {
     if ($DryRun) {
         foreach ($wifiProfile in $profiles) {
             if ($canLog) { Write-NetCleanLog -Level INFO -Message ("Would remove Wi-Fi profile: {0}" -f $wifiProfile) }
-            $operations.Add([pscustomobject]@{ Name=$wifiProfile; Succeeded=$true; Skipped=$false; Reason='DryRun' })
+            $operations.Add([pscustomobject]@{ Name = $wifiProfile; Succeeded = $true; Skipped = $false; Reason = 'DryRun' })
             [void]$removed.Add($wifiProfile)
         }
     }
@@ -39,7 +39,7 @@ function Remove-WiFiProfilesSafe {
         foreach ($wifiProfile in $profiles) {
             if (-not $PSCmdlet.ShouldProcess("Wi-Fi profile '$wifiProfile'", 'Delete')) {
                 if ($canLog) { Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented Wi-Fi profile removal: {0}" -f $wifiProfile) }
-                $operations.Add([pscustomobject]@{ Name=$wifiProfile; Succeeded=$false; Skipped=$true; Reason='WhatIf' })
+                $operations.Add([pscustomobject]@{ Name = $wifiProfile; Succeeded = $false; Skipped = $true; Reason = 'WhatIf' })
                 continue
             }
             $toProcess += $wifiProfile
@@ -50,8 +50,8 @@ function Remove-WiFiProfilesSafe {
             $sb = {
                 param($p)
                 & netsh wlan delete profile name="$p" 2>&1 | Out-Null
-                if ($LASTEXITCODE -eq 0) { [pscustomobject]@{ Name=$p; Succeeded=$true; Skipped=$false; Reason='Removed' } }
-                else { [pscustomobject]@{ Name=$p; Succeeded=$false; Skipped=$false; Reason='Failed' } }
+                if ($LASTEXITCODE -eq 0) { [pscustomobject]@{ Name = $p; Succeeded = $true; Skipped = $false; Reason = 'Removed' } }
+                else { [pscustomobject]@{ Name = $p; Succeeded = $false; Skipped = $false; Reason = 'Failed' } }
             }
 
             try {
@@ -434,12 +434,12 @@ function Clear-NlaProbeStateSafe {
             }
 
             $results.Add([pscustomobject]@{
-                Path      = $nlaInternetPath
-                Property  = $property
-                Removed   = $true
-                DryRun    = $true
-                Succeeded = $true
-            })
+                    Path      = $nlaInternetPath
+                    Property  = $property
+                    Removed   = $true
+                    DryRun    = $true
+                    Succeeded = $true
+                })
             continue
         }
 
@@ -449,13 +449,13 @@ function Clear-NlaProbeStateSafe {
             }
 
             $results.Add([pscustomobject]@{
-                Path      = $nlaInternetPath
-                Property  = $property
-                Removed   = $false
-                DryRun    = $false
-                Succeeded = $false
-                Error     = 'WhatIf'
-            })
+                    Path      = $nlaInternetPath
+                    Property  = $property
+                    Removed   = $false
+                    DryRun    = $false
+                    Succeeded = $false
+                    Error     = 'WhatIf'
+                })
             continue
         }
 
@@ -467,12 +467,12 @@ function Clear-NlaProbeStateSafe {
             }
 
             $results.Add([pscustomobject]@{
-                Path      = $nlaInternetPath
-                Property  = $property
-                Removed   = $true
-                DryRun    = $false
-                Succeeded = $true
-            })
+                    Path      = $nlaInternetPath
+                    Property  = $property
+                    Removed   = $true
+                    DryRun    = $false
+                    Succeeded = $true
+                })
         }
         catch {
             if ($canLog) {
@@ -480,13 +480,13 @@ function Clear-NlaProbeStateSafe {
             }
 
             $results.Add([pscustomobject]@{
-                Path      = $nlaInternetPath
-                Property  = $property
-                Removed   = $false
-                DryRun    = $false
-                Succeeded = $false
-                Error     = $_.Exception.Message
-            })
+                    Path      = $nlaInternetPath
+                    Property  = $property
+                    Removed   = $false
+                    DryRun    = $false
+                    Succeeded = $false
+                    Error     = $_.Exception.Message
+                })
         }
     }
 
@@ -531,16 +531,16 @@ function Clear-NetworkEventLogsSafe {
             }
 
             $results.Add([pscustomobject]@{
-                Name      = "Clear event log $log"
-                LogName   = $log
-                Succeeded = $true
-                Cleared   = $false
-                DryRun    = $true
-                Skipped   = $false
-                Reason    = 'DryRun'
-                ExitCode  = 0
-                Error     = $null
-            })
+                    Name      = "Clear event log $log"
+                    LogName   = $log
+                    Succeeded = $true
+                    Cleared   = $false
+                    DryRun    = $true
+                    Skipped   = $false
+                    Reason    = 'DryRun'
+                    ExitCode  = 0
+                    Error     = $null
+                })
 
             continue
         }
@@ -551,16 +551,16 @@ function Clear-NetworkEventLogsSafe {
             }
 
             $results.Add([pscustomobject]@{
-                Name      = "Clear event log $log"
-                LogName   = $log
-                Succeeded = $false
-                Cleared   = $false
-                DryRun    = $false
-                Skipped   = $true
-                Reason    = 'WhatIf'
-                ExitCode  = $null
-                Error     = $null
-            })
+                    Name      = "Clear event log $log"
+                    LogName   = $log
+                    Succeeded = $false
+                    Cleared   = $false
+                    DryRun    = $false
+                    Skipped   = $true
+                    Reason    = 'WhatIf'
+                    ExitCode  = $null
+                    Error     = $null
+                })
 
             continue
         }
@@ -573,16 +573,16 @@ function Clear-NetworkEventLogsSafe {
                 -IgnoreExitCode
 
             $results.Add([pscustomobject]@{
-                Name      = $result.Name
-                LogName   = $log
-                Succeeded = [bool]$result.Succeeded
-                Cleared   = [bool]$result.Succeeded
-                DryRun    = $false
-                Skipped   = $false
-                Reason    = $(if ($result.Succeeded) { $null } else { 'CommandFailed' })
-                ExitCode  = $result.ExitCode
-                Error     = $result.Error
-            })
+                    Name      = $result.Name
+                    LogName   = $log
+                    Succeeded = [bool]$result.Succeeded
+                    Cleared   = [bool]$result.Succeeded
+                    DryRun    = $false
+                    Skipped   = $false
+                    Reason    = $(if ($result.Succeeded) { $null } else { 'CommandFailed' })
+                    ExitCode  = $result.ExitCode
+                    Error     = $result.Error
+                })
 
             if ($canLog) {
                 if ($result.Succeeded) {
@@ -599,16 +599,16 @@ function Clear-NetworkEventLogsSafe {
             }
 
             $results.Add([pscustomobject]@{
-                Name      = "Clear event log $log"
-                LogName   = $log
-                Succeeded = $false
-                Cleared   = $false
-                DryRun    = $false
-                Skipped   = $false
-                Reason    = 'Exception'
-                ExitCode  = -1
-                Error     = $_.Exception.Message
-            })
+                    Name      = "Clear event log $log"
+                    LogName   = $log
+                    Succeeded = $false
+                    Cleared   = $false
+                    DryRun    = $false
+                    Skipped   = $false
+                    Reason    = 'Exception'
+                    ExitCode  = -1
+                    Error     = $_.Exception.Message
+                })
         }
     }
 
@@ -655,12 +655,12 @@ function Clear-UserNetworkArtifactsSafe {
             }
 
             $results.Add([pscustomobject]@{
-                Path      = $path
-                Removed   = $false
-                DryRun    = $true
-                Succeeded = $true
-                Reason    = 'DryRun'
-            })
+                    Path      = $path
+                    Removed   = $false
+                    DryRun    = $true
+                    Succeeded = $true
+                    Reason    = 'DryRun'
+                })
 
             continue
         }
@@ -668,12 +668,12 @@ function Clear-UserNetworkArtifactsSafe {
         if (-not (Test-Path -LiteralPath $path)) {
 
             $results.Add([pscustomobject]@{
-                Path      = $path
-                Removed   = $false
-                DryRun    = $false
-                Succeeded = $true
-                Reason    = 'NotFound'
-            })
+                    Path      = $path
+                    Removed   = $false
+                    DryRun    = $false
+                    Succeeded = $true
+                    Reason    = 'NotFound'
+                })
 
             continue
         }
@@ -685,12 +685,12 @@ function Clear-UserNetworkArtifactsSafe {
             }
 
             $results.Add([pscustomobject]@{
-                Path      = $path
-                Removed   = $false
-                DryRun    = $false
-                Succeeded = $false
-                Reason    = 'WhatIf'
-            })
+                    Path      = $path
+                    Removed   = $false
+                    DryRun    = $false
+                    Succeeded = $false
+                    Reason    = 'WhatIf'
+                })
 
             continue
         }
@@ -704,12 +704,12 @@ function Clear-UserNetworkArtifactsSafe {
             }
 
             $results.Add([pscustomobject]@{
-                Path      = $path
-                Removed   = $true
-                DryRun    = $false
-                Succeeded = $true
-                Reason    = $null
-            })
+                    Path      = $path
+                    Removed   = $true
+                    DryRun    = $false
+                    Succeeded = $true
+                    Reason    = $null
+                })
         }
         catch {
 
@@ -718,12 +718,12 @@ function Clear-UserNetworkArtifactsSafe {
             }
 
             $results.Add([pscustomobject]@{
-                Path      = $path
-                Removed   = $false
-                DryRun    = $false
-                Succeeded = $false
-                Reason    = $_.Exception.Message
-            })
+                    Path      = $path
+                    Removed   = $false
+                    DryRun    = $false
+                    Succeeded = $false
+                    Reason    = $_.Exception.Message
+                })
         }
     }
 
@@ -780,17 +780,17 @@ function Invoke-AdvancedNetworkRepair {
             }
 
             $results.Add([pscustomobject]@{
-                Name      = $cmd.Name
-                FilePath  = $cmd.FilePath
-                Arguments = ($cmd.ArgumentList -join ' ')
-                Succeeded = $true
-                Applied   = $false
-                DryRun    = $true
-                Skipped   = $false
-                Reason    = 'DryRun'
-                ExitCode  = 0
-                Error     = $null
-            })
+                    Name      = $cmd.Name
+                    FilePath  = $cmd.FilePath
+                    Arguments = ($cmd.ArgumentList -join ' ')
+                    Succeeded = $true
+                    Applied   = $false
+                    DryRun    = $true
+                    Skipped   = $false
+                    Reason    = 'DryRun'
+                    ExitCode  = 0
+                    Error     = $null
+                })
 
             continue
         }
@@ -801,17 +801,17 @@ function Invoke-AdvancedNetworkRepair {
             }
 
             $results.Add([pscustomobject]@{
-                Name      = $cmd.Name
-                FilePath  = $cmd.FilePath
-                Arguments = ($cmd.ArgumentList -join ' ')
-                Succeeded = $false
-                Applied   = $false
-                DryRun    = $false
-                Skipped   = $true
-                Reason    = 'WhatIf'
-                ExitCode  = $null
-                Error     = $null
-            })
+                    Name      = $cmd.Name
+                    FilePath  = $cmd.FilePath
+                    Arguments = ($cmd.ArgumentList -join ' ')
+                    Succeeded = $false
+                    Applied   = $false
+                    DryRun    = $false
+                    Skipped   = $true
+                    Reason    = 'WhatIf'
+                    ExitCode  = $null
+                    Error     = $null
+                })
 
             continue
         }
@@ -824,17 +824,17 @@ function Invoke-AdvancedNetworkRepair {
                 -IgnoreExitCode
 
             $results.Add([pscustomobject]@{
-                Name      = $result.Name
-                FilePath  = $cmd.FilePath
-                Arguments = ($cmd.ArgumentList -join ' ')
-                Succeeded = [bool]$result.Succeeded
-                Applied   = [bool]$result.Succeeded
-                DryRun    = $false
-                Skipped   = $false
-                Reason    = $(if ($result.Succeeded) { $null } else { 'CommandFailed' })
-                ExitCode  = $result.ExitCode
-                Error     = $result.Error
-            })
+                    Name      = $result.Name
+                    FilePath  = $cmd.FilePath
+                    Arguments = ($cmd.ArgumentList -join ' ')
+                    Succeeded = [bool]$result.Succeeded
+                    Applied   = [bool]$result.Succeeded
+                    DryRun    = $false
+                    Skipped   = $false
+                    Reason    = $(if ($result.Succeeded) { $null } else { 'CommandFailed' })
+                    ExitCode  = $result.ExitCode
+                    Error     = $result.Error
+                })
 
             if ($canLog) {
                 if ($result.Succeeded) {
@@ -851,17 +851,17 @@ function Invoke-AdvancedNetworkRepair {
             }
 
             $results.Add([pscustomobject]@{
-                Name      = $cmd.Name
-                FilePath  = $cmd.FilePath
-                Arguments = ($cmd.ArgumentList -join ' ')
-                Succeeded = $false
-                Applied   = $false
-                DryRun    = $false
-                Skipped   = $false
-                Reason    = 'Exception'
-                ExitCode  = -1
-                Error     = $_.Exception.Message
-            })
+                    Name      = $cmd.Name
+                    FilePath  = $cmd.FilePath
+                    Arguments = ($cmd.ArgumentList -join ' ')
+                    Succeeded = $false
+                    Applied   = $false
+                    DryRun    = $false
+                    Skipped   = $false
+                    Reason    = 'Exception'
+                    ExitCode  = -1
+                    Error     = $_.Exception.Message
+                })
         }
     }
 
@@ -958,7 +958,7 @@ function Invoke-NetworkPerformanceTune {
     [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([System.Object[]])]
     param(
-        [ValidateSet('Conservative','Optimal','Gaming','Default')]
+        [ValidateSet('Conservative', 'Optimal', 'Gaming', 'Default')]
         [string]$Profile = 'Conservative',
 
         [switch]$DryRun
@@ -1057,19 +1057,19 @@ function Invoke-NetworkPerformanceTune {
             }
 
             $results.Add([pscustomobject]@{
-                Profile   = $Profile
-                Name      = $cmd.Name
-                FilePath  = $cmd.FilePath
-                Arguments = ($cmd.ArgumentList -join ' ')
-                Why       = $cmd.Why
-                Succeeded = $true
-                Applied   = $false
-                DryRun    = $true
-                Skipped   = $false
-                Reason    = 'DryRun'
-                ExitCode  = 0
-                Error     = $null
-            })
+                    Profile   = $Profile
+                    Name      = $cmd.Name
+                    FilePath  = $cmd.FilePath
+                    Arguments = ($cmd.ArgumentList -join ' ')
+                    Why       = $cmd.Why
+                    Succeeded = $true
+                    Applied   = $false
+                    DryRun    = $true
+                    Skipped   = $false
+                    Reason    = 'DryRun'
+                    ExitCode  = 0
+                    Error     = $null
+                })
 
             continue
         }
@@ -1080,19 +1080,19 @@ function Invoke-NetworkPerformanceTune {
             }
 
             $results.Add([pscustomobject]@{
-                Profile   = $Profile
-                Name      = $cmd.Name
-                FilePath  = $cmd.FilePath
-                Arguments = ($cmd.ArgumentList -join ' ')
-                Why       = $cmd.Why
-                Succeeded = $false
-                Applied   = $false
-                DryRun    = $false
-                Skipped   = $true
-                Reason    = 'WhatIf'
-                ExitCode  = $null
-                Error     = $null
-            })
+                    Profile   = $Profile
+                    Name      = $cmd.Name
+                    FilePath  = $cmd.FilePath
+                    Arguments = ($cmd.ArgumentList -join ' ')
+                    Why       = $cmd.Why
+                    Succeeded = $false
+                    Applied   = $false
+                    DryRun    = $false
+                    Skipped   = $true
+                    Reason    = 'WhatIf'
+                    ExitCode  = $null
+                    Error     = $null
+                })
 
             continue
         }
@@ -1105,19 +1105,19 @@ function Invoke-NetworkPerformanceTune {
                 -IgnoreExitCode
 
             $results.Add([pscustomobject]@{
-                Profile   = $Profile
-                Name      = $result.Name
-                FilePath  = $cmd.FilePath
-                Arguments = ($cmd.ArgumentList -join ' ')
-                Why       = $cmd.Why
-                Succeeded = [bool]$result.Succeeded
-                Applied   = [bool]$result.Succeeded
-                DryRun    = $false
-                Skipped   = $false
-                Reason    = $(if ($result.Succeeded) { $null } else { 'CommandFailed' })
-                ExitCode  = $result.ExitCode
-                Error     = $result.Error
-            })
+                    Profile   = $Profile
+                    Name      = $result.Name
+                    FilePath  = $cmd.FilePath
+                    Arguments = ($cmd.ArgumentList -join ' ')
+                    Why       = $cmd.Why
+                    Succeeded = [bool]$result.Succeeded
+                    Applied   = [bool]$result.Succeeded
+                    DryRun    = $false
+                    Skipped   = $false
+                    Reason    = $(if ($result.Succeeded) { $null } else { 'CommandFailed' })
+                    ExitCode  = $result.ExitCode
+                    Error     = $result.Error
+                })
 
             if ($canLog) {
                 if ($result.Succeeded) {
@@ -1134,19 +1134,19 @@ function Invoke-NetworkPerformanceTune {
             }
 
             $results.Add([pscustomobject]@{
-                Profile   = $Profile
-                Name      = $cmd.Name
-                FilePath  = $cmd.FilePath
-                Arguments = ($cmd.ArgumentList -join ' ')
-                Why       = $cmd.Why
-                Succeeded = $false
-                Applied   = $false
-                DryRun    = $false
-                Skipped   = $false
-                Reason    = 'Exception'
-                ExitCode  = -1
-                Error     = $_.Exception.Message
-            })
+                    Profile   = $Profile
+                    Name      = $cmd.Name
+                    FilePath  = $cmd.FilePath
+                    Arguments = ($cmd.ArgumentList -join ' ')
+                    Why       = $cmd.Why
+                    Succeeded = $false
+                    Applied   = $false
+                    DryRun    = $false
+                    Skipped   = $false
+                    Reason    = 'Exception'
+                    ExitCode  = -1
+                    Error     = $_.Exception.Message
+                })
         }
     }
 
@@ -1288,30 +1288,30 @@ function Invoke-NetCleanPhase3Clean {
 
     Add-Member -InputObject $newContext -NotePropertyName Phase -NotePropertyValue 'Clean' -Force
     Add-Member -InputObject $newContext -NotePropertyName Clean -NotePropertyValue ([pscustomobject]@{
-        Mode              = $Mode
-        WiFi              = $wifiResult
-        Dns               = $dnsResult
-        Arp               = $arpResult
-        RegistryArtifacts = $artifacts
-        Nla               = @($nlaResults)
-        EventLogs         = @($logResults)
-        UserArtifacts     = @($userResults)
-        AdvancedRepair    = @($advancedRepair)
-        PerformanceTuning = @($tuningResults)
-        Summary           = [pscustomobject]@{
-            WiFiProfilesRemoved      = $wifiResult.Removed
-            RegistryArtifactsRemoved = $artifacts.RemovedCount
-            EventLogsTouched         = @($logResults).Count
-            UserArtifactsTouched     = @($userResults | Where-Object { $_.Removed }).Count
-            AdvancedRepairActions    = @($advancedRepair).Count
-            PerformanceTuningActions = @($tuningResults).Count
-        }
-    }) -Force
+            Mode              = $Mode
+            WiFi              = $wifiResult
+            Dns               = $dnsResult
+            Arp               = $arpResult
+            RegistryArtifacts = $artifacts
+            Nla               = @($nlaResults)
+            EventLogs         = @($logResults)
+            UserArtifacts     = @($userResults)
+            AdvancedRepair    = @($advancedRepair)
+            PerformanceTuning = @($tuningResults)
+            Summary           = [pscustomobject]@{
+                WiFiProfilesRemoved      = $wifiResult.Removed
+                RegistryArtifactsRemoved = $artifacts.RemovedCount
+                EventLogsTouched         = @($logResults).Count
+                UserArtifactsTouched     = @($userResults | Where-Object { $_.Removed }).Count
+                AdvancedRepairActions    = @($advancedRepair).Count
+                PerformanceTuningActions = @($tuningResults).Count
+            }
+        }) -Force
 
     if ($canLog) {
         if ($DryRun) {
             Write-NetCleanLog -Level INFO -Message ("Preview summary: WiFiWouldRemove={0} RegistryWouldRemove={1} EventLogsTouched={2} UserArtifactsTouched={3} AdvancedRepairActions={4} PerformanceTuningActions={5}" -f `
-                $wifiResult.Removed,
+                    $wifiResult.Removed,
                 $artifacts.RemovedCount,
                 @($logResults).Count,
                 @($userResults | Where-Object { $_.Removed }).Count,
@@ -1322,7 +1322,7 @@ function Invoke-NetCleanPhase3Clean {
         }
         else {
             Write-NetCleanLog -Level INFO -Message ("Phase 3 clean complete. WiFiRemoved={0} RegistryRemoved={1} EventLogsTouched={2} UserArtifactsTouched={3} AdvancedRepairActions={4} PerformanceTuningActions={5}" -f `
-                $wifiResult.Removed,
+                    $wifiResult.Removed,
                 $artifacts.RemovedCount,
                 @($logResults).Count,
                 @($userResults | Where-Object { $_.Removed }).Count,

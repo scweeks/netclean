@@ -33,7 +33,7 @@ function Get-WfpStateEvidence {
         $xmlNodes = @()
 
         if ($xml -and $xml.DocumentElement) {
-                $xmlNodes = $xml.SelectNodes('//*')
+            $xmlNodes = $xml.SelectNodes('//*')
         }
 
         foreach ($node in @($xmlNodes)) {
@@ -59,23 +59,23 @@ function Get-WfpStateEvidence {
             $vendor = Resolve-VendorFromText -Text @($joined)
 
             $results.Add([pscustomobject]@{
-                Source               = 'WFP'
-                ProductClass         = 'WfpObject'
-                Name                 = $joined
-                DisplayName          = $joined
-                Path                 = $null
-                Publisher            = $null
-                InstallPath          = $null
-                InterfaceDescription = $null
-                Manufacturer         = $null
-                CompanyName          = $null
-                FileDescription      = $null
-                ProductName          = $null
-                SignerSubject        = $null
-                InferredVendor       = $vendor
-                XmlNodeName          = $node.Name
-                Instance             = $node.OuterXml
-            })
+                    Source               = 'WFP'
+                    ProductClass         = 'WfpObject'
+                    Name                 = $joined
+                    DisplayName          = $joined
+                    Path                 = $null
+                    Publisher            = $null
+                    InstallPath          = $null
+                    InterfaceDescription = $null
+                    Manufacturer         = $null
+                    CompanyName          = $null
+                    FileDescription      = $null
+                    ProductName          = $null
+                    SignerSubject        = $null
+                    InferredVendor       = $vendor
+                    XmlNodeName          = $node.Name
+                    Instance             = $node.OuterXml
+                })
         }
     }
     catch {
@@ -120,13 +120,13 @@ function Get-NdisFilterClassEvidence {
         $text = New-Object 'System.Collections.Generic.List[string]'
 
         foreach ($propertyName in @(
-            'ComponentId',
-            'DriverDesc',
-            'ProviderName',
-            'MatchingDeviceId',
-            'FilterClass',
-            'Characteristic'
-        )) {
+                'ComponentId',
+                'DriverDesc',
+                'ProviderName',
+                'MatchingDeviceId',
+                'FilterClass',
+                'Characteristic'
+            )) {
             if ($props.PSObject.Properties.Name -contains $propertyName) {
                 $value = $props.$propertyName
                 if ($null -ne $value -and -not [string]::IsNullOrWhiteSpace([string]$value)) {
@@ -137,31 +137,31 @@ function Get-NdisFilterClassEvidence {
 
         if ($text.Count -eq 0) { continue }
 
-        $driverDesc   = if ($props.PSObject.Properties.Name -contains 'DriverDesc')   { $props.DriverDesc }   else { $null }
+        $driverDesc = if ($props.PSObject.Properties.Name -contains 'DriverDesc') { $props.DriverDesc }   else { $null }
         $providerName = if ($props.PSObject.Properties.Name -contains 'ProviderName') { $props.ProviderName } else { $null }
-        $componentId  = if ($props.PSObject.Properties.Name -contains 'ComponentId')  { $props.ComponentId }  else { $null }
+        $componentId = if ($props.PSObject.Properties.Name -contains 'ComponentId') { $props.ComponentId }  else { $null }
 
         $vendor = Resolve-VendorFromText -Text $text.ToArray()
 
         $results.Add([pscustomobject]@{
-            Source               = 'NDIS'
-            ProductClass         = 'NdisFilterClass'
-            Name                 = ($text.ToArray() -join ' | ')
-            DisplayName          = $driverDesc
-            Path                 = $null
-            Publisher            = $providerName
-            InstallPath          = $null
-            InterfaceDescription = $driverDesc
-            Manufacturer         = $providerName
-            CompanyName          = $providerName
-            FileDescription      = $driverDesc
-            ProductName          = $componentId
-            SignerSubject        = $null
-            InferredVendor       = $vendor
-            RegistryPath         = $path
-            ComponentId          = $componentId
-            Instance             = $props
-        })
+                Source               = 'NDIS'
+                ProductClass         = 'NdisFilterClass'
+                Name                 = ($text.ToArray() -join ' | ')
+                DisplayName          = $driverDesc
+                Path                 = $null
+                Publisher            = $providerName
+                InstallPath          = $null
+                InterfaceDescription = $driverDesc
+                Manufacturer         = $providerName
+                CompanyName          = $providerName
+                FileDescription      = $driverDesc
+                ProductName          = $componentId
+                SignerSubject        = $null
+                InferredVendor       = $vendor
+                RegistryPath         = $path
+                ComponentId          = $componentId
+                Instance             = $props
+            })
     }
 
     return $results.ToArray()
@@ -190,17 +190,17 @@ function Get-NdisServiceBindingEvidence {
     foreach ($svcName in @(Get-RegistryChildKeyNamesSafe -RegistryPath $servicesRoot)) {
         $svcPath = "$servicesRoot\$svcName"
         $linkage = Get-RegistryValuesSafe -RegistryPath "$svcPath\Linkage"
-        $props   = Get-RegistryValuesSafe -RegistryPath $svcPath
+        $props = Get-RegistryValuesSafe -RegistryPath $svcPath
 
         $tokens = New-Object System.Collections.Generic.List[string]
         $tokens.Add([string]$svcName)
 
         $displayName = $null
-        $group       = $null
-        $imagePath   = $null
-        $bindValues  = @()
+        $group = $null
+        $imagePath = $null
+        $bindValues = @()
         $exportValues = @()
-        $routeValues  = @()
+        $routeValues = @()
 
         if ($null -ne $props) {
             if ($props.PSObject.Properties.Name -contains 'DisplayName') {
@@ -259,26 +259,26 @@ function Get-NdisServiceBindingEvidence {
 
         if ($joined.ToLowerInvariant() -match 'ndis|filter|lwf|wfp|vpn|fw|firewall|net|vmswitch|vmnet|vbox|vethernet|packet|inspect|falcon|sentinel|zscaler|globalprotect|forti|anyconnect') {
             $results.Add([pscustomobject]@{
-                Source               = 'NDIS'
-                ProductClass         = 'NdisServiceBinding'
-                Name                 = $svcName
-                DisplayName          = if ($null -ne $displayName -and "$displayName".Trim() -ne '') { $displayName } else { $svcName }
-                Path                 = $imagePath
-                Publisher            = $null
-                InstallPath          = $null
-                InterfaceDescription = $null
-                Manufacturer         = $null
-                CompanyName          = $null
-                FileDescription      = $null
-                ProductName          = $null
-                SignerSubject        = $null
-                InferredVendor       = $vendor
-                RegistryPath         = $svcPath
-                Instance             = [pscustomobject]@{
-                    Service = $props
-                    Linkage = $linkage
-                }
-            })
+                    Source               = 'NDIS'
+                    ProductClass         = 'NdisServiceBinding'
+                    Name                 = $svcName
+                    DisplayName          = if ($null -ne $displayName -and "$displayName".Trim() -ne '') { $displayName } else { $svcName }
+                    Path                 = $imagePath
+                    Publisher            = $null
+                    InstallPath          = $null
+                    InterfaceDescription = $null
+                    Manufacturer         = $null
+                    CompanyName          = $null
+                    FileDescription      = $null
+                    ProductName          = $null
+                    SignerSubject        = $null
+                    InferredVendor       = $vendor
+                    RegistryPath         = $svcPath
+                    Instance             = [pscustomobject]@{
+                        Service = $props
+                        Linkage = $linkage
+                    }
+                })
         }
     }
 
@@ -305,9 +305,9 @@ function Get-MsiRegistryEvidence {
     $results = New-Object 'System.Collections.Generic.List[object]'
 
     foreach ($root in @(
-        'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products',
-        'HKLM\SOFTWARE\Classes\Installer\Products'
-    )) {
+            'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Installer\UserData\S-1-5-18\Products',
+            'HKLM\SOFTWARE\Classes\Installer\Products'
+        )) {
         foreach ($child in @(Get-RegistryChildKeyNamesSafe -RegistryPath $root)) {
             $productPath = "$root\$child\InstallProperties"
             $props = Get-RegistryValuesSafe -RegistryPath $productPath
@@ -315,7 +315,8 @@ function Get-MsiRegistryEvidence {
 
             $displayName = if ($props.PSObject.Properties.Name -contains 'DisplayName') {
                 $props.DisplayName
-            } else {
+            }
+            else {
                 $null
             }
 
@@ -323,19 +324,22 @@ function Get-MsiRegistryEvidence {
 
             $publisher = if ($props.PSObject.Properties.Name -contains 'Publisher') {
                 $props.Publisher
-            } else {
+            }
+            else {
                 $null
             }
 
             $installLocation = if ($props.PSObject.Properties.Name -contains 'InstallLocation') {
                 $props.InstallLocation
-            } else {
+            }
+            else {
                 $null
             }
 
             $uninstallString = if ($props.PSObject.Properties.Name -contains 'UninstallString') {
                 $props.UninstallString
-            } else {
+            }
+            else {
                 $null
             }
 
@@ -349,23 +353,23 @@ function Get-MsiRegistryEvidence {
             $vendor = Resolve-VendorFromText -Text $vendorText.ToArray()
 
             $results.Add([pscustomobject]@{
-                Source               = 'MSI'
-                ProductClass         = 'MsiProduct'
-                Name                 = $displayName
-                DisplayName          = $displayName
-                Path                 = $null
-                Publisher            = $publisher
-                InstallPath          = $installLocation
-                InterfaceDescription = $null
-                Manufacturer         = $publisher
-                CompanyName          = $publisher
-                FileDescription      = $null
-                ProductName          = $displayName
-                SignerSubject        = $null
-                InferredVendor       = $vendor
-                RegistryPath         = $productPath
-                Instance             = $props
-            })
+                    Source               = 'MSI'
+                    ProductClass         = 'MsiProduct'
+                    Name                 = $displayName
+                    DisplayName          = $displayName
+                    Path                 = $null
+                    Publisher            = $publisher
+                    InstallPath          = $installLocation
+                    InterfaceDescription = $null
+                    Manufacturer         = $publisher
+                    CompanyName          = $publisher
+                    FileDescription      = $null
+                    ProductName          = $displayName
+                    SignerSubject        = $null
+                    InferredVendor       = $vendor
+                    RegistryPath         = $productPath
+                    Instance             = $props
+                })
         }
     }
 
@@ -434,24 +438,24 @@ function Get-InfFileEvidence {
 
                 if ($vendor -or ($class -and $class -match 'Net|NetService')) {
                     $results.Add([pscustomobject]@{
-                        Source               = 'INF'
-                        ProductClass         = 'SetupApiInf'
-                        Name                 = $file.Name
-                        DisplayName          = $file.Name
-                        Path                 = $file.FullName
-                        Publisher            = $provider
-                        InstallPath          = Split-Path -Path $file.FullName -Parent
-                        InterfaceDescription = $null
-                        Manufacturer         = $manufacturer
-                        CompanyName          = $provider
-                        FileDescription      = $class
-                        ProductName          = $file.Name
-                        SignerSubject        = $null
-                        InferredVendor       = $vendor
-                        Class                = $class
-                        ClassGuid            = $classGuid
-                        Instance             = $null
-                    })
+                            Source               = 'INF'
+                            ProductClass         = 'SetupApiInf'
+                            Name                 = $file.Name
+                            DisplayName          = $file.Name
+                            Path                 = $file.FullName
+                            Publisher            = $provider
+                            InstallPath          = Split-Path -Path $file.FullName -Parent
+                            InterfaceDescription = $null
+                            Manufacturer         = $manufacturer
+                            CompanyName          = $provider
+                            FileDescription      = $class
+                            ProductName          = $file.Name
+                            SignerSubject        = $null
+                            InferredVendor       = $vendor
+                            Class                = $class
+                            ClassGuid            = $classGuid
+                            Instance             = $null
+                        })
                 }
             }
             catch {
@@ -502,23 +506,23 @@ function Get-ScheduledTaskEvidence {
 
             if ($vendor) {
                 $results.Add([pscustomobject]@{
-                    Source               = 'ScheduledTask'
-                    ProductClass         = 'ScheduledTask'
-                    Name                 = $task.TaskName
-                    DisplayName          = $task.TaskName
-                    Path                 = ($actionText -join ' ')
-                    Publisher            = $null
-                    InstallPath          = $null
-                    InterfaceDescription = $null
-                    Manufacturer         = $null
-                    CompanyName          = $null
-                    FileDescription      = $null
-                    ProductName          = $task.TaskName
-                    SignerSubject        = $null
-                    InferredVendor       = $vendor
-                    TaskPath             = $task.TaskPath
-                    Instance             = $task
-                })
+                        Source               = 'ScheduledTask'
+                        ProductClass         = 'ScheduledTask'
+                        Name                 = $task.TaskName
+                        DisplayName          = $task.TaskName
+                        Path                 = ($actionText -join ' ')
+                        Publisher            = $null
+                        InstallPath          = $null
+                        InterfaceDescription = $null
+                        Manufacturer         = $null
+                        CompanyName          = $null
+                        FileDescription      = $null
+                        ProductName          = $task.TaskName
+                        SignerSubject        = $null
+                        InferredVendor       = $vendor
+                        TaskPath             = $task.TaskPath
+                        Instance             = $task
+                    })
             }
         }
     }
@@ -560,23 +564,23 @@ function Get-AppxPackageEvidence {
 
             if ($vendor) {
                 $results.Add([pscustomobject]@{
-                    Source               = 'AppX'
-                    ProductClass         = 'AppxPackage'
-                    Name                 = $pkg.Name
-                    DisplayName          = $pkg.Name
-                    Path                 = $pkg.InstallLocation
-                    Publisher            = $pkg.PublisherDisplayName
-                    InstallPath          = $pkg.InstallLocation
-                    InterfaceDescription = $null
-                    Manufacturer         = $pkg.PublisherDisplayName
-                    CompanyName          = $pkg.PublisherDisplayName
-                    FileDescription      = $null
-                    ProductName          = $pkg.Name
-                    SignerSubject        = $pkg.Publisher
-                    InferredVendor       = $vendor
-                    PackageFamilyName    = $pkg.PackageFamilyName
-                    Instance             = $pkg
-                })
+                        Source               = 'AppX'
+                        ProductClass         = 'AppxPackage'
+                        Name                 = $pkg.Name
+                        DisplayName          = $pkg.Name
+                        Path                 = $pkg.InstallLocation
+                        Publisher            = $pkg.PublisherDisplayName
+                        InstallPath          = $pkg.InstallLocation
+                        InterfaceDescription = $null
+                        Manufacturer         = $pkg.PublisherDisplayName
+                        CompanyName          = $pkg.PublisherDisplayName
+                        FileDescription      = $null
+                        ProductName          = $pkg.Name
+                        SignerSubject        = $pkg.Publisher
+                        InferredVendor       = $vendor
+                        PackageFamilyName    = $pkg.PackageFamilyName
+                        Instance             = $pkg
+                    })
             }
         }
     }
@@ -611,22 +615,22 @@ function Get-ProtectionEvidence {
         foreach ($item in $avProducts) {
             $meta = Get-FileMetadatum -Path $item.pathToSignedProductExe
             $evidence.Add([pscustomobject]@{
-                Source               = 'SecurityCenter2'
-                ProductClass         = 'AntivirusProduct'
-                Name                 = $item.displayName
-                DisplayName          = $item.displayName
-                Path                 = $item.pathToSignedProductExe
-                Publisher            = if ($meta) { $meta.CompanyName } else { $null }
-                InstallPath          = $null
-                InterfaceDescription = $null
-                Manufacturer         = $null
-                CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
-                FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
-                ProductName          = if ($meta) { $meta.ProductName } else { $null }
-                SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                InferredVendor       = if ($meta) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($item.displayName)) }
-                Instance             = $item
-            })
+                    Source               = 'SecurityCenter2'
+                    ProductClass         = 'AntivirusProduct'
+                    Name                 = $item.displayName
+                    DisplayName          = $item.displayName
+                    Path                 = $item.pathToSignedProductExe
+                    Publisher            = if ($meta) { $meta.CompanyName } else { $null }
+                    InstallPath          = $null
+                    InterfaceDescription = $null
+                    Manufacturer         = $null
+                    CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
+                    FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
+                    ProductName          = if ($meta) { $meta.ProductName } else { $null }
+                    SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
+                    InferredVendor       = if ($meta) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($item.displayName)) }
+                    Instance             = $item
+                })
         }
     }
     catch {
@@ -638,22 +642,22 @@ function Get-ProtectionEvidence {
         foreach ($item in $fwProducts) {
             $meta = Get-FileMetadatum -Path $item.pathToSignedProductExe
             $evidence.Add([pscustomobject]@{
-                Source               = 'SecurityCenter2'
-                ProductClass         = 'FirewallProduct'
-                Name                 = $item.displayName
-                DisplayName          = $item.displayName
-                Path                 = $item.pathToSignedProductExe
-                Publisher            = if ($meta) { $meta.CompanyName } else { $null }
-                InstallPath          = $null
-                InterfaceDescription = $null
-                Manufacturer         = $null
-                CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
-                FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
-                ProductName          = if ($meta) { $meta.ProductName } else { $null }
-                SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                InferredVendor       = if ($meta) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($item.displayName)) }
-                Instance             = $item
-            })
+                    Source               = 'SecurityCenter2'
+                    ProductClass         = 'FirewallProduct'
+                    Name                 = $item.displayName
+                    DisplayName          = $item.displayName
+                    Path                 = $item.pathToSignedProductExe
+                    Publisher            = if ($meta) { $meta.CompanyName } else { $null }
+                    InstallPath          = $null
+                    InterfaceDescription = $null
+                    Manufacturer         = $null
+                    CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
+                    FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
+                    ProductName          = if ($meta) { $meta.ProductName } else { $null }
+                    SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
+                    InferredVendor       = if ($meta) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($item.displayName)) }
+                    Instance             = $item
+                })
         }
     }
     catch {
@@ -665,25 +669,25 @@ function Get-ProtectionEvidence {
         foreach ($svc in $services) {
             $meta = Get-FileMetadatum -Path $svc.PathName
             $evidence.Add([pscustomobject]@{
-                Source               = 'Service'
-                ProductClass         = 'Service'
-                Name                 = $svc.Name
-                DisplayName          = $svc.DisplayName
-                Path                 = $svc.PathName
-                Publisher            = if ($meta) { $meta.CompanyName } else { $null }
-                InstallPath          = $null
-                InterfaceDescription = $null
-                Manufacturer         = $null
-                CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
-                FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
-                ProductName          = if ($meta) { $meta.ProductName } else { $null }
-                SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                InferredVendor       = if ($meta) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($svc.Name, $svc.DisplayName, $svc.PathName)) }
-                State                = $svc.State
-                StartMode            = $svc.StartMode
-                ServiceType          = $svc.ServiceType
-                Instance             = $svc
-            })
+                    Source               = 'Service'
+                    ProductClass         = 'Service'
+                    Name                 = $svc.Name
+                    DisplayName          = $svc.DisplayName
+                    Path                 = $svc.PathName
+                    Publisher            = if ($meta) { $meta.CompanyName } else { $null }
+                    InstallPath          = $null
+                    InterfaceDescription = $null
+                    Manufacturer         = $null
+                    CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
+                    FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
+                    ProductName          = if ($meta) { $meta.ProductName } else { $null }
+                    SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
+                    InferredVendor       = if ($meta) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($svc.Name, $svc.DisplayName, $svc.PathName)) }
+                    State                = $svc.State
+                    StartMode            = $svc.StartMode
+                    ServiceType          = $svc.ServiceType
+                    Instance             = $svc
+                })
         }
     }
     catch {
@@ -695,25 +699,25 @@ function Get-ProtectionEvidence {
         foreach ($drv in $drivers) {
             $meta = Get-FileMetadatum -Path $drv.PathName
             $evidence.Add([pscustomobject]@{
-                Source               = 'Driver'
-                ProductClass         = 'Driver'
-                Name                 = $drv.Name
-                DisplayName          = $drv.DisplayName
-                Path                 = $drv.PathName
-                Publisher            = if ($meta) { $meta.CompanyName } else { $null }
-                InstallPath          = $null
-                InterfaceDescription = $null
-                Manufacturer         = $null
-                CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
-                FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
-                ProductName          = if ($meta) { $meta.ProductName } else { $null }
-                SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                InferredVendor       = if ($meta) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($drv.Name, $drv.DisplayName, $drv.PathName)) }
-                State                = $drv.State
-                StartMode            = $drv.StartMode
-                ServiceType          = $drv.ServiceType
-                Instance             = $drv
-            })
+                    Source               = 'Driver'
+                    ProductClass         = 'Driver'
+                    Name                 = $drv.Name
+                    DisplayName          = $drv.DisplayName
+                    Path                 = $drv.PathName
+                    Publisher            = if ($meta) { $meta.CompanyName } else { $null }
+                    InstallPath          = $null
+                    InterfaceDescription = $null
+                    Manufacturer         = $null
+                    CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
+                    FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
+                    ProductName          = if ($meta) { $meta.ProductName } else { $null }
+                    SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
+                    InferredVendor       = if ($meta) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($drv.Name, $drv.DisplayName, $drv.PathName)) }
+                    State                = $drv.State
+                    StartMode            = $drv.StartMode
+                    ServiceType          = $drv.ServiceType
+                    Instance             = $drv
+                })
         }
     }
     catch {
@@ -721,9 +725,9 @@ function Get-ProtectionEvidence {
     }
 
     foreach ($root in @(
-        'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
-        'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
-    )) {
+            'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+        )) {
         try {
             Get-ItemProperty -Path $root -ErrorAction SilentlyContinue | ForEach-Object {
                 if ($_.DisplayName) {
@@ -733,23 +737,23 @@ function Get-ProtectionEvidence {
                     }
 
                     $evidence.Add([pscustomobject]@{
-                        Source               = 'Uninstall'
-                        ProductClass         = 'InstalledProduct'
-                        Name                 = $_.DisplayName
-                        DisplayName          = $_.DisplayName
-                        Path                 = $_.DisplayIcon
-                        Publisher            = $_.Publisher
-                        InstallPath          = $_.InstallLocation
-                        InterfaceDescription = $null
-                        Manufacturer         = $_.Publisher
-                        CompanyName          = if ($meta) { $meta.CompanyName } else { $_.Publisher }
-                        FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
-                        ProductName          = if ($meta) { $meta.ProductName } else { $_.DisplayName }
-                        SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                        InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($_.DisplayName, $_.Publisher, $_.InstallLocation, $_.UninstallString)) }
-                        UninstallString      = $_.UninstallString
-                        Instance             = $_
-                    })
+                            Source               = 'Uninstall'
+                            ProductClass         = 'InstalledProduct'
+                            Name                 = $_.DisplayName
+                            DisplayName          = $_.DisplayName
+                            Path                 = $_.DisplayIcon
+                            Publisher            = $_.Publisher
+                            InstallPath          = $_.InstallLocation
+                            InterfaceDescription = $null
+                            Manufacturer         = $_.Publisher
+                            CompanyName          = if ($meta) { $meta.CompanyName } else { $_.Publisher }
+                            FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
+                            ProductName          = if ($meta) { $meta.ProductName } else { $_.DisplayName }
+                            SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
+                            InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($_.DisplayName, $_.Publisher, $_.InstallLocation, $_.UninstallString)) }
+                            UninstallString      = $_.UninstallString
+                            Instance             = $_
+                        })
                 }
             }
         }
@@ -782,25 +786,25 @@ function Get-ProtectionEvidence {
             }
 
             $evidence.Add([pscustomobject]@{
-                Source               = 'NetAdapter'
-                ProductClass         = 'Adapter'
-                Name                 = $adapter.Name
-                DisplayName          = $adapter.Name
-                Path                 = $null
-                Publisher            = $null
-                InstallPath          = $null
-                InterfaceDescription = $adapter.InterfaceDescription
-                Manufacturer         = $null
-                CompanyName          = $null
-                FileDescription      = $null
-                ProductName          = $adapter.InterfaceDescription
-                SignerSubject        = $null
-                InferredVendor       = $vendor
-                InterfaceGuid        = $guidValue
-                MacAddress           = $adapter.MacAddress
-                Status               = $adapter.Status
-                Instance             = $adapter
-            })
+                    Source               = 'NetAdapter'
+                    ProductClass         = 'Adapter'
+                    Name                 = $adapter.Name
+                    DisplayName          = $adapter.Name
+                    Path                 = $null
+                    Publisher            = $null
+                    InstallPath          = $null
+                    InterfaceDescription = $adapter.InterfaceDescription
+                    Manufacturer         = $null
+                    CompanyName          = $null
+                    FileDescription      = $null
+                    ProductName          = $adapter.InterfaceDescription
+                    SignerSubject        = $null
+                    InferredVendor       = $vendor
+                    InterfaceGuid        = $guidValue
+                    MacAddress           = $adapter.MacAddress
+                    Status               = $adapter.Status
+                    Instance             = $adapter
+                })
         }
     }
     catch {
@@ -817,25 +821,25 @@ function Get-ProtectionEvidence {
             )
 
             $evidence.Add([pscustomobject]@{
-                Source               = 'PnpDevice'
-                ProductClass         = 'NetDevice'
-                Name                 = $dev.FriendlyName
-                DisplayName          = $dev.FriendlyName
-                Path                 = $null
-                Publisher            = $null
-                InstallPath          = $null
-                InterfaceDescription = $dev.FriendlyName
-                Manufacturer         = $dev.Manufacturer
-                CompanyName          = $dev.Manufacturer
-                FileDescription      = $null
-                ProductName          = $dev.FriendlyName
-                SignerSubject        = $null
-                InferredVendor       = $vendor
-                InstanceId           = $dev.InstanceId
-                Status               = $dev.Status
-                Class                = $dev.Class
-                Instance             = $dev
-            })
+                    Source               = 'PnpDevice'
+                    ProductClass         = 'NetDevice'
+                    Name                 = $dev.FriendlyName
+                    DisplayName          = $dev.FriendlyName
+                    Path                 = $null
+                    Publisher            = $null
+                    InstallPath          = $null
+                    InterfaceDescription = $dev.FriendlyName
+                    Manufacturer         = $dev.Manufacturer
+                    CompanyName          = $dev.Manufacturer
+                    FileDescription      = $null
+                    ProductName          = $dev.FriendlyName
+                    SignerSubject        = $null
+                    InferredVendor       = $vendor
+                    InstanceId           = $dev.InstanceId
+                    Status               = $dev.Status
+                    Class                = $dev.Class
+                    Instance             = $dev
+                })
         }
     }
     catch {
@@ -854,39 +858,39 @@ function Get-ProtectionEvidence {
             $meta = Get-FileMetadatum -Path $imagePath
 
             $evidence.Add([pscustomobject]@{
-                Source               = 'ServiceRegistry'
-                ProductClass         = 'ServiceRegistry'
-                Name                 = $svcName
-                DisplayName          = $displayName
-                Path                 = $imagePath
-                Publisher            = if ($meta) { $meta.CompanyName } else { $null }
-                InstallPath          = $null
-                InterfaceDescription = $null
-                Manufacturer         = $null
-                CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
-                FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
-                ProductName          = if ($meta) { $meta.ProductName } else { $null }
-                SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($svcName, $displayName, $imagePath)) }
-                ServiceRegistryPath  = $svcRegPath
-                Start                = $svcProps.Start
-                Type                 = $svcProps.Type
-                Group                = $svcProps.Group
-                Instance             = $svcProps
-            })
+                    Source               = 'ServiceRegistry'
+                    ProductClass         = 'ServiceRegistry'
+                    Name                 = $svcName
+                    DisplayName          = $displayName
+                    Path                 = $imagePath
+                    Publisher            = if ($meta) { $meta.CompanyName } else { $null }
+                    InstallPath          = $null
+                    InterfaceDescription = $null
+                    Manufacturer         = $null
+                    CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
+                    FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
+                    ProductName          = if ($meta) { $meta.ProductName } else { $null }
+                    SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
+                    InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($svcName, $displayName, $imagePath)) }
+                    ServiceRegistryPath  = $svcRegPath
+                    Start                = $svcProps.Start
+                    Type                 = $svcProps.Type
+                    Group                = $svcProps.Group
+                    Instance             = $svcProps
+                })
         }
     }
     catch {
         Write-Verbose "Ignored error: $_"
     }
 
-    foreach ($item in @(Get-WfpStateEvidence))           { $evidence.Add($item) }
-    foreach ($item in @(Get-NdisFilterClassEvidence))    { $evidence.Add($item) }
+    foreach ($item in @(Get-WfpStateEvidence)) { $evidence.Add($item) }
+    foreach ($item in @(Get-NdisFilterClassEvidence)) { $evidence.Add($item) }
     foreach ($item in @(Get-NdisServiceBindingEvidence)) { $evidence.Add($item) }
-    foreach ($item in @(Get-MsiRegistryEvidence))        { $evidence.Add($item) }
-    foreach ($item in @(Get-InfFileEvidence))            { $evidence.Add($item) }
-    foreach ($item in @(Get-ScheduledTaskEvidence))      { $evidence.Add($item) }
-    foreach ($item in @(Get-AppxPackageEvidence))        { $evidence.Add($item) }
+    foreach ($item in @(Get-MsiRegistryEvidence)) { $evidence.Add($item) }
+    foreach ($item in @(Get-InfFileEvidence)) { $evidence.Add($item) }
+    foreach ($item in @(Get-ScheduledTaskEvidence)) { $evidence.Add($item) }
+    foreach ($item in @(Get-AppxPackageEvidence)) { $evidence.Add($item) }
 
     return $evidence.ToArray()
 }
@@ -960,7 +964,7 @@ function Get-ProtectionInventory {
             }
 
             if ($item.Source -in @('NetAdapter', 'PnpDevice')) {
-                if ($item.DisplayName)          { [void]$adapters.Add($item.DisplayName) }
+                if ($item.DisplayName) { [void]$adapters.Add($item.DisplayName) }
                 if ($item.InterfaceDescription) { [void]$adapters.Add($item.InterfaceDescription) }
                 if ($item.PSObject.Properties.Name -contains 'InterfaceGuid' -and $item.InterfaceGuid) {
                     [void]$adapterGuids.Add($item.InterfaceGuid)
@@ -992,12 +996,12 @@ function Get-ProtectionInventory {
                 $svcInfo = $serviceMap[$key]
 
                 foreach ($candidate in @(
-                    $svcInfo.RegistryPath,
-                    $svcInfo.EnumPath,
-                    $svcInfo.LinkagePath,
-                    $svcInfo.ParamsPath,
-                    $svcInfo.InstancesPath
-                )) {
+                        $svcInfo.RegistryPath,
+                        $svcInfo.EnumPath,
+                        $svcInfo.LinkagePath,
+                        $svcInfo.ParamsPath,
+                        $svcInfo.InstancesPath
+                    )) {
                     if (-not [string]::IsNullOrWhiteSpace($candidate)) {
                         [void]$registryKeys.Add($candidate)
                     }
@@ -1015,12 +1019,12 @@ function Get-ProtectionInventory {
             if ($serviceMap.ContainsKey($key)) {
                 $drvInfo = $serviceMap[$key]
                 foreach ($candidate in @(
-                    $drvInfo.RegistryPath,
-                    $drvInfo.EnumPath,
-                    $drvInfo.LinkagePath,
-                    $drvInfo.ParamsPath,
-                    $drvInfo.InstancesPath
-                )) {
+                        $drvInfo.RegistryPath,
+                        $drvInfo.EnumPath,
+                        $drvInfo.LinkagePath,
+                        $drvInfo.ParamsPath,
+                        $drvInfo.InstancesPath
+                    )) {
                     if (-not [string]::IsNullOrWhiteSpace($candidate)) {
                         [void]$registryKeys.Add($candidate)
                     }
@@ -1054,7 +1058,7 @@ function Get-ProtectionInventory {
                     }
                 }
 
-                if ($corr.DriverDesc)   { [void]$adapters.Add($corr.DriverDesc) }
+                if ($corr.DriverDesc) { [void]$adapters.Add($corr.DriverDesc) }
                 if ($corr.ProviderName) { [void]$evidenceStrings.Add("AdapterProvider: $($corr.ProviderName)") }
             }
         }
@@ -1062,25 +1066,25 @@ function Get-ProtectionInventory {
         foreach ($svc in @($services)) {
             $svcl = $svc.ToLowerInvariant()
             switch -Wildcard ($svcl) {
-                'vm*'         { [void]$categories.Add('VirtualAdapter'); [void]$categories.Add('Hypervisor') }
-                '*vbox*'      { [void]$categories.Add('VirtualAdapter'); [void]$categories.Add('Hypervisor') }
-                '*falcon*'    { [void]$categories.Add('EDR'); [void]$categories.Add('XDR') }
-                '*sentinel*'  { [void]$categories.Add('EDR'); [void]$categories.Add('XDR') }
-                '*defend*'    { [void]$categories.Add('AV') }
-                '*fire*'      { [void]$categories.Add('Firewall') }
-                '*vpn*'       { [void]$categories.Add('VPN') }
+                'vm*' { [void]$categories.Add('VirtualAdapter'); [void]$categories.Add('Hypervisor') }
+                '*vbox*' { [void]$categories.Add('VirtualAdapter'); [void]$categories.Add('Hypervisor') }
+                '*falcon*' { [void]$categories.Add('EDR'); [void]$categories.Add('XDR') }
+                '*sentinel*' { [void]$categories.Add('EDR'); [void]$categories.Add('XDR') }
+                '*defend*' { [void]$categories.Add('AV') }
+                '*fire*' { [void]$categories.Add('Firewall') }
+                '*vpn*' { [void]$categories.Add('VPN') }
             }
         }
 
         foreach ($adapter in @($adapters)) {
             $al = $adapter.ToLowerInvariant()
             switch -Wildcard ($al) {
-                '*vmware*'     { [void]$categories.Add('Hypervisor'); [void]$categories.Add('VirtualAdapter') }
+                '*vmware*' { [void]$categories.Add('Hypervisor'); [void]$categories.Add('VirtualAdapter') }
                 '*virtualbox*' { [void]$categories.Add('Hypervisor'); [void]$categories.Add('VirtualAdapter') }
-                '*vbox*'       { [void]$categories.Add('Hypervisor'); [void]$categories.Add('VirtualAdapter') }
-                '*hyper-v*'    { [void]$categories.Add('Hypervisor'); [void]$categories.Add('VirtualAdapter') }
-                '*vethernet*'  { [void]$categories.Add('VirtualAdapter') }
-                '*vpn*'        { [void]$categories.Add('VPN') }
+                '*vbox*' { [void]$categories.Add('Hypervisor'); [void]$categories.Add('VirtualAdapter') }
+                '*hyper-v*' { [void]$categories.Add('Hypervisor'); [void]$categories.Add('VirtualAdapter') }
+                '*vethernet*' { [void]$categories.Add('VirtualAdapter') }
+                '*vpn*' { [void]$categories.Add('VPN') }
             }
         }
 
@@ -1129,17 +1133,17 @@ function Get-ProtectionInventory {
         $confidence = [Math]::Min(100, $score)
 
         $inventory.Add([pscustomobject]@{
-            Vendor                  = $vendor
-            Categories              = @($categories | Sort-Object -Unique)
-            Confidence              = $confidence
-            Services                = @($services | Sort-Object -Unique)
-            Drivers                 = @($drivers | Sort-Object -Unique)
-            Adapters                = @($adapters | Sort-Object -Unique)
-            ProtectedInterfaceGuids = @($adapterGuids | Sort-Object -Unique)
-            RegistryKeys            = @($registryKeys | Where-Object { $_ } | Sort-Object -Unique)
-            Evidence                = @($evidenceStrings | Sort-Object -Unique)
-            RawEvidenceCount        = $matched.Count
-        })
+                Vendor                  = $vendor
+                Categories              = @($categories | Sort-Object -Unique)
+                Confidence              = $confidence
+                Services                = @($services | Sort-Object -Unique)
+                Drivers                 = @($drivers | Sort-Object -Unique)
+                Adapters                = @($adapters | Sort-Object -Unique)
+                ProtectedInterfaceGuids = @($adapterGuids | Sort-Object -Unique)
+                RegistryKeys            = @($registryKeys | Where-Object { $_ } | Sort-Object -Unique)
+                Evidence                = @($evidenceStrings | Sort-Object -Unique)
+                RawEvidenceCount        = $matched.Count
+            })
     }
 
     return $inventory.ToArray() | Sort-Object Vendor
@@ -1207,10 +1211,10 @@ function Get-ProtectionRegistryMap {
             $g = $guid.Trim('{}').ToLowerInvariant()
 
             foreach ($candidate in @(
-                "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{$g}",
-                "HKLM\SYSTEM\CurrentControlSet\Control\Network\{4d36e972-e325-11ce-bfc1-08002be10318}\{$g}",
-                "HKLM\SYSTEM\CurrentControlSet\Control\Network\{4d36e972-e325-11ce-bfc1-08002be10318}\{$g}\Connection"
-            )) {
+                    "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{$g}",
+                    "HKLM\SYSTEM\CurrentControlSet\Control\Network\{4d36e972-e325-11ce-bfc1-08002be10318}\{$g}",
+                    "HKLM\SYSTEM\CurrentControlSet\Control\Network\{4d36e972-e325-11ce-bfc1-08002be10318}\{$g}\Connection"
+                )) {
                 if (Test-RegistryPathExist -RegistryPath $candidate) {
                     [void]$keys.Add($candidate)
                 }
@@ -1218,16 +1222,16 @@ function Get-ProtectionRegistryMap {
         }
 
         $result.Add([pscustomobject]@{
-            Vendor                  = $item.Vendor
-            Categories              = $item.Categories
-            Confidence              = $item.Confidence
-            Services                = $item.Services
-            Drivers                 = $item.Drivers
-            Adapters                = $item.Adapters
-            ProtectedInterfaceGuids = $item.ProtectedInterfaceGuids
-            RegistryKeys            = @($keys | Sort-Object -Unique)
-            Evidence                = $item.Evidence
-        })
+                Vendor                  = $item.Vendor
+                Categories              = $item.Categories
+                Confidence              = $item.Confidence
+                Services                = $item.Services
+                Drivers                 = $item.Drivers
+                Adapters                = $item.Adapters
+                ProtectedInterfaceGuids = $item.ProtectedInterfaceGuids
+                RegistryKeys            = @($keys | Sort-Object -Unique)
+                Evidence                = $item.Evidence
+            })
     }
 
     return $result.ToArray() | Sort-Object Vendor
@@ -1294,19 +1298,19 @@ function Get-NetworkPrivacyArtifactCandidate {
     $candidates = New-Object System.Collections.Generic.List[object]
 
     foreach ($path in @(
-        'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles',
-        'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures',
-        'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures\Managed',
-        'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures\Unmanaged'
-    )) {
+            'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles',
+            'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures',
+            'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures\Managed',
+            'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Signatures\Unmanaged'
+        )) {
         if (Test-RegistryPathExist -RegistryPath $path) {
             $candidates.Add([pscustomobject]@{
-                ArtifactType  = 'NetworkList'
-                RegistryPath  = $path
-                InterfaceGuid = $null
-                IsProtected   = $false
-                Reason        = 'Network profile/signature history'
-            })
+                    ArtifactType  = 'NetworkList'
+                    RegistryPath  = $path
+                    InterfaceGuid = $null
+                    IsProtected   = $false
+                    Reason        = 'Network profile/signature history'
+                })
         }
     }
 
@@ -1330,12 +1334,12 @@ function Get-NetworkPrivacyArtifactCandidate {
         $isProtected = $protectedGuidSet.Contains($guid)
 
         $candidates.Add([pscustomobject]@{
-            ArtifactType  = 'TcpipInterface'
-            RegistryPath  = $path
-            InterfaceGuid = $guid
-            IsProtected   = $isProtected
-            Reason        = if ($isProtected) { 'Protected by inventory correlation' } else { 'Non-protected interface-specific network state' }
-        })
+                ArtifactType  = 'TcpipInterface'
+                RegistryPath  = $path
+                InterfaceGuid = $guid
+                IsProtected   = $isProtected
+                Reason        = if ($isProtected) { 'Protected by inventory correlation' } else { 'Non-protected interface-specific network state' }
+            })
     }
 
     $networkRoot = 'HKLM\SYSTEM\CurrentControlSet\Control\Network\{4d36e972-e325-11ce-bfc1-08002be10318}'
@@ -1355,18 +1359,18 @@ function Get-NetworkPrivacyArtifactCandidate {
         if (-not $isGuid) { continue }
 
         foreach ($path in @(
-            "$networkRoot\{$guid}",
-            "$networkRoot\{$guid}\Connection"
-        )) {
+                "$networkRoot\{$guid}",
+                "$networkRoot\{$guid}\Connection"
+            )) {
             if (Test-RegistryPathExist -RegistryPath $path) {
                 $isProtected = $protectedGuidSet.Contains($guid)
                 $candidates.Add([pscustomobject]@{
-                    ArtifactType  = 'NetworkControl'
-                    RegistryPath  = $path
-                    InterfaceGuid = $guid
-                    IsProtected   = $isProtected
-                    Reason        = if ($isProtected) { 'Protected by inventory correlation' } else { 'Non-protected network connection metadata' }
-                })
+                        ArtifactType  = 'NetworkControl'
+                        RegistryPath  = $path
+                        InterfaceGuid = $guid
+                        IsProtected   = $isProtected
+                        Reason        = if ($isProtected) { 'Protected by inventory correlation' } else { 'Non-protected network connection metadata' }
+                    })
             }
         }
     }

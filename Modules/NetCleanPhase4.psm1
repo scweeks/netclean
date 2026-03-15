@@ -38,7 +38,7 @@ function Test-NetCleanPostState {
     $postGuids = @(Get-ProtectedInterfaceGuidSet -Inventory $postInventory)
 
     $vendorComparison = Compare-StringSet -Before $preVendors -After $postVendors
-    $guidComparison   = Compare-StringSet -Before $preGuids -After $postGuids
+    $guidComparison = Compare-StringSet -Before $preGuids -After $postGuids
 
     $preServices = @(
         $preInventory |
@@ -48,9 +48,9 @@ function Test-NetCleanPostState {
     )
 
     foreach ($svc in $preServices) {
-         if ($canLog) {
-             Write-NetCleanLog -Level INFO -Message ("Pre-cleaning protected service: {0}" -f $svc)
-         }
+        if ($canLog) {
+            Write-NetCleanLog -Level INFO -Message ("Pre-cleaning protected service: {0}" -f $svc)
+        }
     }
 
     $postServices = @(
@@ -61,9 +61,9 @@ function Test-NetCleanPostState {
     )
 
     foreach ($svc in $postServices) {
-         if ($canLog) {
-             Write-NetCleanLog -Level INFO -Message ("Post-cleaning protected service: {0}" -f $svc)
-         }
+        if ($canLog) {
+            Write-NetCleanLog -Level INFO -Message ("Post-cleaning protected service: {0}" -f $svc)
+        }
     }
 
     if ($canlog) { Write-NetCleanLog -Level INFO -Message 'Phase 4 verify completed (inventory gathered).' }
@@ -71,12 +71,12 @@ function Test-NetCleanPostState {
     $serviceComparison = Compare-StringSet -Before $preServices -After $postServices
 
     return [pscustomobject]@{
-        PreInventory        = $preInventory
-        PostInventory       = $postInventory
-        VendorComparison    = $vendorComparison
-        GuidComparison      = $guidComparison
-        ServiceComparison   = $serviceComparison
-        Passed              = (@($vendorComparison.Missing).Count -eq 0)
+        PreInventory      = $preInventory
+        PostInventory     = $postInventory
+        VendorComparison  = $vendorComparison
+        GuidComparison    = $guidComparison
+        ServiceComparison = $serviceComparison
+        Passed            = (@($vendorComparison.Missing).Count -eq 0)
     }
 }
 
@@ -113,17 +113,17 @@ function Invoke-NetCleanPhase4Verify {
 
     Add-Member -InputObject $newContext -NotePropertyName Phase -NotePropertyValue 'Verify' -Force
     Add-Member -InputObject $newContext -NotePropertyName Verify -NotePropertyValue ([pscustomobject]@{
-        Passed = $verification.Passed
-        VendorComparison  = $verification.VendorComparison
-        GuidComparison    = $verification.GuidComparison
-        ServiceComparison = $verification.ServiceComparison
-        Summary = [pscustomobject]@{
-            MissingVendorsCount  = @($verification.VendorComparison.Missing).Count
-            MissingGuidCount     = @($verification.GuidComparison.Missing).Count
-            MissingServiceCount  = @($verification.ServiceComparison.Missing).Count
-            Passed               = $verification.Passed
-        }
-    }) -Force
+            Passed            = $verification.Passed
+            VendorComparison  = $verification.VendorComparison
+            GuidComparison    = $verification.GuidComparison
+            ServiceComparison = $verification.ServiceComparison
+            Summary           = [pscustomobject]@{
+                MissingVendorsCount = @($verification.VendorComparison.Missing).Count
+                MissingGuidCount    = @($verification.GuidComparison.Missing).Count
+                MissingServiceCount = @($verification.ServiceComparison.Missing).Count
+                Passed              = $verification.Passed
+            }
+        }) -Force
 
     if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ('Invoke-NetCleanPhase4Verify: verification complete. Passed={0}' -f $verification.Passed) }
 
@@ -153,7 +153,7 @@ function Invoke-NetCleanPhase4Verify {
 
     # Console summary for verification
     Write-Information (("Phase 4 verify: Passed={0} MissingVendors={1} MissingGuids={2} MissingServices={3}" -f `
-        $verification.Passed, @($verification.VendorComparison.Missing).Count, @($verification.GuidComparison.Missing).Count, @($verification.ServiceComparison.Missing).Count)) -InformationAction Continue
+                $verification.Passed, @($verification.VendorComparison.Missing).Count, @($verification.GuidComparison.Missing).Count, @($verification.ServiceComparison.Missing).Count)) -InformationAction Continue
 
     return $newContext
 }

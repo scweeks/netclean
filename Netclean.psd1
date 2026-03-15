@@ -33,13 +33,13 @@
         'Test-NetCleanPostState'
     )
 
-    AliasesToExport = @(
+    AliasesToExport   = @(
         'Backup-WiFiProfiles',
         'Backup-NetworkList',
         'Backup-ProtectedRegistryKeys'
     )
 
-    PrivateData = @{
+    PrivateData       = @{
         PSData = @{
             ProjectUri = 'https://github.com/scweeks/netclean'
             LicenseUri = 'https://github.com/scweeks/netclean/blob/ci/pester-v5-coverage/LICENSE'

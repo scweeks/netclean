@@ -163,7 +163,7 @@ function Get-WiFiProfileNames {
 
         if ($text -match '^\s*[^:]+:\s*(.+?)\s*$') {
             $label = ($text -replace ':\s*.+$', '').Trim()
-            $name  = $matches[1].Trim()
+            $name = $matches[1].Trim()
 
             if ($label -match 'Profile' -and -not [string]::IsNullOrWhiteSpace($name)) {
                 [void]$profiles.Add($name)
@@ -254,7 +254,7 @@ function Export-WiFiProfile {
     try {
         $before = @(
             Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue |
-                Select-Object -ExpandProperty FullName
+            Select-Object -ExpandProperty FullName
         )
 
         $bulkResult = Invoke-ExternalCommandSafe `
@@ -265,7 +265,7 @@ function Export-WiFiProfile {
 
         $after = @(
             Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue |
-                Select-Object -ExpandProperty FullName
+            Select-Object -ExpandProperty FullName
         )
 
         $newFiles = @($after | Where-Object { $_ -notin $before })
@@ -300,7 +300,7 @@ function Export-WiFiProfile {
             try {
                 $before = @(
                     Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue |
-                        Select-Object -ExpandProperty FullName
+                    Select-Object -ExpandProperty FullName
                 )
 
                 $profileResult = Invoke-ExternalCommandSafe `
@@ -311,7 +311,7 @@ function Export-WiFiProfile {
 
                 $after = @(
                     Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue |
-                        Select-Object -ExpandProperty FullName
+                    Select-Object -ExpandProperty FullName
                 )
 
                 $newFiles = @($after | Where-Object { $_ -notin $before })
@@ -643,22 +643,22 @@ function Invoke-NetCleanPhase2Protect {
     $protectedPaths = @($Context.ProtectedRegistryPaths | Sort-Object -Unique)
 
     $manifest = @{
-        ModuleVersion                 = $script:NetCleanModuleVersion
-        BackupPath                    = $BackupPath
-        CreatedAt                     = (Get-Date).ToString('s')
-        ProtectionInventoryJson       = $null
-        ProtectionRegistryMapJson     = $null
-        SanitizableArtifactsJson      = $null
-        FirewallPolicyBackup          = $null
-        NetworkListBackup             = $null
-        WiFiExports                   = @()
-        ProtectedRegistryBackups      = @()
+        ModuleVersion             = $script:NetCleanModuleVersion
+        BackupPath                = $BackupPath
+        CreatedAt                 = (Get-Date).ToString('s')
+        ProtectionInventoryJson   = $null
+        ProtectionRegistryMapJson = $null
+        SanitizableArtifactsJson  = $null
+        FirewallPolicyBackup      = $null
+        NetworkListBackup         = $null
+        WiFiExports               = @()
+        ProtectedRegistryBackups  = @()
     }
 
-    $manifest.ProtectionInventoryJson   = Export-ProtectionInventory -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
+    $manifest.ProtectionInventoryJson = Export-ProtectionInventory -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
     $manifest.ProtectionRegistryMapJson = Export-ProtectionRegistryMap -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
-    $manifest.SanitizableArtifactsJson  = Export-SanitizableNetworkArtifact -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
-    $manifest.NetworkListBackup         = Export-NetworkList -Dest $BackupPath -DryRun:$DryRun
+    $manifest.SanitizableArtifactsJson = Export-SanitizableNetworkArtifact -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
+    $manifest.NetworkListBackup = Export-NetworkList -Dest $BackupPath -DryRun:$DryRun
     if ($canLog) {
         if ($DryRun) {
             Write-NetCleanLog -Level INFO -Message ("Would export network list to: {0}" -f $manifest.NetworkListBackup)
@@ -668,7 +668,7 @@ function Invoke-NetCleanPhase2Protect {
         }
     }
 
-    $manifest.WiFiExports               = @(Export-WiFiProfile -Dest $BackupPath -DryRun:$DryRun)
+    $manifest.WiFiExports = @(Export-WiFiProfile -Dest $BackupPath -DryRun:$DryRun)
 
     if (-not $SkipFirewallBackup) {
         try {
@@ -749,14 +749,14 @@ function Invoke-NetCleanPhase2Protect {
     Add-Member -InputObject $newContext -NotePropertyName Phase -NotePropertyValue 'Protect' -Force
     Add-Member -InputObject $newContext -NotePropertyName BackupPath -NotePropertyValue $BackupPath -Force
     Add-Member -InputObject $newContext -NotePropertyName Protect -NotePropertyValue ([pscustomobject]@{
-        Manifest     = $manifest
-        ManifestFile = $manifestFile
-        Summary      = [pscustomobject]@{
-            ProtectedRegistryPathCount   = $protectedPaths.Count
-            WiFiBackupCount              = @($manifest.WiFiExports).Count
-            ProtectedRegistryBackupCount = @($manifest.ProtectedRegistryBackups).Count
-        }
-    }) -Force
+            Manifest     = $manifest
+            ManifestFile = $manifestFile
+            Summary      = [pscustomobject]@{
+                ProtectedRegistryPathCount   = $protectedPaths.Count
+                WiFiBackupCount              = @($manifest.WiFiExports).Count
+                ProtectedRegistryBackupCount = @($manifest.ProtectedRegistryBackups).Count
+            }
+        }) -Force
 
     if ($canLog) {
         Write-NetCleanLog -Level INFO -Message ("Phase 2 protect complete. Manifest={0}" -f $manifestFile)
