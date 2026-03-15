@@ -1,21 +1,22 @@
 BeforeAll {
     $manifestPath = Join-Path $PSScriptRoot '..\Netclean.psd1'
-    if (-not (Test-Path $manifestPath)) {
+
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
         throw "Netclean.psd1 not found at path: $manifestPath"
     }
 
-    Remove-Module NetClean, NetCleanPhase1, NetCleanPhase2, NetCleanPhase3, NetCleanPhase4 -ErrorAction SilentlyContinue
+    Remove-Module Netclean, NetClean, NetCleanPhase1, NetCleanPhase2, NetCleanPhase3, NetCleanPhase4 -ErrorAction SilentlyContinue
     Import-Module $manifestPath -Force
 }
 
-Describe 'NetClean.psm1 import/export surface' {
+Describe 'NetClean module import/export surface' {
     It 'imports the module manifest without throwing' {
         $manifestPath = Join-Path (Split-Path -Parent $PSScriptRoot) 'Netclean.psd1'
         { Import-Module $manifestPath -Force } | Should -Not -Throw
     }
 
     It 'exports the expected primary phase functions' {
-        $module = Get-Module 'NetClean'
+        $module = Get-Module 'Netclean'
         $module | Should -Not -BeNullOrEmpty
 
         $expected = @(
@@ -155,11 +156,11 @@ Describe 'NetClean.psm1 phase orchestration' {
                 Mock Clear-NetworkEventLogsSafe { @([pscustomobject]@{ Succeeded=$true }) }
                 Mock Clear-UserNetworkArtifactsSafe { @([pscustomobject]@{ Removed=$true }) }
                 Mock Invoke-AdvancedNetworkRepair { @([pscustomobject]@{ Succeeded=$true }) }
-                Mock Invoke-ConservativePerformanceTune { @([pscustomobject]@{ Succeeded=$true }) }
+                Mock Invoke-NetworkPerformanceTune { @([pscustomobject]@{ Succeeded = $true; Applied = $true }) }
             }
 
             It 'runs safe conference prep without advanced repair by default' {
-                $r = Invoke-NetCleanPhase3Clean -Context $ctx -Mode SafeConferencePrep -DryRun
+                $r = Invoke-NetCleanPhase3Clean -Context $ctx -Mode PerformanceTune -PerformanceProfile Optimal -DryRun
                 $r.Phase | Should -Be 'Clean'
                 $r.Clean.Summary.WiFiProfilesRemoved | Should -Be 2
                 $r.Clean.Summary.AdvancedRepairActions | Should -Be 0

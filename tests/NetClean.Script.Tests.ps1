@@ -1,10 +1,12 @@
 BeforeAll {
+    $repoRoot = Split-Path -Parent $PSScriptRoot
     $manifestPath = Join-Path $repoRoot 'Netclean.psd1'
-    if (-not (Test-Path $manifestPath)) {
+
+    if (-not (Test-Path -LiteralPath $manifestPath)) {
         throw "Netclean.psd1 not found at path: $manifestPath"
     }
 
-    Remove-Module NetClean, NetCleanPhase1, NetCleanPhase2, NetCleanPhase3, NetCleanPhase4 -ErrorAction SilentlyContinue
+    Remove-Module Netclean, NetClean, NetCleanPhase1, NetCleanPhase2, NetCleanPhase3, NetCleanPhase4 -ErrorAction SilentlyContinue
     Import-Module $manifestPath -Force
 }
 
@@ -71,14 +73,14 @@ Describe 'NetClean.ps1 launcher orchestration' {
         Mock Read-YesNo { $true }
         Mock Read-NetCleanOption {
             [pscustomobject]@{
-                Mode = 'Preview'
+                SelectedMode = 'Preview'
                 DryRun = $true
                 SkipWifi = $false
                 SkipDnsFlush = $false
                 SkipEventLogs = $false
                 SkipUserArtifacts = $false
                 SkipFirewallBackup = $false
-                EnableConservativePerformanceTuning = $false
+                PerformanceProfile = $null
             }
         }
         Mock Show-ModeExplanation {}
@@ -118,14 +120,14 @@ Describe 'NetClean.ps1 launcher orchestration' {
     It 'runs full workflow for non-preview mode' {
         Mock Read-NetCleanOption {
             [pscustomobject]@{
-                Mode = 'SafeConferencePrep'
+                SelectedMode = 'SafeConferencePrep'
                 DryRun = $true
                 SkipWifi = $false
                 SkipDnsFlush = $false
                 SkipEventLogs = $false
                 SkipUserArtifacts = $false
                 SkipFirewallBackup = $false
-                EnableConservativePerformanceTuning = $false
+                PerformanceProfile = $null
             }
         }
 
