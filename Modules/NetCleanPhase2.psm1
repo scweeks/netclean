@@ -128,7 +128,7 @@ Parses `netsh wlan show profiles` output to extract profile names; returns an em
 .OUTPUTS
 Array of Wi-Fi profile name strings.
 #>
-function Get-WiFiProfileNames {
+function Get--WiFiProfileName {
     [CmdletBinding()]
     [OutputType([string[]])]
     param()
@@ -213,7 +213,7 @@ function Export-WiFiProfile {
     $exported = [System.Collections.Generic.List[string]]::new()
 
     $listFile = Join-Path $Dest ("WiFiProfiles_{0}.txt" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-    $profiles = @(Get-WiFiProfileNames)
+    $profiles = @(Get--WiFiProfileName)
 
     if ($profiles.Count -eq 0) {
         if ($canLog) {
@@ -769,7 +769,7 @@ Export-ModuleMember -Function @(
     'Invoke-NetCleanPhase2Protect',
     'Export-ProtectedRegistryKey',
     'Export-NetworkList',
-    'Get-WiFiProfileNames',
+    'Get--WiFiProfileName',
     'Export-WiFiProfile',
     'Export-FirewallPolicy',
     'Export-ProtectionInventory',

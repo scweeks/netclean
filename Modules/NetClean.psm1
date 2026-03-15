@@ -1440,7 +1440,7 @@ A context object containing detailed information about the operations performed 
 - Ensure that you have appropriate permissions to perform the operations in this workflow.
 #>
 function Invoke-NetCleanWorkflow {
-    [CmdletBinding(SupportsShouldProcess = $true)]
+    [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory = $true)]

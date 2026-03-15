@@ -23,7 +23,7 @@ function Remove-WiFiProfilesSafe {
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     if ($PSBoundParameters.ContainsKey('Profiles') -and $Profiles) { $profiles = @($Profiles) }
-    else { $profiles = @(Get-WiFiProfileNames) }
+    else { $profiles = @(Get--WiFiProfileName) }
     $removed = New-Object System.Collections.Generic.List[string]
     $operations = New-Object System.Collections.Generic.List[object]
 
