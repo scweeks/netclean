@@ -8,7 +8,7 @@
         'Modules\NetCleanPhase4.psm1'
     )
     ModuleVersion     = '1.0.0'
-    GUID              = '<keep your real GUID here>'
+    GUID              = 'e6a9b5c4-0000-4000-8000-000000000001'
     Author            = 'Sean Weeks'
     CompanyName       = 'Open Source'
     Copyright         = '(c) Sean Weeks. All rights reserved.'

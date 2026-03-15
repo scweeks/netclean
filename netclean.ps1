@@ -84,8 +84,7 @@ $script:RunStart = Get-Date
 # Module import
 # ---------------------------------------------------------------------------
 
-$modulePath = Join-Path $PSScriptRoot 'modules\NetClean.psm1'
-Import-Module $modulePath -Force
+Import-Module (Join-Path $PSScriptRoot 'Netclean.psd1') -Force
 
 # ---------------------------------------------------------------------------
 # Script state
