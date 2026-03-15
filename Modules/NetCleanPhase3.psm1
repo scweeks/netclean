@@ -1382,3 +1382,17 @@ function Invoke-NetCleanPhase3Clean {
 
     return $newContext
 }
+
+Export-ModuleMember -Function @(
+    'Invoke-NetCleanPhase3Clean',
+    'Remove-WiFiProfilesSafe',
+    'Clear-DnsCacheSafe',
+    'Clear-ArpCacheSafe',
+    'Remove-RegistryPathSafe',
+    'Remove-NetworkPrivacyArtifactsSafe',
+    'Clear-NlaProbeStateSafe',
+    'Clear-NetworkEventLogsSafe',
+    'Clear-UserNetworkArtifactsSafe',
+    'Invoke-AdvancedNetworkRepair',
+    'Invoke-NetworkPerformanceTune'
+)

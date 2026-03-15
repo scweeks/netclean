@@ -1,5 +1,12 @@
 @{
-    RootModule        = 'Modules\NetClean.psm1'
+    RootModule = 'Modules\NetClean.psm1'
+
+    NestedModules = @(
+        'Modules\NetCleanPhase1.psm1',
+        'Modules\NetCleanPhase2.psm1',
+        'Modules\NetCleanPhase3.psm1',
+        'Modules\NetCleanPhase4.psm1'
+    )
     ModuleVersion     = '1.0.0'
     GUID              = '<keep your real GUID here>'
     Author            = 'Sean Weeks'

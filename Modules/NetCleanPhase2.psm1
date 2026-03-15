@@ -764,3 +764,20 @@ function Invoke-NetCleanPhase2Protect {
 
     return $newContext
 }
+
+Export-ModuleMember -Function @(
+    'Invoke-NetCleanPhase2Protect',
+    'Export-ProtectedRegistryKey',
+    'Export-NetworkList',
+    'Get-WiFiProfileNames',
+    'Export-WiFiProfile',
+    'Export-FirewallPolicy',
+    'Export-ProtectionInventory',
+    'Export-ProtectionRegistryMap',
+    'Export-SanitizableNetworkArtifact',
+    'Export-NetCleanManifest'
+) -Alias @(
+    'Backup-NetworkList',
+    'Backup-ProtectedRegistryKeys',
+    'Backup-WiFiProfiles'
+)

@@ -157,3 +157,8 @@ function Invoke-NetCleanPhase4Verify {
 
     return $newContext
 }
+
+Export-ModuleMember -Function @(
+    'Invoke-NetCleanPhase4Verify',
+    'Test-NetCleanPostState'
+)

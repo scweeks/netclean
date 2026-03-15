@@ -1508,3 +1508,6 @@ function Invoke-NetCleanPhase1Detect {
     return $result
 }
 
+Export-ModuleMember -Function @(
+    'Invoke-NetCleanPhase1Detect'
+)
