@@ -1505,8 +1505,7 @@ function Invoke-NetCleanWorkflow {
         -Context $ctx `
         -BackupPath $BackupPath `
         -DryRun:$DryRun `
-        -SkipFirewallBackup:$SkipFirewallBackup `
-        -WhatIf:$WhatIfPreference
+        -SkipFirewallBackup:$SkipFirewallBackup
 
     $backupPathFromProtect = $null
     if ($ctx -and $ctx.PSObject.Properties.Name -contains 'BackupPath') {
@@ -1576,8 +1575,7 @@ function Invoke-NetCleanWorkflow {
         -SkipDnsFlush:$SkipDnsFlush `
         -SkipEventLogs:$SkipEventLogs `
         -SkipUserArtifacts:$SkipUserArtifacts `
-        -PerformanceProfile $PerformanceProfile `
-        -WhatIf:$WhatIfPreference
+        -PerformanceProfile $PerformanceProfile
 
     if ($backupPathFromProtect -and -not ($ctx.PSObject.Properties.Name -contains 'BackupPath')) {
         Add-Member -InputObject $ctx -NotePropertyName BackupPath -NotePropertyValue $backupPathFromProtect -Force
@@ -1854,7 +1852,6 @@ Export-ModuleMember -Function @(
     'Invoke-NetCleanPhase3Clean',
     'Invoke-NetCleanPhase4Verify',
     'Invoke-NetCleanWorkflow',
-    'New-DirectoryIfNotExist',
     'Start-NetCleanLog',
     'Write-NetCleanLog'
 ) -Alias @(

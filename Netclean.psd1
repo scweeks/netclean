@@ -8,13 +8,6 @@
     Description = 'Phase-oriented PowerShell toolkit for detecting, protecting, cleaning, and verifying network privacy artifacts.'
     PowerShellVersion = '5.1'
 
-    NestedModules = @(
-        'Modules\NetCleanPhase1.psm1',
-        'Modules\NetCleanPhase2.psm1',
-        'Modules\NetCleanPhase3.psm1',
-        'Modules\NetCleanPhase4.psm1'
-    )
-
     FunctionsToExport = @(
         'Invoke-NetCleanPhase1Detect',
         'Invoke-NetCleanPhase2Protect',

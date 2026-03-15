@@ -848,8 +848,8 @@ function Invoke-NetCleanLauncher {
         Write-NetCleanLog -Level INFO -Message ("NetClean starting. Mode={0} DryRun={1}" -f $selectedMode, $options.DryRun)
     }
 
-    if (-not $options.DryRun) {
-        New-DirectoryIfNotExist -Path $BackupPath
+    if (-not $options.DryRun -and -not (Test-Path -LiteralPath $BackupPath)) {
+        New-Item -Path $BackupPath -ItemType Directory -Force | Out-Null
     }
 
     if ($selectedMode -eq 'Preview') {

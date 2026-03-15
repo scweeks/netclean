@@ -151,7 +151,6 @@ Describe 'NetClean.psm1 phase orchestration' {
                 Mock Export-FirewallPolicy { 'C:\backup\FirewallPolicy.wfw' }
                 Mock Export-ProtectedRegistryKey { @('C:\backup\CrowdStrike.reg') }
                 Mock Export-NetCleanManifest { 'C:\backup\Manifest.json' }
-                Mock New-DirectoryIfNotExist {}
             }
 
             It 'returns a protect context with manifest and summary' {

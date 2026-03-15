@@ -92,7 +92,6 @@ Describe 'NetClean.ps1 launcher orchestration' {
         Mock Read-Host { 'Y' }
         Mock Read-YesNo { $true }
         Mock Show-ModeExplanation {}
-        Mock New-DirectoryIfNotExist {}
         Mock Read-PostRunAction { 'None' }
         Mock Invoke-PostRunAction {}
     }

@@ -1288,7 +1288,8 @@ function Invoke-NetCleanPhase3Clean {
         [switch]$SkipDnsFlush,
         [switch]$SkipEventLogs,
         [switch]$SkipUserArtifacts,
-        [switch]$EnableConservativePerformanceTuning
+        [ValidateSet('Conservative', 'Optimal', 'Gaming', 'Default')]
+        [string]$PerformanceProfile
     )
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
@@ -1319,7 +1320,7 @@ function Invoke-NetCleanPhase3Clean {
             $profilesToRemove = @($Context.Protect.Summary.WiFiProfilesFound)
         }
         if ($profilesToRemove -and $profilesToRemove.Count -gt 0) {
-            $wifiResult = Remove-WiFiProfilesSafe -DryRun:$DryRun -Profiles $profilesToRemove
+            $wifiResult = Remove-WiFiProfilesSafe -DryRun:$DryRun -WifiProfiles $profilesToRemove
         }
         else {
             $wifiResult = Remove-WiFiProfilesSafe -DryRun:$DryRun
