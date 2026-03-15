@@ -4,9 +4,9 @@
 
 <#
 .SYNOPSIS
-Removes Wi‑Fi profiles safely (supports -WhatIf).
+Removes Wi-Fi profiles safely (supports -WhatIf).
 .DESCRIPTION
-Deletes all user Wi‑Fi profiles unless protected; supports `-DryRun`, `-WhatIf` and `-Confirm`.
+Deletes all user Wi-Fi profiles unless protected; supports `-DryRun`, `-WhatIf` and `-Confirm`.
 .PARAMETER DryRun
 If specified, operations are simulated and no destructive actions are performed.
 .EXAMPLE
@@ -1157,7 +1157,7 @@ function Invoke-NetworkPerformanceTune {
 .SYNOPSIS
 Performs cleaning operations to remove network privacy artifacts and reset network state.
 .DESCRIPTION
-Based on the provided context and mode, executes a series of cleaning operations such as removing Wi‑Fi profiles, flushing DNS cache, clearing ARP cache, removing registry artifacts, clearing NLA probe state, and optionally performing advanced repairs and performance tuning. Each operation is performed safely with support for `-DryRun` to simulate actions without making changes. Returns an updated context object containing details of the cleaning operations performed and their results.
+Based on the provided context and mode, executes a series of cleaning operations such as removing Wi-Fi profiles, flushing DNS cache, clearing ARP cache, removing registry artifacts, clearing NLA probe state, and optionally performing advanced repairs and performance tuning. Each operation is performed safely with support for `-DryRun` to simulate actions without making changes. Returns an updated context object containing details of the cleaning operations performed and their results.
 .PARAMETER Context
 The context object produced during the detect/protect phases, containing inventory and protection information.
 .PARAMETER Mode
@@ -1166,7 +1166,7 @@ Determines the cleaning mode and which operations to perform. Supported values a
 .PARAMETER DryRun
 If specified, all operations are simulated and no actual changes are made to the system. Results will indicate what would have been done.
 .PARAMETER SkipWifi
-If specified, Wi‑Fi profile removal will be skipped.
+If specified, Wi-Fi profile removal will be skipped.
 .PARAMETER SkipDnsFlush
 If specified, DNS cache flushing will be skipped.
 .PARAMETER SkipEventLogs
@@ -1178,7 +1178,7 @@ If specified, conservative performance tuning commands will be executed in addit
 .EXAMPLE
 Invoke-NetCleanPhase3Clean -Context $ctx -Mode 'SafeConferencePrep' -DryRun
 .OUTPUTS
-An updated context object containing the results of the cleaning operations, including which Wi‑Fi profiles were removed, the outcome of DNS cache flushing, ARP cache clearing, registry artifact removal, NLA probe state clearing, event log clearing, user artifact clearing, and any advanced repairs or performance tuning performed based on the selected mode.
+An updated context object containing the results of the cleaning operations, including which Wi-Fi profiles were removed, the outcome of DNS cache flushing, ARP cache clearing, registry artifact removal, NLA probe state clearing, event log clearing, user artifact clearing, and any advanced repairs or performance tuning performed based on the selected mode.
 .NOTES
 - Ensure that the context object provided contains the necessary inventory and protection information for accurate cleaning operations.
 #>
@@ -1333,10 +1333,10 @@ function Invoke-NetCleanPhase3Clean {
 
     # Detailed logging of cleaning actions for auditability
     if ($canLog) {
-        # Wi‑Fi removals
+        # Wi-Fi removals
         if ($wifiResult.Profiles -and $wifiResult.Profiles.Count -gt 0) {
             foreach ($p in $wifiResult.Profiles) {
-                Write-NetCleanLog -Level INFO -Message ("Wi‑Fi profile removed or would be removed: {0}" -f $p)
+                Write-NetCleanLog -Level INFO -Message ("Wi-Fi profile removed or would be removed: {0}" -f $p)
             }
         }
 

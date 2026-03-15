@@ -524,8 +524,8 @@ function Show-NetCleanSummary {
         Write-Information "  Performance tuning actions: $($Result.Clean.Summary.PerformanceTuningActions)" -InformationAction Continue
     }
 
-    # Detailed lists: Wi‑Fi & network profile details and removed artifacts
-    # Wi‑Fi: initial list comes from Protect.Manifest.WiFiExports (entries include "PROFILE:<name>")
+    # Detailed lists: Wi-Fi & network profile details and removed artifacts
+    # Wi-Fi: initial list comes from Protect.Manifest.WiFiExports (entries include "PROFILE:<name>")
     if ($Result.PSObject.Properties.Name -contains 'Protect') {
         $manifest = $Result.Protect.Manifest
         if ($manifest -and $manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {
@@ -541,11 +541,11 @@ function Show-NetCleanSummary {
         }
     }
 
-    # If Clean phase ran, show removed items and remaining Wi‑Fi profiles
+    # If Clean phase ran, show removed items and remaining Wi-Fi profiles
     if ($Result.PSObject.Properties.Name -contains 'Clean') {
         $clean = $Result.Clean
 
-        # Removed Wi‑Fi profiles (names)
+        # Removed Wi-Fi profiles (names)
         if ($clean.WiFi -and $clean.WiFi.Profiles) {
             Show-TruncatedList -Items @($clean.WiFi.Profiles) -Heading 'Wi-Fi Profiles - Removed'
 
@@ -655,7 +655,7 @@ function Show-PreviewSummary {
         Write-Information "Log File: $logFile" -InformationAction Continue
     }
 
-    # Show Wi‑Fi profiles found (from Protect.Manifest if available)
+    # Show Wi-Fi profiles found (from Protect.Manifest if available)
     if ($Result.PSObject.Properties.Name -contains 'Protect') {
         $manifest = $Result.Protect.Manifest
         if ($manifest -and $manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {

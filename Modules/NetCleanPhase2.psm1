@@ -122,11 +122,11 @@ function Export-NetworkList {
 
 <#
 .SYNOPSIS
-Return Wi‑Fi profile names present on the system.
+Return Wi-Fi profile names present on the system.
 .DESCRIPTION
 Parses `netsh wlan show profiles` output to extract profile names; returns an empty list if none found.
 .OUTPUTS
-Array of Wi‑Fi profile name strings.
+Array of Wi-Fi profile name strings.
 #>
 function Get-WiFiProfileNames {
     [CmdletBinding()]
@@ -180,24 +180,24 @@ function Get-WiFiProfileNames {
 
 <#
 .SYNOPSIS
-Export Wi‑Fi profiles to XML files and write a list of exported items.
+Export Wi-Fi profiles to XML files and write a list of exported items.
 .DESCRIPTION
-For each Wi‑Fi profile, exports to an XML file using `netsh wlan export profile`. A list file is also created containing the exported file paths. Honors `-DryRun` to simulate exports and return intended file paths without performing actual exports.
+For each Wi-Fi profile, exports to an XML file using `netsh wlan export profile`. A list file is also created containing the exported file paths. Honors `-DryRun` to simulate exports and return intended file paths without performing actual exports.
 .PARAMETER Dest
-Destination directory for exported Wi‑Fi profile XML files and list file.
+Destination directory for exported Wi-Fi profile XML files and list file.
 .PARAMETER DryRun
 If specified, simulates the export process and returns the list of file paths that would have been created without performing any exports.
 .OUTPUTS
-Array of file paths for the exported Wi‑Fi profile XML files and the list file. In dry-run mode, returns the intended file paths without creating any files.
+Array of file paths for the exported Wi-Fi profile XML files and the list file. In dry-run mode, returns the intended file paths without creating any files.
 .EXAMPLE
 Export-WiFiProfile -Dest "C:\Backups\WiFiProfiles"
-This command exports all Wi‑Fi profiles to XML files in the specified directory and creates a list file with the exported profile names.
+This command exports all Wi-Fi profiles to XML files in the specified directory and creates a list file with the exported profile names.
 .EXAMPLE
 Export-WiFiProfile -Dest "C:\Backups\WiFiProfiles" -DryRun
 This command simulates the export process and returns the list of file paths that would have been created without performing any exports.
 .NOTES
 - Ensure that the destination directory exists or can be created.
-- The function relies on `netsh` for exporting Wi‑Fi profiles, which may require appropriate permissions to execute successfully.
+- The function relies on `netsh` for exporting Wi-Fi profiles, which may require appropriate permissions to execute successfully.
 #>
 function Export-WiFiProfile {
     [CmdletBinding()]
@@ -344,9 +344,9 @@ function Export-WiFiProfile {
 
 <#
 .SYNOPSIS
-Export Wi‑Fi profiles and write a list file.
+Export Wi-Fi profiles and write a list file.
 .DESCRIPTION
-Exports each Wi‑Fi profile to XML using `netsh` and returns a list of exported files. Honors `-DryRun` to simulate exports.
+Exports each Wi-Fi profile to XML using `netsh` and returns a list of exported files. Honors `-DryRun` to simulate exports.
 .PARAMETER Dest
 Destination folder for exported profiles.
 .PARAMETER DryRun
@@ -720,7 +720,7 @@ function Invoke-NetCleanPhase2Protect {
             foreach ($e in $manifest.WiFiExports) {
                 Write-NetCleanLog -Level INFO -Message ("Wi-Fi export: {0}" -f $e)
             }
-            Write-NetCleanLog -Level INFO -Message ('To restore Wi‑Fi profiles, run: netsh wlan add profile filename="<exported-profile.xml>" for each exported XML, or use the provided examples\restore-wifi-profiles.ps1 script.')
+            Write-NetCleanLog -Level INFO -Message ('To restore Wi-Fi profiles, run: netsh wlan add profile filename="<exported-profile.xml>" for each exported XML, or use the provided examples\restore-wifi-profiles.ps1 script.')
         }
 
         if ($manifest.FirewallPolicyBackup) {

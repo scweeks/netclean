@@ -1421,7 +1421,7 @@ Specifies the directory path where backups will be stored during the protect pha
 .PARAMETER DryRun
 If set, simulates the workflow without performing any destructive actions, allowing for review of intended operations.
 .PARAMETER SkipWifi
-If set, skips the removal of Wi‑Fi profiles during the clean phase.
+If set, skips the removal of Wi-Fi profiles during the clean phase.
 .PARAMETER SkipDnsFlush
 If set, skips flushing the DNS resolver cache during the clean phase.
 .PARAMETER SkipEventLogs
