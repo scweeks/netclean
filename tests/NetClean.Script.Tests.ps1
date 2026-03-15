@@ -3,10 +3,10 @@ BeforeAll {
     $manifestPath = Join-Path $repoRoot 'NetClean.psd1'
 
     if (-not (Test-Path -LiteralPath $manifestPath)) {
-        throw "Netclean.psd1 not found at path: $manifestPath"
+        throw "NetClean.psd1 not found at path: $manifestPath"
     }
 
-    Remove-Module Netclean, NetClean, NetCleanPhase1, NetCleanPhase2, NetCleanPhase3, NetCleanPhase4 -ErrorAction SilentlyContinue
+    Remove-Module NetClean, NetCleanPhase1, NetCleanPhase2, NetCleanPhase3, NetCleanPhase4 -ErrorAction SilentlyContinue
     Import-Module $manifestPath -Force
 }
 
@@ -22,9 +22,7 @@ Describe 'NetClean.ps1 launcher / UX functions' {
         Mock Read-Host { throw "Prompt should not be called when Force is set" }
 
         $script:Force = $true
-
         Read-YesNo -Prompt 'Continue?' | Should -BeTrue
-
         Should -Not -Invoke Read-Host
         $script:Force = $false
     }
@@ -43,8 +41,30 @@ Describe 'NetClean.ps1 launcher / UX functions' {
 
     It 'Read-NetCleanOption forces DryRun in Preview mode' {
         $r = Read-NetCleanOption -SelectedMode Preview
-        $r.SelectedMode   | Should -Be 'Preview'
+        $r.SelectedMode | Should -Be 'Preview'
         $r.DryRun | Should -BeTrue
+    }
+
+    It 'Read-NetCleanOption preserves explicit DryRun in non-preview mode' {
+        $r = Read-NetCleanOption -SelectedMode SafeConferencePrep -DryRun
+        $r.SelectedMode | Should -Be 'SafeConferencePrep'
+        $r.DryRun | Should -BeTrue
+    }
+
+    It 'Read-NetCleanOption defaults DryRun to false in non-preview mode' {
+        $r = Read-NetCleanOption -SelectedMode SafeConferencePrep
+        $r.SelectedMode | Should -Be 'SafeConferencePrep'
+        $r.DryRun | Should -BeFalse
+    }
+
+    It 'Read-NetCleanOption throws when PerformanceTune has no profile' {
+        { Read-NetCleanOption -SelectedMode PerformanceTune } | Should -Throw
+    }
+
+    It 'Read-NetCleanOption accepts PerformanceTune when profile is provided' {
+        $r = Read-NetCleanOption -SelectedMode PerformanceTune -PerformanceProfile Optimal
+        $r.SelectedMode | Should -Be 'PerformanceTune'
+        $r.PerformanceProfile | Should -Be 'Optimal'
     }
 
     It 'Prompt/Read post run action returns Restart for R' {
@@ -71,6 +91,13 @@ Describe 'NetClean.ps1 launcher orchestration' {
         Mock Write-NetCleanLog {}
         Mock Read-Host { 'Y' }
         Mock Read-YesNo { $true }
+        Mock Show-ModeExplanation {}
+        Mock New-DirectoryIfNotExist {}
+        Mock Read-PostRunAction { 'None' }
+        Mock Invoke-PostRunAction {}
+    }
+
+    It 'runs preview path when preview mode is selected' {
         Mock Read-NetCleanOption {
             [pscustomobject]@{
                 SelectedMode = 'Preview'
@@ -83,13 +110,7 @@ Describe 'NetClean.ps1 launcher orchestration' {
                 PerformanceProfile = $null
             }
         }
-        Mock Show-ModeExplanation {}
-        Mock New-DirectoryIfNotExist {}
-        Mock Read-PostRunAction { 'None' }
-        Mock Invoke-PostRunAction {}
-    }
 
-    It 'runs preview path when preview mode is selected' {
         Mock Invoke-NetCleanPhase1Detect {
             [pscustomobject]@{
                 Summary = [pscustomobject]@{
@@ -173,7 +194,7 @@ Describe 'NetClean.ps1 launcher orchestration' {
 
         Mock Show-NetCleanSummary {}
 
-        $SelectedMode = 'SafeConferencePrep'
+        $Mode = 'SafeConferencePrep'
         Invoke-NetCleanLauncher
 
         Should -Invoke Invoke-NetCleanWorkflow -Times 1

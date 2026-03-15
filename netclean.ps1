@@ -457,6 +457,10 @@ function Read-NetCleanOption {
         throw "PerformanceProfile is required when SelectedMode is 'PerformanceTune'."
     }
 
+    if ($SelectedMode -eq 'Preview') {
+        $DryRun = $true
+    }
+
     return [pscustomobject]@{
         SelectedMode       = $SelectedMode
         DryRun             = [bool]$DryRun
