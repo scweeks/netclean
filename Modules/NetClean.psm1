@@ -14,11 +14,14 @@
     preserving required security, virtualization, firewall, VPN, and network
     infrastructure software.
 #>
-$moduleRoot = Split-Path -Parent $PSCommandPath
-. (Join-Path $moduleRoot 'NetCleanPhase1.psm1')
-. (Join-Path $moduleRoot 'NetCleanPhase2.psm1')
-. (Join-Path $moduleRoot 'NetCleanPhase3.psm1')
-. (Join-Path $moduleRoot 'NetCleanPhase4.psm1')
+Set-StrictMode -Version Latest
+
+$script:ModuleRoot = Split-Path -Parent $PSCommandPath
+
+. (Join-Path $script:ModuleRoot 'NetCleanPhase1.psm1')
+. (Join-Path $script:ModuleRoot 'NetCleanPhase2.psm1')
+. (Join-Path $script:ModuleRoot 'NetCleanPhase3.psm1')
+. (Join-Path $script:ModuleRoot 'NetCleanPhase4.psm1')
 
 # Returns $true when the runtime supports simple parallelism helpers we use (Start-Job batching)
 function Test-ParallelCapability {
@@ -1846,30 +1849,15 @@ Set-Alias -Name Export-ProtectedRegistryKeys -Value Export-ProtectedRegistryKey 
 # ---------------------------------------------------------------------------
 
 Export-ModuleMember -Function @(
-    'Start-NetCleanLog',
-    'Write-NetCleanLog',
     'Invoke-NetCleanPhase1Detect',
     'Invoke-NetCleanPhase2Protect',
     'Invoke-NetCleanPhase3Clean',
     'Invoke-NetCleanPhase4Verify',
     'Invoke-NetCleanWorkflow',
-    'Invoke-AdvancedNetworkRepair',
-    'Invoke-NetworkPerformanceTune',
-    'Get-WiFiProfileNames',
-    'Export-WiFiProfile',
-    'Export-NetworkList',
-    'Export-ProtectedRegistryKey',
-    'Export-NetCleanManifest',
-    'Clear-DnsCacheSafe',
-    'Clear-ArpCacheSafe',
-    'Clear-NetworkEventLogsSafe',
-    'Clear-UserNetworkArtifactsSafe',
-    'Remove-WiFiProfilesSafe',
-    'Remove-RegistryPathSafe',
-    'Remove-NetworkPrivacyArtifactsSafe',
-    'Test-NetCleanPostState'
+    'Start-NetCleanLog',
+    'Write-NetCleanLog'
 ) -Alias @(
-    'Backup-WiFiProfiles',
     'Backup-NetworkList',
-    'Backup-ProtectedRegistryKeys'
+    'Backup-ProtectedRegistryKeys',
+    'Backup-WiFiProfiles'
 )
