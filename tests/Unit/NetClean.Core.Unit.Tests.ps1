@@ -44,17 +44,17 @@ Describe 'NetClean core/shared helper unit tests' {
         Context 'Convert-RegToProviderPath' {
 
             It 'converts HKLM path to provider form' {
-                Convert-RegToProviderPath -Path 'HKLM\SOFTWARE\Test' |
+                Convert-RegToProviderPath -RegistryPath 'HKLM\SOFTWARE\Test' |
                     Should -Be 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Test'
             }
 
             It 'converts HKCU path to provider form' {
-                Convert-RegToProviderPath -Path 'HKCU\Software\Test' |
+                Convert-RegToProviderPath -RegistryPath 'HKCU\Software\Test' |
                     Should -Be 'Registry::HKEY_CURRENT_USER\Software\Test'
             }
 
             It 'preserves already provider-qualified paths' {
-                Convert-RegToProviderPath -Path 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Test' |
+                Convert-RegToProviderPath -RegistryPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Test' |
                     Should -Be 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Test'
             }
 
@@ -109,7 +109,7 @@ Describe 'NetClean core/shared helper unit tests' {
 
             It 'adds a new value to the hashset' {
                 $set = [System.Collections.Generic.HashSet[string]]::new()
-                Add-HashSetValue -Set $set -Value 'abc' | Out-Null
+                Add-HashSetValue -Set $set -Values 'abc' | Out-Null
 
                 $set.Contains('abc') | Should -BeTrue
             }
@@ -118,16 +118,16 @@ Describe 'NetClean core/shared helper unit tests' {
                 $set = [System.Collections.Generic.HashSet[string]]::new()
                 $set.Add('abc') | Out-Null
 
-                { Add-HashSetValue -Set $set -Value 'abc' | Out-Null } | Should -Not -Throw
+                { Add-HashSetValue -Set $set -Values 'abc' | Out-Null } | Should -Not -Throw
                 $set.Count | Should -Be 1
             }
 
             It 'ignores null or whitespace values' {
                 $set = [System.Collections.Generic.HashSet[string]]::new()
 
-                Add-HashSetValue -Set $set -Value $null | Out-Null
-                Add-HashSetValue -Set $set -Value '' | Out-Null
-                Add-HashSetValue -Set $set -Value '   ' | Out-Null
+                Add-HashSetValue -Set $set -Values $null | Out-Null
+                Add-HashSetValue -Set $set -Values '' | Out-Null
+                Add-HashSetValue -Set $set -Values '   ' | Out-Null
 
                 $set.Count | Should -Be 0
             }
@@ -136,10 +136,10 @@ Describe 'NetClean core/shared helper unit tests' {
         Context 'Compare-StringSet' {
 
             It 'identifies missing items from baseline to current' {
-                $baseline = @('a', 'b', 'c')
-                $current  = @('a', 'c')
+                $before = @('a', 'b', 'c')
+                $after  = @('a', 'c')
 
-                $result = Compare-StringSet -Baseline $baseline -Current $current
+                $result = Compare-StringSet -Before $before -After $after
 
                 @($result.Missing) | Should -Be @('b')
             }
@@ -148,13 +148,13 @@ Describe 'NetClean core/shared helper unit tests' {
                 $baseline = @('a')
                 $current  = @('a', 'b', 'c')
 
-                $result = Compare-StringSet -Baseline $baseline -Current $current
+                $result = Compare-StringSet -Before $baseline -After $current
 
                 @($result.Added) | Should -Be @('b', 'c')
             }
 
             It 'returns empty differences when sets match' {
-                $result = Compare-StringSet -Baseline @('a', 'b') -Current @('a', 'b')
+                $result = Compare-StringSet -Before @('a', 'b') -After @('a', 'b')
 
                 @($result.Missing).Count | Should -Be 0
                 @($result.Added).Count | Should -Be 0
@@ -192,7 +192,7 @@ Describe 'NetClean core/shared helper unit tests' {
                     }
                 }
 
-                $result = Get-RegistryValuesSafe -Path 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Test'
+                $result = Get-RegistryValuesSafe -RegistryPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Test'
 
                 $result.Name  | Should -Be 'TestName'
                 $result.Value | Should -Be 'TestValue'
@@ -201,7 +201,7 @@ Describe 'NetClean core/shared helper unit tests' {
             It 'returns null when Get-ItemProperty throws' {
                 Mock Get-ItemProperty { throw 'boom' }
 
-                Get-RegistryValuesSafe -Path 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Test' | Should -BeNullOrEmpty
+                Get-RegistryValuesSafe -RegistryPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Test' | Should -BeNullOrEmpty
             }
         }
 
@@ -215,7 +215,7 @@ Describe 'NetClean core/shared helper unit tests' {
                     )
                 }
 
-                $result = Get-RegistryChildKeyNamesSafe -Path 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Test'
+                $result = Get-RegistryChildKeyNamesSafe -RegistryPath 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Test'
 
                 @($result) | Should -Be @('One', 'Two')
             }
@@ -372,7 +372,7 @@ Describe 'NetClean core/shared helper unit tests' {
 
             It 'captures non-zero exit code and respects IgnoreExitCode' {
                 $bat = Join-Path $TestDrive 'exit5.bat'
-                Set-Content -Path $bat -Value 'exit /b 5' -NoNewline
+                Set-Content -Path $bat -Values 'exit /b 5' -NoNewline
 
                 $r = Invoke-NetCleanNativeCapture -FilePath $bat -ArgumentList @()
 
