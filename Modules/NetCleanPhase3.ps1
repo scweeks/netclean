@@ -307,9 +307,9 @@ function Remove-RegistryPathSafe {
     [OutputType([System.Object])]
     param(
         [Parameter(Mandatory = $true)]
+        [Alias('Path')]
         [string]$RegistryPath,
 
-        [Parameter(Mandatory = $true)]
         [pscustomobject]$Context,
 
         [switch]$DryRun

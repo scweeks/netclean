@@ -250,11 +250,14 @@ function Convert-RegKeyPath {
     [CmdletBinding()]
     [OutputType([System.String])]
     param(
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
+        [Parameter()]
+        [AllowNull()]
+        [AllowEmptyString()]
         [string]$Path
     )
 
+    if ($null -eq $Path) { return $null }
+    if ($Path -eq '') { return '' }
     $p = $Path.Trim()
     $p = $p -replace '^Microsoft\.PowerShell\.Core\\Registry::', ''
     $p = $p -replace '^Registry::', ''
@@ -326,10 +329,14 @@ function Convert-RegToProviderPath {
     [CmdletBinding()]
     [OutputType([System.String])]
     param(
-        [Parameter(Mandatory = $true)]
-        [ValidateNotNullOrEmpty()]
+        [Parameter()]
+        [AllowNull()]
+        [AllowEmptyString()]
+        [Alias('Path')]
         [string]$RegistryPath
     )
+
+    if ([string]::IsNullOrWhiteSpace($RegistryPath)) { return $null }
 
     $p = Convert-RegKeyPath -Path $RegistryPath
 
@@ -367,6 +374,7 @@ function Test-RegistryPathExist {
     [OutputType([System.Boolean])]
     param(
         [Parameter(Mandatory = $true)]
+        [Alias('Path')]
         [string]$RegistryPath
     )
 
@@ -398,6 +406,7 @@ function Get-RegistryValuesSafe {
     [OutputType([System.Object])]
     param(
         [Parameter(Mandatory = $true)]
+        [Alias('Path')]
         [string]$RegistryPath
     )
 
@@ -429,6 +438,7 @@ function Get-RegistryChildKeyNamesSafe {
     [OutputType([System.Object[]])]
     param(
         [Parameter(Mandatory = $true)]
+        [Alias('Path')]
         [string]$RegistryPath
     )
 
@@ -601,6 +611,39 @@ function New-DirectoryIfNotExist {
         if ($PSCmdlet.ShouldProcess($Path, 'Create directory')) {
             New-Item -Path $Path -ItemType Directory -Force | Out-Null
         }
+    }
+}
+
+# Thin wrappers for file IO so tests can Mock these easily
+function WriteAllLines {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)][object[]]$Contents,
+        $Encoding
+    )
+
+    if ($null -eq $Encoding) {
+        [System.IO.File]::WriteAllLines($Path, $Contents)
+    }
+    else {
+        [System.IO.File]::WriteAllLines($Path, $Contents, $Encoding)
+    }
+}
+
+function WriteAllText {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)][string]$Path,
+        [Parameter(Mandatory=$true)][string]$Contents,
+        $Encoding
+    )
+
+    if ($null -eq $Encoding) {
+        [System.IO.File]::WriteAllText($Path, $Contents)
+    }
+    else {
+        [System.IO.File]::WriteAllText($Path, $Contents, $Encoding)
     }
 }
 
@@ -904,9 +947,12 @@ function Test-RegistryPathProtected {
         [Parameter(Mandatory = $true)]
         [string]$Path,
 
-        [Parameter(Mandatory = $true)]
+        [Parameter()]
+        [AllowNull()]
         [pscustomobject]$Context
     )
+
+    if ($null -eq $Context) { return $false }
 
     if (-not $Context.PSObject.Properties.Name.Contains('ProtectedRegistryPaths')) {
         return $false
