@@ -18,7 +18,7 @@ A custom object containing the pre- and post-cleaning inventories, comparisons o
 #>
 function Test-NetCleanPostState {
     [CmdletBinding()]
-    [OutputType([System.Object[]])]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory = $true)]
         [pscustomobject]$Context
@@ -76,7 +76,11 @@ function Test-NetCleanPostState {
         VendorComparison  = $vendorComparison
         GuidComparison    = $guidComparison
         ServiceComparison = $serviceComparison
-        Passed            = (@($vendorComparison.Missing).Count -eq 0)
+        Passed            = (
+            @($vendorComparison.Missing).Count -eq 0 -and
+            @($guidComparison.Missing).Count -eq 0 -and
+            @($serviceComparison.Missing).Count -eq 0
+        )
     }
 }
 
@@ -96,7 +100,7 @@ A context object enriched with verification results, including comparisons of ve
 #>
 function Invoke-NetCleanPhase4Verify {
     [CmdletBinding()]
-    [OutputType([System.Object[]])]
+    [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory = $true)]
         [pscustomobject]$Context

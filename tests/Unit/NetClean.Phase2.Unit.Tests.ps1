@@ -130,6 +130,7 @@ Describe 'NetClean Phase 2 unit tests' {
                     }
                 }
 
+                $script:BulkCallSeen = $false
                 Mock Get-ChildItem {
                     if (-not $script:BulkCallSeen) {
                         $script:BulkCallSeen = $true
@@ -237,26 +238,19 @@ Describe 'NetClean Phase 2 unit tests' {
             }
 
             It 'calls reg export through safe external command helper' {
-                Mock Invoke-ExternalCommandSafe {
-                    [pscustomobject]@{
-                        Name      = 'Export NetworkList'
-                        ExitCode  = 0
-                        Succeeded = $true
-                        Error     = $null
-                    }
-                }
+                Mock Invoke-RegExport { param($Key, $FilePath, $DryRun) $FilePath }
 
                 $result = Export-NetworkList -Dest 'C:\backup'
                 $result | Should -Match 'NetworkList'
 
-                Should -Invoke Invoke-ExternalCommandSafe -Times 1
+                Should -Invoke Invoke-RegExport -Times 1
             }
         }
 
         Context 'Export-ProtectedRegistryKey' {
 
             It 'returns planned output in dry-run mode' {
-                $result = @(Export-ProtectedRegistryKey -RegistryPaths @('HKLM\SOFTWARE\CrowdStrike') -Dest 'C:\backup' -DryRun)
+                $result = @(Export-ProtectedRegistryKey -Paths @('HKLM\SOFTWARE\CrowdStrike') -Dest 'C:\backup' -DryRun)
 
                 $result.Count | Should -Be 1
                 $result[0] | Should -Match 'CrowdStrike'
@@ -265,7 +259,7 @@ Describe 'NetClean Phase 2 unit tests' {
             It 'exports each protected registry key path' {
                 Mock Invoke-RegExport { param($Path, $OutputPath) $OutputPath }
 
-                $result = @(Export-ProtectedRegistryKey -RegistryPaths @(
+                $result = @(Export-ProtectedRegistryKey -Paths @(
                     'HKLM\SOFTWARE\CrowdStrike',
                     'HKLM\SOFTWARE\Cisco'
                 ) -Dest 'C:\backup')
@@ -275,18 +269,19 @@ Describe 'NetClean Phase 2 unit tests' {
             }
 
             It 'returns empty when no registry paths are supplied' {
-                $result = @(Export-ProtectedRegistryKey -RegistryPaths @() -Dest 'C:\backup')
+                $result = @(Export-ProtectedRegistryKey -Paths @() -Dest 'C:\backup')
                 $result.Count | Should -Be 0
             }
 
             It 'skips invalid registry paths and continues exporting valid ones' {
                 Mock Convert-RegKeyPath {
-                    if ($Path -eq 'badpath') { throw 'invalid' } else { 'Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Good' }
+                    param($Path)
+                    if ($Path -match 'badpath$') { throw 'invalid' } else { 'Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Good' }
                 }
 
-                Mock Invoke-RegExport { param($Key, $OutputPath, $DryRun) $OutputPath }
+                Mock Invoke-RegExport { param($Key, $FilePath, $DryRun) $FilePath }
 
-                $result = @(Export-ProtectedRegistryKey -RegistryPaths @('badpath', 'HKLM\\SOFTWARE\\Good') -Dest 'C:\\backup' -DryRun)
+                $result = @(Export-ProtectedRegistryKey -Paths @('badpath', 'HKLM\\SOFTWARE\\Good') -Dest 'C:\\backup' -DryRun)
 
                 $result.Count | Should -Be 1
                 $result[0] | Should -Match 'reg_backup'
@@ -315,9 +310,11 @@ Describe 'NetClean Phase 2 unit tests' {
         Context 'Export-ProtectionRegistryMap' {
 
             It 'returns expected output path in dry-run mode' {
-                $map = @([pscustomobject]@{ Vendor = 'CrowdStrike' })
+                Mock Get-ProtectionRegistryMap {
+                    @([pscustomobject]@{ Vendor = 'CrowdStrike' })
+                }
 
-                $result = Export-ProtectionRegistryMap -RegistryMap $map -Dest 'C:\backup' -DryRun
+                $result = Export-ProtectionRegistryMap -Inventory @() -Dest 'C:\backup' -DryRun
                 $result | Should -Match 'ProtectionRegistryMap'
             }
         }
@@ -325,10 +322,12 @@ Describe 'NetClean Phase 2 unit tests' {
         Context 'Export-SanitizableNetworkArtifact' {
 
             It 'returns expected output path in dry-run mode' {
-                $artifacts = @([pscustomobject]@{ RegistryPath = 'HKLM\SOFTWARE\Test' })
+                Mock Get-SanitizableNetworkArtifact {
+                    @([pscustomobject]@{ RegistryPath = 'HKLM\SOFTWARE\Test' })
+                }
 
-                $result = Export-SanitizableNetworkArtifact -Artifacts $artifacts -Dest 'C:\backup' -DryRun
-                $result | Should -Match 'SanitizableNetworkArtifacts'
+                $result = Export-SanitizableNetworkArtifact -Inventory @() -Dest 'C:\backup' -DryRun
+                $result | Should -Match 'SanitizableNetworkArtifact'
             }
         }
 
@@ -359,7 +358,7 @@ Describe 'NetClean Phase 2 unit tests' {
         Context 'Export-NetCleanManifest' {
 
             It 'returns expected output path in dry-run mode' {
-                $manifest = [pscustomobject]@{ BackupPath = 'C:\backup' }
+                $manifest = @{ BackupPath = 'C:\backup' }
 
                 $result = Export-NetCleanManifest -Manifest $manifest -Dest 'C:\backup' -DryRun
                 $result | Should -Match 'Manifest'
@@ -368,7 +367,7 @@ Describe 'NetClean Phase 2 unit tests' {
             It 'writes manifest JSON when not in dry-run mode' {
                 Mock WriteAllText {}
 
-                $manifest = [pscustomobject]@{ BackupPath = 'C:\backup' }
+                $manifest = @{ BackupPath = 'C:\backup' }
                 $result = Export-NetCleanManifest -Manifest $manifest -Dest 'C:\backup'
 
                 $result | Should -Match 'Manifest'
@@ -416,7 +415,7 @@ Describe 'NetClean Phase 2 unit tests' {
                 $result.Phase | Should -Be 'Protect'
                 $result.BackupPath | Should -Be 'C:\backup'
                 $result.Protect.Manifest.NetworkListBackup | Should -Be 'C:\backup\NetworkList.reg'
-                $result.Protect.Manifest.FirewallBackup | Should -Be 'C:\backup\FirewallPolicy.wfw'
+                $result.Protect.Manifest.FirewallPolicyBackup | Should -Be 'C:\backup\FirewallPolicy.wfw'
                 $result.Protect.Summary.ProtectedRegistryPathCount | Should -Be 1
                 $result.Protect.Summary.WiFiBackupCount | Should -Be 1
                 $result.Protect.Summary.ProtectedRegistryBackupCount | Should -Be 1
@@ -425,7 +424,7 @@ Describe 'NetClean Phase 2 unit tests' {
             It 'skips firewall backup when requested' {
                 $result = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup' -DryRun -SkipFirewallBackup
 
-                $result.Protect.Manifest.FirewallBackup | Should -BeNullOrEmpty
+                $result.Protect.Manifest.FirewallPolicyBackup | Should -BeNullOrEmpty
                 Should -Invoke Export-FirewallPolicy -Times 0
             }
 

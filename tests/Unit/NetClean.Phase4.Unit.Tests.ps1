@@ -7,583 +7,108 @@ if (-not (Test-Path -LiteralPath $manifestPath)) {
 Remove-Module NetClean -ErrorAction SilentlyContinue
 Import-Module $manifestPath -Force
 
-Describe 'NetClean Phase 3 unit tests' {
+Describe 'NetClean Phase 4 unit tests' {
 
     InModuleScope 'NetClean' {
 
         BeforeEach {
-            $script:LogFile = $null
+            $script:preInventory = @(
+                [pscustomobject]@{
+                    Vendor                  = 'Contoso Security'
+                    Services                = @('ContosoAgent')
+                    ProtectedInterfaceGuids = @('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+                }
+            )
+
+            $script:postInventory = @(
+                [pscustomobject]@{
+                    Vendor                  = 'Contoso Security'
+                    Services                = @('ContosoAgent')
+                    ProtectedInterfaceGuids = @('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+                }
+            )
+
+            $script:context = [pscustomobject]@{
+                Phase      = 'Clean'
+                BackupPath = 'C:\backup'
+                Inventory  = $script:preInventory
+            }
+
+            Mock Get-ProtectionInventory { $script:postInventory }
+            Mock Write-NetCleanLog {}
+            Mock Write-Information {}
         }
 
-        Context 'Remove-WiFiProfilesSafe' {
+        Context 'Test-NetCleanPostState' {
 
-            It 'returns empty results when no Wi-Fi profiles are found' {
-                Mock Get-WiFiProfileName { @() }
+            It 'passes when protected vendors, GUIDs, and services remain present' {
+                $result = Test-NetCleanPostState -Context $script:context
 
-                $result = Remove-WiFiProfilesSafe -DryRun
-
-                $result.Removed | Should -Be 0
-                @($result.Profiles).Count | Should -Be 0
-                @($result.Operations).Count | Should -Be 0
+                $result.Passed | Should -BeTrue
+                @($result.VendorComparison.Missing).Count | Should -Be 0
+                @($result.GuidComparison.Missing).Count | Should -Be 0
+                @($result.ServiceComparison.Missing).Count | Should -Be 0
             }
 
-            It 'returns planned removals in dry-run mode when profiles are discovered automatically' {
-                Mock Get-WiFiProfileName { @('HomeSSID', 'OfficeSSID') }
+            It 'fails when a protected vendor is missing' {
+                $script:postInventory = @()
 
-                $result = Remove-WiFiProfilesSafe -DryRun
-
-                $result.Removed | Should -Be 2
-                @($result.Profiles) | Should -Contain 'HomeSSID'
-                @($result.Profiles) | Should -Contain 'OfficeSSID'
-                @($result.Operations).Count | Should -Be 2
-                @($result.Operations | Where-Object { $_.Reason -eq 'DryRun' }).Count | Should -Be 2
+                (Test-NetCleanPostState -Context $script:context).Passed | Should -BeFalse
             }
 
-            It 'uses explicitly supplied WifiProfiles instead of auto-discovery' {
-                Mock Get-WiFiProfileName { throw 'Should not be called' }
+            It 'fails when a protected interface GUID is missing' {
+                $script:postInventory[0].ProtectedInterfaceGuids = @()
 
-                $result = Remove-WiFiProfilesSafe -DryRun -WifiProfiles @('LabSSID')
+                $result = Test-NetCleanPostState -Context $script:context
 
-                $result.Removed | Should -Be 1
-                @($result.Profiles) | Should -Contain 'LabSSID'
+                $result.Passed | Should -BeFalse
+                @($result.GuidComparison.Missing) | Should -Contain 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
             }
 
-            It 'returns WhatIf-skipped operations when ShouldProcess declines' {
-                Mock Get-WiFiProfileName { @('HomeSSID') }
+            It 'fails when a protected service is missing' {
+                $script:postInventory[0].Services = @()
 
-                Mock ShouldProcess { $false }
+                $result = Test-NetCleanPostState -Context $script:context
 
-                $result = Remove-WiFiProfilesSafe -WifiProfiles @('HomeSSID') -WhatIf
-
-                $result.Removed | Should -Be 0
-                @($result.Operations).Count | Should -Be 1
-                $result.Operations[0].Skipped | Should -BeTrue
-                $result.Operations[0].Reason  | Should -Be 'WhatIf'
+                $result.Passed | Should -BeFalse
+                @($result.ServiceComparison.Missing) | Should -Contain 'ContosoAgent'
             }
 
-            It 'returns successful removals when parallel processing succeeds' {
-                Mock Invoke-InParallel {
-                    @(
-                        [pscustomobject]@{ Name = 'HomeSSID'; Succeeded = $true;  Skipped = $false; Reason = 'Removed' }
-                        [pscustomobject]@{ Name = 'OfficeSSID'; Succeeded = $true; Skipped = $false; Reason = 'Removed' }
-                    )
+            It 'does not fail only because new protected items were detected' {
+                $script:postInventory += [pscustomobject]@{
+                    Vendor                  = 'Fabrikam Security'
+                    Services                = @('FabrikamAgent')
+                    ProtectedInterfaceGuids = @('11111111-2222-3333-4444-555555555555')
                 }
 
-                $result = Remove-WiFiProfilesSafe -WifiProfiles @('HomeSSID', 'OfficeSSID')
-
-                $result.Removed | Should -Be 2
-                @($result.Profiles) | Should -Contain 'HomeSSID'
-                @($result.Profiles) | Should -Contain 'OfficeSSID'
-                @($result.Operations).Count | Should -Be 2
-            }
-
-            It 'falls back to sequential native removal when parallel invocation fails' {
-                Mock Invoke-InParallel { throw 'parallel failure' }
-
-                Mock Get-WiFiProfileName { @('HomeSSID') }
-
-                Mock netsh.exe { $global:LASTEXITCODE = 0 }
-
-                $result = Remove-WiFiProfilesSafe -WifiProfiles @('HomeSSID')
-
-                $result.Removed | Should -Be 1
-                @($result.Profiles) | Should -Contain 'HomeSSID'
-                @($result.Operations).Count | Should -Be 1
-                $result.Operations[0].Succeeded | Should -BeTrue
+                (Test-NetCleanPostState -Context $script:context).Passed | Should -BeTrue
             }
         }
 
-        Context 'Clear-DnsCacheSafe' {
+        Context 'Invoke-NetCleanPhase4Verify' {
 
-            It 'returns a dry-run result when DryRun is specified' {
-                $result = Clear-DnsCacheSafe -DryRun
+            It 'preserves the incoming context and adds a passing verification summary' {
+                $result = Invoke-NetCleanPhase4Verify -Context $script:context
 
-                $result.DryRun | Should -BeTrue
-                $result.Succeeded | Should -BeTrue
-                $result.Reason | Should -Be 'DryRun'
+                $result.Phase | Should -Be 'Verify'
+                $result.BackupPath | Should -Be 'C:\backup'
+                $result.Verify.Passed | Should -BeTrue
+                $result.Verify.Summary.Passed | Should -BeTrue
+                $result.Verify.Summary.MissingVendorsCount | Should -Be 0
+                $result.Verify.Summary.MissingGuidCount | Should -Be 0
+                $result.Verify.Summary.MissingServiceCount | Should -Be 0
             }
 
-            It 'returns a skipped result when WhatIf is used' {
-                $result = Clear-DnsCacheSafe -WhatIf
-
-                $result.Skipped | Should -BeTrue
-                $result.Reason | Should -Be 'WhatIf'
-            }
-
-            It 'returns success when command execution succeeds' {
-                Mock Invoke-ExternalCommandSafe {
-                    [pscustomobject]@{
-                        Name      = 'Clear DNS cache'
-                        ExitCode  = 0
-                        Succeeded = $true
-                        Error     = $null
-                    }
-                }
-
-                $result = Clear-DnsCacheSafe
-
-                $result.Succeeded | Should -BeTrue
-                $result.ExitCode  | Should -Be 0
-            }
-        }
-
-        Context 'Clear-ArpCacheSafe' {
-
-            It 'returns a dry-run result when DryRun is specified' {
-                $result = Clear-ArpCacheSafe -DryRun
-
-                $result.DryRun | Should -BeTrue
-                $result.Succeeded | Should -BeTrue
-                $result.Reason | Should -Be 'DryRun'
-            }
-
-            It 'returns a skipped result when WhatIf is used' {
-                $result = Clear-ArpCacheSafe -WhatIf
-
-                $result.Skipped | Should -BeTrue
-                $result.Reason | Should -Be 'WhatIf'
-            }
-
-            It 'returns success when command execution succeeds' {
-                Mock Invoke-ExternalCommandSafe {
-                    [pscustomobject]@{
-                        Name      = 'Clear ARP cache'
-                        ExitCode  = 0
-                        Succeeded = $true
-                        Error     = $null
-                    }
-                }
-
-                $result = Clear-ArpCacheSafe
-
-                $result.Succeeded | Should -BeTrue
-                $result.ExitCode  | Should -Be 0
-            }
-        }
-
-        Context 'Remove-RegistryPathSafe' {
-
-            It 'returns a dry-run result when DryRun is specified' {
-                $result = Remove-RegistryPathSafe -Path 'HKLM\SOFTWARE\Test' -DryRun
-
-                $result.DryRun | Should -BeTrue
-                $result.Removed | Should -BeFalse
-                $result.Succeeded | Should -BeTrue
-                $result.Reason | Should -Be 'DryRun'
-            }
-
-            It 'returns not found when path does not exist' {
-                Mock Test-Path { $false }
-
-                $result = Remove-RegistryPathSafe -Path 'HKLM\SOFTWARE\Test'
-
-                $result.Succeeded | Should -BeTrue
-                $result.Removed | Should -BeFalse
-                $result.Reason | Should -Be 'NotFound'
-            }
-
-            It 'returns skipped when WhatIf is used' {
-                Mock Test-Path { $true }
-
-                $result = Remove-RegistryPathSafe -Path 'HKLM\SOFTWARE\Test' -WhatIf
-
-                $result.Skipped | Should -BeTrue
-                $result.Reason | Should -Be 'WhatIf'
-            }
-
-            It 'removes a registry path when it exists' {
-                Mock Test-Path { $true }
-                Mock Remove-Item {}
-
-                $result = Remove-RegistryPathSafe -Path 'HKLM\SOFTWARE\Test'
-
-                $result.Succeeded | Should -BeTrue
-                $result.Removed | Should -BeTrue
-                Should -Invoke Remove-Item -Times 1
-            }
-
-            It 'returns failure details when Remove-Item throws' {
-                Mock Test-Path { $true }
-                Mock Remove-Item { throw 'remove failed' }
-
-                $result = Remove-RegistryPathSafe -Path 'HKLM\SOFTWARE\Test'
-
-                $result.Succeeded | Should -BeFalse
-                $result.Removed | Should -BeFalse
-                $result.Reason | Should -Match 'remove failed'
-            }
-        }
-
-        Context 'Remove-NetworkPrivacyArtifactsSafe' {
-
-            BeforeEach {
-                $script:Artifacts = @(
-                    [pscustomobject]@{
-                        RegistryPath = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles'
-                    },
-                    [pscustomobject]@{
-                        RegistryPath = 'HKLM\SOFTWARE\Microsoft\WlanSvc\Interfaces'
-                    }
-                )
-            }
-
-            It 'returns dry-run results without removing artifacts' {
-                Mock Remove-RegistryPathSafe {
-                    throw 'Should not be called in dry-run'
-                }
-
-                $result = Remove-NetworkPrivacyArtifactsSafe -Artifacts $script:Artifacts -DryRun
-
-                $result.TotalCandidates | Should -Be 2
-                $result.RemovedCount | Should -Be 2
-                $result.SkippedCount | Should -Be 0
-                @($result.Results).Count | Should -Be 2
-            }
-
-            It 'calls Remove-RegistryPathSafe for each artifact in normal mode' {
-                Mock Remove-RegistryPathSafe {
-                    [pscustomobject]@{
-                        Path      = $Path
-                        Removed   = $true
-                        DryRun    = $false
-                        Succeeded = $true
-                        Reason    = $null
-                    }
-                }
-
-                $result = Remove-NetworkPrivacyArtifactsSafe -Artifacts $script:Artifacts
-
-                $result.TotalCandidates | Should -Be 2
-                $result.RemovedCount | Should -Be 2
-                Should -Invoke Remove-RegistryPathSafe -Times 2
-            }
-
-            It 'returns empty summary when no artifacts are supplied' {
-                $result = Remove-NetworkPrivacyArtifactsSafe -Artifacts @()
-
-                $result.TotalCandidates | Should -Be 0
-                $result.RemovedCount | Should -Be 0
-                $result.SkippedCount | Should -Be 0
-                @($result.Results).Count | Should -Be 0
-            }
-        }
-
-        Context 'Clear-NlaProbeStateSafe' {
-
-            It 'returns dry-run results when DryRun is specified' {
-                $result = @(Clear-NlaProbeStateSafe -DryRun)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Reason -eq 'DryRun' }).Count | Should -Be $result.Count
-            }
-
-            It 'returns skipped results when WhatIf is used' {
-                $result = @(Clear-NlaProbeStateSafe -WhatIf)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Reason -eq 'WhatIf' }).Count | Should -Be $result.Count
-            }
-
-            It 'attempts to remove all configured NLA probe paths in normal mode' {
-                Mock Remove-RegistryPathSafe {
-                    [pscustomobject]@{
-                        Path      = $Path
-                        Removed   = $true
-                        DryRun    = $false
-                        Succeeded = $true
-                        Reason    = $null
-                    }
-                }
-
-                $result = @(Clear-NlaProbeStateSafe)
-
-                $result.Count | Should -BeGreaterThan 0
-                Should -Invoke Remove-RegistryPathSafe -Times $result.Count
-            }
-        }
-
-        Context 'Clear-NetworkEventLogsSafe' {
-
-            It 'returns dry-run result objects for event logs' {
-                $result = @(Clear-NetworkEventLogsSafe -DryRun)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Reason -eq 'DryRun' }).Count | Should -Be $result.Count
-            }
-
-            It 'returns skipped result objects when WhatIf is used' {
-                $result = @(Clear-NetworkEventLogsSafe -WhatIf)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Reason -eq 'WhatIf' }).Count | Should -Be $result.Count
-            }
-
-            It 'calls external helper for each configured event log' {
-                Mock Invoke-ExternalCommandSafe {
-                    [pscustomobject]@{
-                        Name      = $Name
-                        ExitCode  = 0
-                        Succeeded = $true
-                        Error     = $null
-                    }
-                }
-
-                $result = @(Clear-NetworkEventLogsSafe)
-
-                $result.Count | Should -BeGreaterThan 0
-                Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count
-            }
-        }
-
-        Context 'Clear-UserNetworkArtifactsSafe' {
-
-            It 'returns dry-run result objects for configured paths' {
-                $result = @(Clear-UserNetworkArtifactsSafe -DryRun)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Reason -eq 'DryRun' }).Count | Should -Be $result.Count
-            }
-
-            It 'returns not-found entries when paths do not exist' {
-                Mock Test-Path { $false }
-
-                $result = @(Clear-UserNetworkArtifactsSafe)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Reason -eq 'NotFound' }).Count | Should -Be $result.Count
-            }
-
-            It 'returns skipped entries when WhatIf is used' {
-                Mock Test-Path { $true }
-
-                $result = @(Clear-UserNetworkArtifactsSafe -WhatIf)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Reason -eq 'WhatIf' }).Count | Should -Be $result.Count
-            }
-
-            It 'removes paths when they exist and execution is allowed' {
-                Mock Test-Path { $true }
-                Mock Remove-Item {}
-
-                $result = @(Clear-UserNetworkArtifactsSafe)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Removed }).Count | Should -Be $result.Count
-                Should -Invoke Remove-Item -Times $result.Count
-            }
-        }
-
-        Context 'Invoke-AdvancedNetworkRepair' {
-
-            It 'returns dry-run actions when DryRun is specified' {
-                $result = @(Invoke-AdvancedNetworkRepair -DryRun)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Reason -eq 'DryRun' }).Count | Should -Be $result.Count
-            }
-
-            It 'returns skipped actions when WhatIf is used' {
-                $result = @(Invoke-AdvancedNetworkRepair -WhatIf)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Reason -eq 'WhatIf' }).Count | Should -Be $result.Count
-            }
-
-            It 'executes each configured repair command in normal mode' {
-                Mock Invoke-ExternalCommandSafe {
-                    [pscustomobject]@{
-                        Name      = $Name
-                        ExitCode  = 0
-                        Succeeded = $true
-                        Error     = $null
-                    }
-                }
-
-                $result = @(Invoke-AdvancedNetworkRepair)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Succeeded }).Count | Should -Be $result.Count
-                Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count
-            }
-        }
-
-        Context 'Invoke-NetworkPerformanceTune' {
-
-            It 'throws when PerformanceProfile is missing or invalid if required by the function' {
-                { Invoke-NetworkPerformanceTune -PerformanceProfile Bogus } | Should -Throw
-            }
-
-            It 'returns dry-run actions for the Conservative profile' {
-                $result = @(Invoke-NetworkPerformanceTune -PerformanceProfile Conservative -DryRun)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Profile -eq 'Conservative' -and $_.Reason -eq 'DryRun' }).Count |
-                    Should -Be $result.Count
-            }
-
-            It 'returns dry-run actions for the Optimal profile' {
-                $result = @(Invoke-NetworkPerformanceTune -PerformanceProfile Optimal -DryRun)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Profile -eq 'Optimal' -and $_.Reason -eq 'DryRun' }).Count |
-                    Should -Be $result.Count
-            }
-
-            It 'returns dry-run actions for the Gaming profile' {
-                $result = @(Invoke-NetworkPerformanceTune -PerformanceProfile Gaming -DryRun)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Profile -eq 'Gaming' -and $_.Reason -eq 'DryRun' }).Count |
-                    Should -Be $result.Count
-            }
-
-            It 'returns dry-run actions for the Default profile' {
-                $result = @(Invoke-NetworkPerformanceTune -PerformanceProfile Default -DryRun)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Profile -eq 'Default' -and $_.Reason -eq 'DryRun' }).Count |
-                    Should -Be $result.Count
-            }
-
-            It 'returns skipped actions when WhatIf is used' {
-                $result = @(Invoke-NetworkPerformanceTune -PerformanceProfile Optimal -WhatIf)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Reason -eq 'WhatIf' }).Count | Should -Be $result.Count
-            }
-
-            It 'executes tuning actions in normal mode' {
-                Mock Invoke-ExternalCommandSafe {
-                    [pscustomobject]@{
-                        Name      = $Name
-                        ExitCode  = 0
-                        Succeeded = $true
-                        Error     = $null
-                    }
-                }
-
-                $result = @(Invoke-NetworkPerformanceTune -PerformanceProfile Optimal)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Succeeded }).Count | Should -Be $result.Count
-                Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count
-            }
-        }
-
-        Context 'Invoke-NetCleanPhase3Clean' {
-
-            BeforeEach {
-                $script:Context = [pscustomobject]@{
-                    Phase                  = 'Protect'
-                    Inventory              = @()
-                    ProtectedRegistryPaths = @('HKLM\SOFTWARE\CrowdStrike')
-                    SanitizableArtifacts   = @(
-                        [pscustomobject]@{
-                            RegistryPath = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles'
-                        }
-                    )
-                }
-
-                Mock Remove-WiFiProfilesSafe {
-                    [pscustomobject]@{
-                        Removed    = 2
-                        Profiles   = @('ssid1', 'ssid2')
-                        Operations = @()
-                    }
-                }
-
-                Mock Clear-DnsCacheSafe {
-                    [pscustomobject]@{
-                        Name      = 'Clear DNS cache'
-                        ExitCode  = 0
-                        Succeeded = $true
-                    }
-                }
-
-                Mock Clear-ArpCacheSafe {
-                    [pscustomobject]@{
-                        Name      = 'Clear ARP cache'
-                        ExitCode  = 0
-                        Succeeded = $true
-                    }
-                }
-
-                Mock Remove-NetworkPrivacyArtifactsSafe {
-                    [pscustomobject]@{
-                        TotalCandidates = 1
-                        RemovedCount    = 1
-                        SkippedCount    = 0
-                        Results         = @(
-                            [pscustomobject]@{
-                                RegistryPath = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles'
-                                Removed      = $true
-                            }
-                        )
-                    }
-                }
-
-                Mock Clear-NlaProbeStateSafe { @() }
-                Mock Clear-NetworkEventLogsSafe { @([pscustomobject]@{ Succeeded = $true }) }
-                Mock Clear-UserNetworkArtifactsSafe { @([pscustomobject]@{ Removed = $true; Path = 'HKCU:\Software\Test' }) }
-                Mock Invoke-AdvancedNetworkRepair { @([pscustomobject]@{ Succeeded = $true }) }
-                Mock Invoke-NetworkPerformanceTune { @([pscustomobject]@{ Succeeded = $true; Applied = $true; Profile = 'Optimal' }) }
-            }
-
-            It 'runs safe conference prep without advanced repair by default' {
-                $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun
-
-                $result.Phase | Should -Be 'Clean'
-                $result.Clean.Summary.WiFiProfilesRemoved | Should -Be 2
-                $result.Clean.Summary.RegistryArtifactsRemoved | Should -Be 1
-                $result.Clean.Summary.AdvancedRepairActions | Should -Be 0
-                $result.Clean.Summary.PerformanceTuningActions | Should -Be 0
-            }
-
-            It 'skips Wi-Fi cleanup when SkipWifi is used' {
-                $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun -SkipWifi
-
-                $result.Clean.Summary.WiFiProfilesRemoved | Should -Be 0
-                Should -Invoke Remove-WiFiProfilesSafe -Times 0
-            }
-
-            It 'skips DNS cleanup when SkipDnsFlush is used' {
-                $null = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun -SkipDnsFlush
-
-                Should -Invoke Clear-DnsCacheSafe -Times 0
-                Should -Invoke Clear-ArpCacheSafe -Times 0
-            }
-
-            It 'skips event log cleanup when SkipEventLogs is used' {
-                $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun -SkipEventLogs
-
-                $result.Clean.Summary.EventLogsTouched | Should -Be 0
-                Should -Invoke Clear-NetworkEventLogsSafe -Times 0
-            }
-
-            It 'skips user artifact cleanup when SkipUserArtifacts is used' {
-                $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun -SkipUserArtifacts
-
-                $result.Clean.Summary.UserArtifactsTouched | Should -Be 0
-                Should -Invoke Clear-UserNetworkArtifactsSafe -Times 0
-            }
-
-            It 'includes advanced repair actions in AdvancedRepair mode' {
-                $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode AdvancedRepair -DryRun
-
-                $result.Clean.Summary.AdvancedRepairActions | Should -Be 1
-                Should -Invoke Invoke-AdvancedNetworkRepair -Times 1
-            }
-
-            It 'includes performance tuning actions in PerformanceTune mode' {
-                $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode PerformanceTune -PerformanceProfile Optimal -DryRun
-
-                $result.Clean.Summary.PerformanceTuningActions | Should -Be 1
-                Should -Invoke Invoke-NetworkPerformanceTune -Times 1
-            }
-
-            It 'throws when PerformanceTune mode is used without a PerformanceProfile' {
-                { Invoke-NetCleanPhase3Clean -Context $script:Context -Mode PerformanceTune -DryRun } | Should -Throw
+            It 'reports all missing protected categories in the summary' {
+                $script:postInventory = @()
+
+                $result = Invoke-NetCleanPhase4Verify -Context $script:context
+
+                $result.Verify.Passed | Should -BeFalse
+                $result.Verify.Summary.Passed | Should -BeFalse
+                $result.Verify.Summary.MissingVendorsCount | Should -Be 1
+                $result.Verify.Summary.MissingGuidCount | Should -Be 1
+                $result.Verify.Summary.MissingServiceCount | Should -Be 1
             }
         }
     }

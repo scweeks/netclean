@@ -35,44 +35,38 @@ Describe 'NetClean Phase 1 unit tests' {
 
         Context 'Get-VendorSignature' {
 
-            It 'returns a normalized vendor signature object when evidence exists' {
-                $inventory = [pscustomobject]@{
-                    Vendor                  = 'CrowdStrike'
-                    Services                = @('CSFalconService')
-                    Drivers                 = @('csagent')
-                    Adapters                = @('CrowdStrike Adapter')
-                    ProtectedInterfaceGuids = @('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
-                    RegistryKeys            = @('HKLM\SOFTWARE\CrowdStrike')
-                    Evidence                = @('Service | CSFalconService')
-                }
+            It 'returns the normalized signature table' {
+                $result = Get-VendorSignature
 
-                $result = Get-VendorSignature -Item $inventory
-
-                $result | Should -Not -BeNullOrEmpty
-                $result.Vendor | Should -Be 'CrowdStrike'
+                $result | Should -BeOfType [hashtable]
+                $result.ContainsKey('CrowdStrike') | Should -BeTrue
             }
 
-            It 'returns null when item is null' {
-                $result = Get-VendorSignature -Item $null
-                $result | Should -BeNullOrEmpty
+            It 'includes the fields required for vendor matching and protection' {
+                $signature = (Get-VendorSignature)['CrowdStrike']
+
+                @($signature.Patterns).Count | Should -BeGreaterThan 0
+                @($signature.Categories).Count | Should -BeGreaterThan 0
+                @($signature.RegistryRoots) | Should -Contain 'HKLM\SOFTWARE\CrowdStrike'
             }
         }
 
         Context 'Get-WfpStateEvidence' {
 
             It 'returns evidence when firewall/WFP state is present' {
-                Mock Get-RegistryValuesSafe {
-                    [pscustomobject]@{
-                        DisplayName = 'CrowdStrike WFP Provider'
-                    }
-                }
+                Mock netsh {}
+                Mock Test-Path { $true }
+                Mock Get-Content { '<wfpState><provider><name>CrowdStrike WFP Provider</name></provider></wfpState>' }
+                Mock Remove-Item {}
 
                 $result = Get-WfpStateEvidence
                 $result | Should -Not -BeNullOrEmpty
+                $result[0].InferredVendor | Should -Be 'CrowdStrike'
             }
 
             It 'returns empty when no WFP state evidence is present' {
-                Mock Get-RegistryValuesSafe { $null }
+                Mock netsh {}
+                Mock Test-Path { $false }
 
                 $result = @(Get-WfpStateEvidence)
                 $result.Count | Should -Be 0
@@ -82,7 +76,7 @@ Describe 'NetClean Phase 1 unit tests' {
         Context 'Get-NdisFilterClassEvidence' {
 
             It 'returns evidence when NDIS filter classes are detected' {
-                Mock Get-RegistryChildKeyNamesSafe { @('CrowdStrikeFilter') }
+                Mock Get-RegistryChildKeyNamesSafe { @('0001') }
                 Mock Get-RegistryValuesSafe {
                     [pscustomobject]@{
                         FilterClass = 'compression'
@@ -151,8 +145,12 @@ Describe 'NetClean Phase 1 unit tests' {
         Context 'Get-InfFileEvidence' {
 
             It 'returns evidence when INF files contain vendor text' {
+                Mock Test-Path { $true }
                 Mock Get-ChildItem {
-                    @([pscustomobject]@{ FullName = 'C:\Windows\INF\oem42.inf' })
+                    @([pscustomobject]@{
+                            Name     = 'oem42.inf'
+                            FullName = 'C:\Windows\INF\oem42.inf'
+                        })
                 }
                 Mock Get-Content { @('Provider = CrowdStrike') }
 
@@ -176,6 +174,13 @@ Describe 'NetClean Phase 1 unit tests' {
                         [pscustomobject]@{
                             TaskName = 'CrowdStrikeSensorTask'
                             TaskPath = '\'
+                            Actions  = @(
+                                [pscustomobject]@{
+                                    Execute          = 'C:\Program Files\CrowdStrike\sensor.exe'
+                                    Arguments        = ''
+                                    WorkingDirectory = 'C:\Program Files\CrowdStrike'
+                                }
+                            )
                         }
                     )
                 }
@@ -198,8 +203,11 @@ Describe 'NetClean Phase 1 unit tests' {
                 Mock Get-AppxPackage {
                     @(
                         [pscustomobject]@{
-                            Name      = 'Cisco.SecureClient'
-                            Publisher = 'Cisco'
+                            Name                 = 'Cisco.SecureClient'
+                            PackageFamilyName    = 'Cisco.SecureClient_abc123'
+                            PublisherDisplayName = 'Cisco'
+                            InstallLocation      = 'C:\Program Files\WindowsApps\Cisco.SecureClient'
+                            Publisher            = 'CN=Cisco'
                         }
                     )
                 }
@@ -218,20 +226,12 @@ Describe 'NetClean Phase 1 unit tests' {
 
         Context 'Get-ProtectionEvidence' {
 
-            It 'aggregates evidence from all enabled evidence sources' {
-                Mock Get-WfpStateEvidence { @([pscustomobject]@{ Vendor = 'CrowdStrike'; Evidence = 'WFP' }) }
-                Mock Get-NdisFilterClassEvidence { @([pscustomobject]@{ Vendor = 'CrowdStrike'; Evidence = 'NDIS' }) }
-                Mock Get-NdisServiceBindingEvidence { @() }
-                Mock Get-MsiRegistryEvidence { @() }
-                Mock Get-InfFileEvidence { @() }
-                Mock Get-ScheduledTaskEvidence { @() }
-                Mock Get-AppxPackageEvidence { @() }
-
-                $result = @(Get-ProtectionEvidence)
-                $result.Count | Should -Be 2
-            }
-
-            It 'returns empty when no evidence sources produce results' {
+            BeforeEach {
+                Mock Get-CimInstance { @() }
+                Mock Get-ItemProperty { @() }
+                Mock Get-NetAdapter { @() }
+                Mock Get-PnpDevice { @() }
+                Mock Get-RegistryChildKeyNamesSafe { @() }
                 Mock Get-WfpStateEvidence { @() }
                 Mock Get-NdisFilterClassEvidence { @() }
                 Mock Get-NdisServiceBindingEvidence { @() }
@@ -239,38 +239,64 @@ Describe 'NetClean Phase 1 unit tests' {
                 Mock Get-InfFileEvidence { @() }
                 Mock Get-ScheduledTaskEvidence { @() }
                 Mock Get-AppxPackageEvidence { @() }
+            }
 
+            It 'aggregates evidence from all enabled evidence sources' {
+                Mock Get-WfpStateEvidence { @([pscustomobject]@{ Vendor = 'CrowdStrike'; Evidence = 'WFP' }) }
+                Mock Get-NdisFilterClassEvidence { @([pscustomobject]@{ Vendor = 'CrowdStrike'; Evidence = 'NDIS' }) }
+
+                $result = @(Get-ProtectionEvidence)
+                $result.Count | Should -Be 2
+            }
+
+            It 'returns empty when no evidence sources produce results' {
                 $result = @(Get-ProtectionEvidence)
                 $result.Count | Should -Be 0
             }
 
             It 'continues when Get-CimInstance throws for some classes' {
-                Mock Get-CimInstance {
-                    if ($ClassName -eq 'AntivirusProduct') { throw 'cim-failure' }
-                    else { @() }
-                }
+                Mock Get-CimInstance { throw 'cim-failure' } -ParameterFilter { $ClassName -eq 'AntivirusProduct' }
 
-                { Get-ProtectionEvidence } | Should -Not -Throw
                 $res = @(Get-ProtectionEvidence)
-                $res | Should -Be @() -Because 'No other evidence providers were mocked to return results'
+                $res.Count | Should -Be 0
             }
         }
 
         Context 'Get-ProtectionInventory' {
 
+            BeforeEach {
+                Mock Get-VendorSignature {
+                    @{
+                        CrowdStrike = @{
+                            Categories    = @('EDR')
+                            Patterns      = @('crowdstrike', 'csfalcon')
+                            RegistryRoots = @('HKLM\SOFTWARE\CrowdStrike')
+                        }
+                    }
+                }
+                Mock Get-ServiceRegistryMap { @{} }
+                Mock Get-AdapterRegistryCorrelation { @() }
+            }
+
             It 'builds vendor inventory from evidence' {
                 Mock Get-ProtectionEvidence {
                     @(
                         [pscustomobject]@{
-                            Vendor                  = 'CrowdStrike'
-                            Categories              = @('EDR')
-                            Confidence              = 100
-                            Services                = @('CSFalconService')
-                            Drivers                 = @('csagent')
-                            Adapters                = @('CrowdStrike Adapter')
-                            ProtectedInterfaceGuids = @('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
-                            RegistryKeys            = @('HKLM\SOFTWARE\CrowdStrike')
-                            Evidence                = @('Service | CSFalconService')
+                            Source               = 'Service'
+                            ProductClass         = 'Service'
+                            Name                 = 'CSFalconService'
+                            DisplayName          = 'CrowdStrike Falcon Sensor'
+                            Path                 = 'C:\Program Files\CrowdStrike\sensor.exe'
+                            Publisher            = 'CrowdStrike'
+                            InstallPath          = $null
+                            InterfaceDescription = $null
+                            Manufacturer         = 'CrowdStrike'
+                            CompanyName          = 'CrowdStrike'
+                            FileDescription      = 'Falcon Sensor'
+                            ProductName          = 'CrowdStrike Falcon Sensor'
+                            SignerSubject        = 'CN=CrowdStrike'
+                            InferredVendor       = 'CrowdStrike'
+                            Instance             = $null
                         }
                     )
                 }
@@ -362,14 +388,15 @@ Describe 'NetClean Phase 1 unit tests' {
                 Mock Test-RegistryPathExist { $true }
                 Mock Get-RegistryChildKeyNamesSafe { @('Profile1') }
 
-                $result = @(Get-NetworkPrivacyArtifactCandidate)
+                $result = @(Get-NetworkPrivacyArtifactCandidate -Inventory @())
                 $result.Count | Should -BeGreaterThan 0
             }
 
             It 'returns empty when candidate paths do not exist' {
                 Mock Test-RegistryPathExist { $false }
+                Mock Get-RegistryChildKeyNamesSafe { @() }
 
-                $result = @(Get-NetworkPrivacyArtifactCandidate)
+                $result = @(Get-NetworkPrivacyArtifactCandidate -Inventory @())
                 $result.Count | Should -Be 0
             }
         }
@@ -396,7 +423,7 @@ Describe 'NetClean Phase 1 unit tests' {
                     )
                 }
 
-                $result = @(Get-SanitizableNetworkArtifact)
+                $result = @(Get-SanitizableNetworkArtifact -Inventory @())
                 $result.Count | Should -Be 1
                 $result[0].RegistryPath | Should -Be 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles'
             }
@@ -414,7 +441,7 @@ Describe 'NetClean Phase 1 unit tests' {
                     )
                 }
 
-                $result = @(Get-SanitizableNetworkArtifact)
+                $result = @(Get-SanitizableNetworkArtifact -Inventory @())
                 $result.Count | Should -Be 0
             }
         }

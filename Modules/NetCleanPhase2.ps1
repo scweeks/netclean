@@ -37,7 +37,9 @@ function Export-ProtectedRegistryKey {
     )
 
     $exported = New-Object System.Collections.Generic.List[string]
-    New-DirectoryIfNotExist -Path $Dest
+    if (-not $DryRun) {
+        New-DirectoryIfNotExist -Path $Dest
+    }
 
     foreach ($pathItem in @($Paths)) {
         if ([string]::IsNullOrWhiteSpace($pathItem)) { continue }
@@ -113,7 +115,9 @@ function Export-NetworkList {
         [switch]$DryRun
     )
 
-    New-DirectoryIfNotExist -Path $Dest
+    if (-not $DryRun) {
+        New-DirectoryIfNotExist -Path $Dest
+    }
     $key = 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList'
     $file = Join-Path $Dest ("NetworkList_{0}.reg" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 
@@ -242,7 +246,7 @@ function Export-WiFiProfile {
 
     New-DirectoryIfNotExist -Path $Dest
 
-    [System.IO.File]::WriteAllLines($listFile, $profiles, $script:Utf8NoBom)
+    WriteAllLines -Path $listFile -Contents $profiles -Encoding $script:Utf8NoBom
     [void]$exported.Add($listFile)
 
     if ($canLog) {
@@ -366,7 +370,9 @@ function Export-FirewallPolicy {
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    New-DirectoryIfNotExist -Path $Dest
+    if (-not $DryRun) {
+        New-DirectoryIfNotExist -Path $Dest
+    }
     $file = Join-Path $Dest ("FirewallPolicy_{0}.wfw" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 
     if ($canLog) {
@@ -421,9 +427,11 @@ function Export-ProtectionInventory {
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    New-DirectoryIfNotExist -Path $Dest
+    if (-not $DryRun) {
+        New-DirectoryIfNotExist -Path $Dest
+    }
 
-    if ($null -eq $Inventory -or @($Inventory).Count -eq 0) {
+    if (-not $PSBoundParameters.ContainsKey('Inventory') -or $null -eq $Inventory) {
         Write-NetCleanLog -Level INFO -Message 'No inventory provided, performing detection to gather current protection inventory.'
         $Inventory = @(Get-ProtectionInventory)
         Write-NetCleanLog -Level INFO -Message ("Detected {0} inventory entries for export." -f @($Inventory).Count)
@@ -477,7 +485,9 @@ function Export-ProtectionRegistryMap {
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    New-DirectoryIfNotExist -Path $Dest
+    if (-not $DryRun) {
+        New-DirectoryIfNotExist -Path $Dest
+    }
 
     $map = @(Get-ProtectionRegistryMap -Inventory $Inventory)
     $file = Join-Path $Dest ("ProtectionRegistryMap_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
@@ -528,7 +538,9 @@ function Export-SanitizableNetworkArtifact {
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    New-DirectoryIfNotExist -Path $Dest
+    if (-not $DryRun) {
+        New-DirectoryIfNotExist -Path $Dest
+    }
 
     $artifacts = @(Get-SanitizableNetworkArtifact -Inventory $Inventory)
     $file = Join-Path $Dest ("SanitizableNetworkArtifact_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
@@ -584,7 +596,9 @@ function Export-NetCleanManifest {
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    New-DirectoryIfNotExist -Path $Dest
+    if (-not $DryRun) {
+        New-DirectoryIfNotExist -Path $Dest
+    }
     $file = Join-Path $Dest ("RestoreManifest_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 
     if ($DryRun) {
@@ -637,7 +651,9 @@ function Invoke-NetCleanPhase2Protect {
         Write-NetCleanLog -Level INFO -Message ("Phase 2 protect started. BackupPath={0} DryRun={1}" -f $BackupPath, [bool]$DryRun)
     }
 
-    New-DirectoryIfNotExist -Path $BackupPath
+    if (-not $DryRun) {
+        New-DirectoryIfNotExist -Path $BackupPath
+    }
 
     $inventory = @($Context.Inventory)
     $protectedPaths = @($Context.ProtectedRegistryPaths | Sort-Object -Unique)

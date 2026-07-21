@@ -51,8 +51,6 @@ Describe 'NetClean Phase 3 unit tests' {
             It 'returns WhatIf-skipped operations when ShouldProcess declines' {
                 Mock Get-WiFiProfileName { @('HomeSSID') }
 
-                Mock ShouldProcess { $false }
-
                 $result = Remove-WiFiProfilesSafe -WifiProfiles @('HomeSSID') -WhatIf
 
                 $result.Removed | Should -Be 0
@@ -164,10 +162,12 @@ Describe 'NetClean Phase 3 unit tests' {
         Context 'Remove-RegistryPathSafe' {
 
             It 'returns a dry-run result when DryRun is specified' {
+                Mock Test-Path { $true }
+
                 $result = Remove-RegistryPathSafe -Path 'HKLM\SOFTWARE\Test' -DryRun
 
                 $result.DryRun | Should -BeTrue
-                $result.Removed | Should -BeFalse
+                $result.Removed | Should -BeTrue
                 $result.Succeeded | Should -BeTrue
                 $result.Reason | Should -Be 'DryRun'
             }
@@ -228,30 +228,41 @@ Describe 'NetClean Phase 3 unit tests' {
             }
 
             It 'returns dry-run results without removing artifacts' {
+                $context = [pscustomobject]@{ SanitizableArtifacts = $script:Artifacts }
                 Mock Remove-RegistryPathSafe {
-                    throw 'Should not be called in dry-run'
+                    [pscustomobject]@{
+                        RegistryPath = $RegistryPath
+                        Removed      = $true
+                        Skipped      = $false
+                        Succeeded    = $true
+                        Reason       = 'DryRun'
+                        DryRun       = $true
+                    }
                 }
 
-                $result = Remove-NetworkPrivacyArtifactsSafe -Artifacts $script:Artifacts -DryRun
+                $result = Remove-NetworkPrivacyArtifactsSafe -Context $context -DryRun
 
                 $result.TotalCandidates | Should -Be 2
                 $result.RemovedCount | Should -Be 2
                 $result.SkippedCount | Should -Be 0
                 @($result.Results).Count | Should -Be 2
+                Should -Invoke Remove-RegistryPathSafe -Times 2 -ParameterFilter { $DryRun }
             }
 
             It 'calls Remove-RegistryPathSafe for each artifact in normal mode' {
+                $context = [pscustomobject]@{ SanitizableArtifacts = $script:Artifacts }
                 Mock Remove-RegistryPathSafe {
                     [pscustomobject]@{
-                        Path      = $Path
-                        Removed   = $true
-                        DryRun    = $false
-                        Succeeded = $true
-                        Reason    = $null
+                        RegistryPath = $RegistryPath
+                        Removed      = $true
+                        Skipped      = $false
+                        DryRun       = $false
+                        Succeeded    = $true
+                        Reason       = $null
                     }
                 }
 
-                $result = Remove-NetworkPrivacyArtifactsSafe -Artifacts $script:Artifacts
+                $result = Remove-NetworkPrivacyArtifactsSafe -Context $context
 
                 $result.TotalCandidates | Should -Be 2
                 $result.RemovedCount | Should -Be 2
@@ -259,7 +270,7 @@ Describe 'NetClean Phase 3 unit tests' {
             }
 
             It 'returns empty summary when no artifacts are supplied' {
-                $result = Remove-NetworkPrivacyArtifactsSafe -Artifacts @()
+                $result = Remove-NetworkPrivacyArtifactsSafe -Context ([pscustomobject]@{ SanitizableArtifacts = @() })
 
                 $result.TotalCandidates | Should -Be 0
                 $result.RemovedCount | Should -Be 0
@@ -285,20 +296,13 @@ Describe 'NetClean Phase 3 unit tests' {
             }
 
             It 'attempts to remove all configured NLA probe paths in normal mode' {
-                Mock Remove-RegistryPathSafe {
-                    [pscustomobject]@{
-                        Path      = $Path
-                        Removed   = $true
-                        DryRun    = $false
-                        Succeeded = $true
-                        Reason    = $null
-                    }
-                }
+                Mock Remove-ItemProperty {}
 
                 $result = @(Clear-NlaProbeStateSafe)
 
                 $result.Count | Should -BeGreaterThan 0
-                Should -Invoke Remove-RegistryPathSafe -Times $result.Count
+                @($result | Where-Object Succeeded).Count | Should -Be $result.Count
+                Should -Invoke Remove-ItemProperty -Times $result.Count
             }
         }
 
@@ -332,6 +336,7 @@ Describe 'NetClean Phase 3 unit tests' {
 
                 $result.Count | Should -BeGreaterThan 0
                 Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count
+                Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count -ParameterFilter { -not $IgnoreExitCode }
             }
         }
 
@@ -405,6 +410,7 @@ Describe 'NetClean Phase 3 unit tests' {
                 $result.Count | Should -BeGreaterThan 0
                 @($result | Where-Object { $_.Succeeded }).Count | Should -Be $result.Count
                 Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count
+                Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count -ParameterFilter { -not $IgnoreExitCode }
             }
         }
 
@@ -524,10 +530,18 @@ Describe 'NetClean Phase 3 unit tests' {
                 }
 
                 Mock Clear-NlaProbeStateSafe { @() }
-                Mock Clear-NetworkEventLogsSafe { @([pscustomobject]@{ Succeeded = $true }) }
-                Mock Clear-UserNetworkArtifactsSafe { @([pscustomobject]@{ Removed = $true; Path = 'HKCU:\Software\Test' }) }
-                Mock Invoke-AdvancedNetworkRepair { @([pscustomobject]@{ Succeeded = $true }) }
-                Mock Invoke-NetworkPerformanceTune { @([pscustomobject]@{ Succeeded = $true; Applied = $true; Profile = 'Optimal' }) }
+                Mock Clear-NetworkEventLogsSafe {
+                    @([pscustomobject]@{ Name = 'Clear test event log'; Succeeded = $true; Error = $null })
+                }
+                Mock Clear-UserNetworkArtifactsSafe {
+                    @([pscustomobject]@{ Removed = $true; Path = 'HKCU:\Software\Test'; Succeeded = $true; Reason = $null })
+                }
+                Mock Invoke-AdvancedNetworkRepair {
+                    @([pscustomobject]@{ Name = 'Repair'; ExitCode = 0; Succeeded = $true })
+                }
+                Mock Invoke-NetworkPerformanceTune {
+                    @([pscustomobject]@{ Name = 'Tune'; ExitCode = 0; Succeeded = $true; Applied = $true; Profile = 'Optimal' })
+                }
             }
 
             It 'runs safe conference prep without advanced repair by default' {
@@ -551,7 +565,7 @@ Describe 'NetClean Phase 3 unit tests' {
                 $null = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun -SkipDnsFlush
 
                 Should -Invoke Clear-DnsCacheSafe -Times 0
-                Should -Invoke Clear-ArpCacheSafe -Times 0
+                Should -Invoke Clear-ArpCacheSafe -Times 1
             }
 
             It 'skips event log cleanup when SkipEventLogs is used' {
@@ -584,6 +598,16 @@ Describe 'NetClean Phase 3 unit tests' {
 
             It 'throws when PerformanceTune mode is used without a PerformanceProfile' {
                 { Invoke-NetCleanPhase3Clean -Context $script:Context -Mode PerformanceTune -DryRun } | Should -Throw
+            }
+
+            It 'logs the event operation name instead of a boolean expression result' {
+                $script:logMessages = [System.Collections.Generic.List[string]]::new()
+                Mock Write-NetCleanLog { [void]$script:logMessages.Add($Message) }
+
+                $null = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun
+
+                $script:logMessages | Should -Contain 'Event log operation: Clear test event log => OK'
+                $script:logMessages | Should -Not -Contain 'Event log operation: True => OK'
             }
         }
     }

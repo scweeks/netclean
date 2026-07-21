@@ -1176,7 +1176,7 @@ function Get-ProtectionRegistryMap {
         [object[]]$Inventory
     )
 
-    if ($null -eq $Inventory -or @($Inventory).Count -eq 0) {
+    if (-not $PSBoundParameters.ContainsKey('Inventory') -or $null -eq $Inventory) {
         $Inventory = @(Get-ProtectionInventory)
     }
 
@@ -1254,7 +1254,7 @@ function Get-ProtectedInterfaceGuidSet {
         [object[]]$Inventory
     )
 
-    if ($null -eq $Inventory -or @($Inventory).Count -eq 0) {
+    if (-not $PSBoundParameters.ContainsKey('Inventory') -or $null -eq $Inventory) {
         $Inventory = @(Get-ProtectionInventory)
     }
 
@@ -1287,7 +1287,7 @@ function Get-NetworkPrivacyArtifactCandidate {
         [object[]]$Inventory
     )
 
-    if ($null -eq $Inventory -or @($Inventory).Count -eq 0) {
+    if (-not $PSBoundParameters.ContainsKey('Inventory') -or $null -eq $Inventory) {
         $Inventory = @(Get-ProtectionInventory)
     }
 
@@ -1395,7 +1395,7 @@ function Get-SanitizableNetworkArtifact {
         [object[]]$Inventory
     )
 
-    if ($null -eq $Inventory -or @($Inventory).Count -eq 0) {
+    if (-not $PSBoundParameters.ContainsKey('Inventory') -or $null -eq $Inventory) {
         $Inventory = @(Get-ProtectionInventory)
     }
 
@@ -1424,7 +1424,7 @@ function Invoke-NetCleanPhase1Detect {
     $protectionMap = @(Get-ProtectionRegistryMap -Inventory $inventory)
     $protectedGuids = @(Get-ProtectedInterfaceGuidSet -Inventory $inventory)
     $candidateArtifacts = @(Get-NetworkPrivacyArtifactCandidate -Inventory $inventory)
-    $sanitizableArtifacts = @(Get-SanitizableNetworkArtifact -Inventory $inventory)
+    $sanitizableArtifacts = @($candidateArtifacts | Where-Object { -not $_.IsProtected })
 
     $protectedRegistryPaths = @(
         $protectionMap |

@@ -199,6 +199,7 @@ function Clear-DnsCacheSafe {
             Succeeded = $true
             Skipped   = $false
             Reason    = 'DryRun'
+            DryRun    = $true
         }
     }
 
@@ -258,6 +259,7 @@ function Clear-ArpCacheSafe {
             Succeeded = $true
             Skipped   = $false
             Reason    = 'DryRun'
+            DryRun    = $true
         }
     }
 
@@ -326,6 +328,7 @@ function Remove-RegistryPathSafe {
             RegistryPath = $RegistryPath
             Removed      = $false
             Skipped      = $true
+            Succeeded    = $true
             Reason       = 'Protected'
             DryRun       = [bool]$DryRun
         }
@@ -344,6 +347,7 @@ function Remove-RegistryPathSafe {
             RegistryPath = $RegistryPath
             Removed      = $false
             Skipped      = $true
+            Succeeded    = $false
             Reason       = 'InvalidPath'
             DryRun       = [bool]$DryRun
         }
@@ -358,6 +362,7 @@ function Remove-RegistryPathSafe {
             RegistryPath = $RegistryPath
             Removed      = $false
             Skipped      = $true
+            Succeeded    = $true
             Reason       = 'NotFound'
             DryRun       = [bool]$DryRun
         }
@@ -372,6 +377,7 @@ function Remove-RegistryPathSafe {
             RegistryPath = $RegistryPath
             Removed      = $true
             Skipped      = $false
+            Succeeded    = $true
             Reason       = 'DryRun'
             DryRun       = $true
         }
@@ -386,6 +392,7 @@ function Remove-RegistryPathSafe {
             RegistryPath = $RegistryPath
             Removed      = $false
             Skipped      = $true
+            Succeeded    = $true
             Reason       = 'WhatIf'
             DryRun       = $false
         }
@@ -402,19 +409,21 @@ function Remove-RegistryPathSafe {
             RegistryPath = $RegistryPath
             Removed      = $true
             Skipped      = $false
+            Succeeded    = $true
             Reason       = 'Removed'
             DryRun       = $false
         }
     }
     catch {
         if ($canLog) {
-            Write-NetCleanLog -Level ERROR -Message ("Failed to remove registry path '{0}': {1}" -f $RegistryPath, $_.Exception.Message)
+            Write-NetCleanLog -Level WARN -Message ("Failed to remove registry path '{0}': {1}" -f $RegistryPath, $_.Exception.Message)
         }
 
         return [pscustomobject]@{
             RegistryPath = $RegistryPath
             Removed      = $false
             Skipped      = $true
+            Succeeded    = $false
             Reason       = $_.Exception.Message
             DryRun       = $false
         }
@@ -469,7 +478,7 @@ function Remove-NetworkPrivacyArtifactsSafe {
         TotalCandidates = $artifacts.Count
         RemovedCount    = @($results | Where-Object { $_.Removed }).Count
         SkippedCount    = @($results | Where-Object { $_.Skipped }).Count
-        Results         = @($results)
+        Results         = $results.ToArray()
     }
 
     if ($canLog) {
@@ -530,6 +539,8 @@ function Clear-NlaProbeStateSafe {
                     Removed   = $true
                     DryRun    = $true
                     Succeeded = $true
+                    Skipped   = $false
+                    Reason    = 'DryRun'
                 })
             continue
         }
@@ -544,7 +555,9 @@ function Clear-NlaProbeStateSafe {
                     Property  = $property
                     Removed   = $false
                     DryRun    = $false
-                    Succeeded = $false
+                    Succeeded = $true
+                    Skipped   = $true
+                    Reason    = 'WhatIf'
                     Error     = 'WhatIf'
                 })
             continue
@@ -563,6 +576,8 @@ function Clear-NlaProbeStateSafe {
                     Removed   = $true
                     DryRun    = $false
                     Succeeded = $true
+                    Skipped   = $false
+                    Reason    = $null
                 })
         }
         catch {
@@ -576,6 +591,8 @@ function Clear-NlaProbeStateSafe {
                     Removed   = $false
                     DryRun    = $false
                     Succeeded = $false
+                    Skipped   = $false
+                    Reason    = $_.Exception.Message
                     Error     = $_.Exception.Message
                 })
         }
@@ -660,8 +677,7 @@ function Clear-NetworkEventLogsSafe {
             $result = Invoke-ExternalCommandSafe `
                 -Name ("Clear event log {0}" -f $log) `
                 -FilePath 'wevtutil.exe' `
-                -ArgumentList @('cl', $log) `
-                -IgnoreExitCode
+                -ArgumentList @('cl', $log)
 
             $results.Add([pscustomobject]@{
                     Name      = $result.Name
@@ -911,8 +927,7 @@ function Invoke-AdvancedNetworkRepair {
             $result = Invoke-ExternalCommandSafe `
                 -Name $cmd.Name `
                 -FilePath $cmd.FilePath `
-                -ArgumentList $cmd.ArgumentList `
-                -IgnoreExitCode
+                -ArgumentList $cmd.ArgumentList
 
             $results.Add([pscustomobject]@{
                     Name      = $result.Name
@@ -1050,14 +1065,14 @@ function Invoke-NetworkPerformanceTune {
     [OutputType([System.Object[]])]
     param(
         [ValidateSet('Conservative', 'Optimal', 'Gaming', 'Default')]
-        [string]$Profile = 'Conservative',
+        [string]$PerformanceProfile = 'Conservative',
 
         [switch]$DryRun
     )
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    switch ($Profile) {
+    switch ($PerformanceProfile) {
         'Conservative' {
             $commands = @(
                 [pscustomobject]@{
@@ -1144,11 +1159,11 @@ function Invoke-NetworkPerformanceTune {
     foreach ($cmd in $commands) {
         if ($DryRun) {
             if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Would apply tuning profile '{0}' action: {1}" -f $Profile, $cmd.Name)
+                Write-NetCleanLog -Level INFO -Message ("Would apply tuning profile '{0}' action: {1}" -f $PerformanceProfile, $cmd.Name)
             }
 
             $results.Add([pscustomobject]@{
-                    Profile   = $Profile
+                    Profile   = $PerformanceProfile
                     Name      = $cmd.Name
                     FilePath  = $cmd.FilePath
                     Arguments = ($cmd.ArgumentList -join ' ')
@@ -1165,13 +1180,13 @@ function Invoke-NetworkPerformanceTune {
             continue
         }
 
-        if (-not $PSCmdlet.ShouldProcess($cmd.Name, "Apply network tuning profile '$Profile'")) {
+        if (-not $PSCmdlet.ShouldProcess($cmd.Name, "Apply network tuning profile '$PerformanceProfile'")) {
             if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("WhatIf prevented tuning profile '{0}' action: {1}" -f $Profile, $cmd.Name)
+                Write-NetCleanLog -Level INFO -Message ("WhatIf prevented tuning profile '{0}' action: {1}" -f $PerformanceProfile, $cmd.Name)
             }
 
             $results.Add([pscustomobject]@{
-                    Profile   = $Profile
+                    Profile   = $PerformanceProfile
                     Name      = $cmd.Name
                     FilePath  = $cmd.FilePath
                     Arguments = ($cmd.ArgumentList -join ' ')
@@ -1196,7 +1211,7 @@ function Invoke-NetworkPerformanceTune {
                 -IgnoreExitCode
 
             $results.Add([pscustomobject]@{
-                    Profile   = $Profile
+                    Profile   = $PerformanceProfile
                     Name      = $result.Name
                     FilePath  = $cmd.FilePath
                     Arguments = ($cmd.ArgumentList -join ' ')
@@ -1212,20 +1227,20 @@ function Invoke-NetworkPerformanceTune {
 
             if ($canLog) {
                 if ($result.Succeeded) {
-                    Write-NetCleanLog -Level INFO -Message ("Applied tuning profile '{0}' action: {1}" -f $Profile, $cmd.Name)
+                    Write-NetCleanLog -Level INFO -Message ("Applied tuning profile '{0}' action: {1}" -f $PerformanceProfile, $cmd.Name)
                 }
                 else {
-                    Write-NetCleanLog -Level WARN -Message ("Failed tuning profile '{0}' action '{1}': {2}" -f $Profile, $cmd.Name, $result.Error)
+                    Write-NetCleanLog -Level WARN -Message ("Failed tuning profile '{0}' action '{1}': {2}" -f $PerformanceProfile, $cmd.Name, $result.Error)
                 }
             }
         }
         catch {
             if ($canLog) {
-                Write-NetCleanLog -Level WARN -Message ("Exception applying tuning profile '{0}' action '{1}': {2}" -f $Profile, $cmd.Name, $_.Exception.Message)
+                Write-NetCleanLog -Level WARN -Message ("Exception applying tuning profile '{0}' action '{1}': {2}" -f $PerformanceProfile, $cmd.Name, $_.Exception.Message)
             }
 
             $results.Add([pscustomobject]@{
-                    Profile   = $Profile
+                    Profile   = $PerformanceProfile
                     Name      = $cmd.Name
                     FilePath  = $cmd.FilePath
                     Arguments = ($cmd.ArgumentList -join ' ')
@@ -1293,6 +1308,10 @@ function Invoke-NetCleanPhase3Clean {
     )
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
+
+    if ($Mode -eq 'PerformanceTune' -and [string]::IsNullOrWhiteSpace($PerformanceProfile)) {
+        throw "PerformanceProfile is required when Mode is 'PerformanceTune'."
+    }
 
     if ($canLog) {
         Write-NetCleanLog -Level INFO -Message ("Phase 3 clean started. Mode={0} DryRun={1}" -f $Mode, [bool]$DryRun)
@@ -1374,8 +1393,12 @@ function Invoke-NetCleanPhase3Clean {
     }
 
     $tuningResults = @()
-    if ($Mode -eq 'PerformanceTune' -or $EnableConservativePerformanceTuning) {
-        $tuningResults = @(Invoke-NetworkPerformanceTune -DryRun:$DryRun)
+    if ($Mode -eq 'PerformanceTune') {
+        $tuningResults = @(
+            Invoke-NetworkPerformanceTune `
+                -PerformanceProfile $PerformanceProfile `
+                -DryRun:$DryRun
+        )
     }
 
     Add-Member -InputObject $newContext -NotePropertyName Phase -NotePropertyValue 'Clean' -Force
@@ -1442,7 +1465,8 @@ function Invoke-NetCleanPhase3Clean {
 
         # NLA probe changes
         foreach ($n in @($nlaResults)) {
-            Write-NetCleanLog -Level INFO -Message ("NLA probe property processed: {0} {1}" -f $n.Property, (if ($n.Succeeded) { 'OK' } else { "ERR: $($n.Error)" }))
+            $nlaStatus = if ($n.Succeeded) { 'OK' } else { "ERR: $($n.Error)" }
+            Write-NetCleanLog -Level INFO -Message ("NLA probe property processed: {0} {1}" -f $n.Property, $nlaStatus)
         }
 
         # Event logs (be defensive: test for properties before accessing them)
@@ -1459,12 +1483,14 @@ function Invoke-NetCleanPhase3Clean {
                 $status = if ($l.Succeeded) { 'OK' } else { "ERR: $($l.Error)" }
             }
 
-            Write-NetCleanLog -Level INFO -Message ("Event log operation: {0} => {1}" -f ($cmd -or '(unknown)'), $status)
+            $commandDisplay = if ([string]::IsNullOrWhiteSpace($cmd)) { '(unknown)' } else { $cmd }
+            Write-NetCleanLog -Level INFO -Message ("Event log operation: {0} => {1}" -f $commandDisplay, $status)
         }
 
         # User artifacts
         foreach ($u in @($userResults)) {
-            Write-NetCleanLog -Level INFO -Message ("User artifact: {0} => {1}" -f $u.Path, (if ($u.Succeeded) { 'OK' } else { "ERR: $($u.Reason)" }))
+            $userStatus = if ($u.Succeeded) { 'OK' } else { "ERR: $($u.Reason)" }
+            Write-NetCleanLog -Level INFO -Message ("User artifact: {0} => {1}" -f $u.Path, $userStatus)
         }
 
         # Advanced repair and tuning actions

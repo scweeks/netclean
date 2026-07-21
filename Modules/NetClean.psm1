@@ -26,6 +26,7 @@ $script:ModuleRoot = Split-Path -Parent $PSCommandPath
 # Returns $true when the runtime supports simple parallelism helpers we use (Start-Job batching)
 function Test-ParallelCapability {
     [CmdletBinding()]
+    [OutputType([bool])]
     param()
 
     return $true
@@ -35,6 +36,7 @@ function Test-ParallelCapability {
 # Returns an array of results collected from each job's output. This is compatible with Windows PowerShell.
 function Invoke-InParallel {
     [CmdletBinding()]
+    [OutputType([object[]])]
     param(
         [Parameter(Mandatory = $true)]
         [scriptblock]$ScriptBlock,
@@ -224,7 +226,7 @@ function Write-NetCleanLog {
     }
 
     switch ($Level) {
-        'ERROR' { Write-Error $Message }
+        'ERROR' { Write-Error $Message -ErrorAction Continue }
         'WARN' { Write-Warning $Message }
         'INFO' { Write-Information $Message -InformationAction Continue }
         'DEBUG' { Write-Verbose $Message }
@@ -958,10 +960,35 @@ function Test-RegistryPathProtected {
         return $false
     }
 
+    try {
+        $normalizedPath = Convert-RegKeyPath -Path $Path
+    }
+    catch {
+        return $false
+    }
+
     foreach ($protected in @($Context.ProtectedRegistryPaths)) {
         if ([string]::IsNullOrWhiteSpace($protected)) { continue }
 
-        if ($Path -like "$protected*" -or $protected -like "$Path*") {
+        try {
+            $normalizedProtected = Convert-RegKeyPath -Path $protected
+        }
+        catch {
+            continue
+        }
+
+        $pathIsProtected = $normalizedPath.Equals(
+            $normalizedProtected,
+            [System.StringComparison]::OrdinalIgnoreCase
+        ) -or $normalizedPath.StartsWith(
+            "$normalizedProtected\",
+            [System.StringComparison]::OrdinalIgnoreCase
+        ) -or $normalizedProtected.StartsWith(
+            "$normalizedPath\",
+            [System.StringComparison]::OrdinalIgnoreCase
+        )
+
+        if ($pathIsProtected) {
             return $true
         }
     }
