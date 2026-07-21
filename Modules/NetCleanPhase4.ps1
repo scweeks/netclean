@@ -234,6 +234,546 @@ function Test-NetCleanAdapterPostState {
 
 <#
 .SYNOPSIS
+Verifies the non-adapter cleanup work recorded by Phase 3.
+.DESCRIPTION
+Re-reads persistent registry, user-artifact, and event-log state after cleanup.
+DNS and ARP caches can legitimately repopulate immediately, while stack resets
+and tuning changes may require a restart, so those volatile or deferred actions
+are represented by their command-result ledger instead of a misleading empty-
+state assertion. Wi-Fi and NetworkList absence are independently checked by
+Test-NetCleanPostState.
+.PARAMETER Context
+Clean-phase context containing the operation ledger.
+.OUTPUTS
+System.Management.Automation.PSCustomObject
+#>
+function Test-NetCleanCleanupPostState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Context
+    )
+
+    if (
+        $Context.PSObject.Properties.Name -notcontains 'Clean' -or
+        -not $Context.Clean
+    ) {
+        return [pscustomobject]@{
+            Applicable = $false
+            Passed     = $true
+            Reason     = 'NoCleanupResults'
+            Checks     = @()
+        }
+    }
+
+    if (
+        $Context.Clean.PSObject.Properties.Name -contains 'DryRun' -and
+        $Context.Clean.DryRun
+    ) {
+        return [pscustomobject]@{
+            Applicable = $false
+            Passed     = $true
+            Reason     = 'DryRun'
+            Checks     = @()
+        }
+    }
+
+    $checks = [System.Collections.Generic.List[object]]::new()
+    foreach ($propertyName in @('Dns', 'Arp')) {
+        if ($Context.Clean.PSObject.Properties.Name -notcontains $propertyName) {
+            continue
+        }
+
+        $operation = $Context.Clean.$propertyName
+        if (-not $operation) {
+            continue
+        }
+
+        $skippedByOption = (
+            $operation.PSObject.Properties.Name -contains 'Skipped' -and
+            $operation.Skipped -and
+            $operation.PSObject.Properties.Name -contains 'Reason' -and
+            $operation.Reason -eq 'SkippedByOption'
+        )
+        $succeeded = (
+            $operation.PSObject.Properties.Name -contains 'Succeeded' -and
+            [bool]$operation.Succeeded
+        )
+        $errorMessage = if ($operation.PSObject.Properties.Name -contains 'Error') {
+            $operation.Error
+        }
+        else {
+            $null
+        }
+
+        $checks.Add([pscustomobject]@{
+                Category         = 'VolatileCacheAction'
+                Target           = $operation.Name
+                VerificationType = 'CommandResult'
+                Expected         = 'Succeeded or explicitly skipped'
+                Actual           = if ($skippedByOption) { 'SkippedByOption' } elseif ($succeeded) { 'Succeeded' } else { 'Failed' }
+                Passed           = ($succeeded -or $skippedByOption)
+                Error            = $errorMessage
+            })
+    }
+
+    if (
+        $Context.Clean.PSObject.Properties.Name -contains 'RegistryArtifacts' -and
+        $Context.Clean.RegistryArtifacts -and
+        $Context.Clean.RegistryArtifacts.PSObject.Properties.Name -contains 'Results'
+    ) {
+        foreach ($operation in @($Context.Clean.RegistryArtifacts.Results)) {
+            if (-not $operation) {
+                continue
+            }
+
+            $target = $operation.RegistryPath
+            $reason = if ($operation.PSObject.Properties.Name -contains 'Reason') {
+                $operation.Reason
+            }
+            else {
+                $null
+            }
+            $succeeded = (
+                $operation.PSObject.Properties.Name -contains 'Succeeded' -and
+                [bool]$operation.Succeeded
+            )
+            $protected = (
+                $operation.PSObject.Properties.Name -contains 'Skipped' -and
+                $operation.Skipped -and
+                $reason -eq 'Protected'
+            )
+            $shouldBeAbsent = (
+                $succeeded -and
+                (
+                    ($operation.PSObject.Properties.Name -contains 'Removed' -and $operation.Removed) -or
+                    $reason -eq 'NotFound'
+                )
+            )
+
+            if ($protected) {
+                $checks.Add([pscustomobject]@{
+                        Category         = 'RegistryArtifact'
+                        Target           = $target
+                        VerificationType = 'ProtectionBoundary'
+                        Expected         = 'Preserved'
+                        Actual           = 'Protected'
+                        Passed           = $true
+                        Error            = $null
+                    })
+                continue
+            }
+
+            if ($shouldBeAbsent) {
+                try {
+                    $exists = Test-RegistryPathExist -RegistryPath $target
+                    $checks.Add([pscustomobject]@{
+                            Category         = 'RegistryArtifact'
+                            Target           = $target
+                            VerificationType = 'IndependentState'
+                            Expected         = 'Absent'
+                            Actual           = if ($exists) { 'Present' } else { 'Absent' }
+                            Passed           = (-not $exists)
+                            Error            = $null
+                        })
+                }
+                catch {
+                    $checks.Add([pscustomobject]@{
+                            Category         = 'RegistryArtifact'
+                            Target           = $target
+                            VerificationType = 'IndependentState'
+                            Expected         = 'Absent'
+                            Actual           = 'Unknown'
+                            Passed           = $false
+                            Error            = $_.Exception.Message
+                        })
+                }
+                continue
+            }
+
+            $checks.Add([pscustomobject]@{
+                    Category         = 'RegistryArtifact'
+                    Target           = $target
+                    VerificationType = 'CommandResult'
+                    Expected         = 'Removed, absent, or protected'
+                    Actual           = if ($reason) { $reason } else { 'Failed' }
+                    Passed           = $false
+                    Error            = if ($succeeded) { $null } else { $reason }
+                })
+        }
+    }
+
+    if ($Context.Clean.PSObject.Properties.Name -contains 'UserArtifacts') {
+        foreach ($operation in @($Context.Clean.UserArtifacts)) {
+            if (-not $operation) {
+                continue
+            }
+
+            $reason = if ($operation.PSObject.Properties.Name -contains 'Reason') {
+                $operation.Reason
+            }
+            else {
+                $null
+            }
+            $succeeded = (
+                $operation.PSObject.Properties.Name -contains 'Succeeded' -and
+                [bool]$operation.Succeeded
+            )
+            $shouldBeAbsent = (
+                $succeeded -and
+                (
+                    ($operation.PSObject.Properties.Name -contains 'Removed' -and $operation.Removed) -or
+                    $reason -eq 'NotFound'
+                )
+            )
+
+            if ($shouldBeAbsent) {
+                try {
+                    $exists = Test-Path -LiteralPath $operation.Path -ErrorAction Stop
+                    $checks.Add([pscustomobject]@{
+                            Category         = 'UserArtifact'
+                            Target           = $operation.Path
+                            VerificationType = 'IndependentState'
+                            Expected         = 'Absent'
+                            Actual           = if ($exists) { 'Present' } else { 'Absent' }
+                            Passed           = (-not $exists)
+                            Error            = $null
+                        })
+                }
+                catch {
+                    $checks.Add([pscustomobject]@{
+                            Category         = 'UserArtifact'
+                            Target           = $operation.Path
+                            VerificationType = 'IndependentState'
+                            Expected         = 'Absent'
+                            Actual           = 'Unknown'
+                            Passed           = $false
+                            Error            = $_.Exception.Message
+                        })
+                }
+                continue
+            }
+
+            $checks.Add([pscustomobject]@{
+                    Category         = 'UserArtifact'
+                    Target           = $operation.Path
+                    VerificationType = 'CommandResult'
+                    Expected         = 'Removed or absent'
+                    Actual           = if ($reason) { $reason } else { 'Failed' }
+                    Passed           = $false
+                    Error            = if ($succeeded) { $null } else { $reason }
+                })
+        }
+    }
+
+    if ($Context.Clean.PSObject.Properties.Name -contains 'EventLogs') {
+        foreach ($operation in @($Context.Clean.EventLogs)) {
+            if (-not $operation) {
+                continue
+            }
+
+            $cleared = (
+                $operation.PSObject.Properties.Name -contains 'Cleared' -and
+                [bool]$operation.Cleared
+            )
+            $succeeded = (
+                $operation.PSObject.Properties.Name -contains 'Succeeded' -and
+                [bool]$operation.Succeeded
+            )
+            $completedAt = if ($operation.PSObject.Properties.Name -contains 'CompletedAt') {
+                $operation.CompletedAt
+            }
+            else {
+                $null
+            }
+
+            if ($cleared -and $succeeded -and $completedAt) {
+                try {
+                    $priorEvents = @(
+                        Get-WinEvent `
+                            -FilterHashtable @{
+                                LogName = $operation.LogName
+                                EndTime = $completedAt
+                            } `
+                            -MaxEvents 1 `
+                            -ErrorAction Stop
+                    )
+                    $checks.Add([pscustomobject]@{
+                            Category         = 'EventLog'
+                            Target           = $operation.LogName
+                            VerificationType = 'IndependentState'
+                            Expected         = 'No events at or before cleanup completion'
+                            Actual           = if ($priorEvents.Count -eq 0) { 'Absent' } else { 'Present' }
+                            Passed           = ($priorEvents.Count -eq 0)
+                            Error            = $null
+                        })
+                }
+                catch {
+                    $noEventsFound = $_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*'
+                    $checks.Add([pscustomobject]@{
+                            Category         = 'EventLog'
+                            Target           = $operation.LogName
+                            VerificationType = 'IndependentState'
+                            Expected         = 'No events at or before cleanup completion'
+                            Actual           = if ($noEventsFound) { 'Absent' } else { 'Unknown' }
+                            Passed           = $noEventsFound
+                            Error            = if ($noEventsFound) { $null } else { $_.Exception.Message }
+                        })
+                }
+                continue
+            }
+
+            $errorMessage = if ($operation.PSObject.Properties.Name -contains 'Error') {
+                $operation.Error
+            }
+            else {
+                $null
+            }
+            $checks.Add([pscustomobject]@{
+                    Category         = 'EventLog'
+                    Target           = if ($operation.PSObject.Properties.Name -contains 'LogName') { $operation.LogName } else { $operation.Name }
+                    VerificationType = 'CommandResult'
+                    Expected         = 'Cleared with completion timestamp'
+                    Actual           = if (-not $succeeded) { 'Failed' } elseif (-not $cleared) { 'NotCleared' } else { 'MissingCompletionTime' }
+                    Passed           = $false
+                    Error            = $errorMessage
+                })
+        }
+    }
+
+    foreach ($operationGroup in @(
+            [pscustomobject]@{ Property = 'AdvancedRepair'; Category = 'AdvancedRepairAction' },
+            [pscustomobject]@{ Property = 'PerformanceTuning'; Category = 'PerformanceTuningAction' }
+        )) {
+        if ($Context.Clean.PSObject.Properties.Name -notcontains $operationGroup.Property) {
+            continue
+        }
+
+        foreach ($operation in @($Context.Clean.($operationGroup.Property))) {
+            if (-not $operation) {
+                continue
+            }
+
+            $succeeded = (
+                $operation.PSObject.Properties.Name -contains 'Succeeded' -and
+                [bool]$operation.Succeeded
+            )
+            $errorMessage = if ($operation.PSObject.Properties.Name -contains 'Error') {
+                $operation.Error
+            }
+            else {
+                $null
+            }
+            $checks.Add([pscustomobject]@{
+                    Category         = $operationGroup.Category
+                    Target           = $operation.Name
+                    VerificationType = 'CommandResult'
+                    Expected         = 'Succeeded'
+                    Actual           = if ($succeeded) { 'Succeeded' } else { 'Failed' }
+                    Passed           = $succeeded
+                    Error            = $errorMessage
+            })
+        }
+    }
+
+    $wifiCleanupExpected = (
+        $Context.Clean.PSObject.Properties.Name -contains 'WiFi' -and
+        $Context.Clean.WiFi -and
+        -not (
+            $Context.Clean.WiFi.PSObject.Properties.Name -contains 'Skipped' -and
+            $Context.Clean.WiFi.Skipped
+        )
+    )
+    if ($wifiCleanupExpected) {
+        try {
+            $physicalAdapters = @(Get-NetAdapter -Physical -ErrorAction Stop)
+            $wiredAdapters = [System.Collections.Generic.List[object]]::new()
+            $wifiAdapters = [System.Collections.Generic.List[object]]::new()
+
+            foreach ($adapter in $physicalAdapters) {
+                $mediaTypes = [System.Collections.Generic.List[string]]::new()
+                foreach ($propertyName in @('MediaType', 'PhysicalMediaType')) {
+                    if (
+                        $adapter.PSObject.Properties.Name -contains $propertyName -and
+                        -not [string]::IsNullOrWhiteSpace([string]$adapter.$propertyName)
+                    ) {
+                        $mediaTypes.Add([string]$adapter.$propertyName)
+                    }
+                }
+
+                $ndisMedium = if ($adapter.PSObject.Properties.Name -contains 'NdisPhysicalMedium') {
+                    [int]$adapter.NdisPhysicalMedium
+                }
+                else {
+                    -1
+                }
+                $isWired = (
+                    $mediaTypes -contains '802.3' -or
+                    $ndisMedium -eq 14
+                )
+                $isWifi = (
+                    $mediaTypes -contains 'Native 802.11' -or
+                    $mediaTypes -contains '802.11' -or
+                    $mediaTypes -contains 'Wireless LAN' -or
+                    $ndisMedium -in @(1, 9)
+                )
+
+                if ($isWired) {
+                    $wiredAdapters.Add($adapter)
+                }
+                elseif ($isWifi) {
+                    $wifiAdapters.Add($adapter)
+                }
+            }
+
+            $connectedWired = @($wiredAdapters | Where-Object { $_.Status -eq 'Up' })
+            $connectedWifi = @($wifiAdapters | Where-Object { $_.Status -eq 'Up' })
+            $checks.Add([pscustomobject]@{
+                    Category         = 'WiFiConnection'
+                    Target           = 'Physical Wi-Fi adapters'
+                    VerificationType = 'IndependentState'
+                    Applicable       = $true
+                    Expected         = 'Disconnected'
+                    Actual           = if ($connectedWifi.Count -eq 0) { 'Disconnected' } else { @($connectedWifi.Name) }
+                    Passed           = ($connectedWifi.Count -eq 0)
+                    Error            = $null
+                })
+
+            if ($connectedWired.Count -gt 0) {
+                foreach ($category in @('DnsCache', 'ArpCache')) {
+                    $checks.Add([pscustomobject]@{
+                            Category         = $category
+                            Target           = 'Local cache'
+                            VerificationType = 'ConditionalState'
+                            Applicable       = $false
+                            Expected         = 'Not evaluated while wired LAN is connected'
+                            Actual           = 'WiredLanConnected'
+                            Passed           = $true
+                            Error            = $null
+                        })
+                }
+            }
+            else {
+                $dnsWasApplied = (
+                    $Context.Clean.PSObject.Properties.Name -contains 'Dns' -and
+                    $Context.Clean.Dns -and
+                    $Context.Clean.Dns.PSObject.Properties.Name -contains 'Succeeded' -and
+                    $Context.Clean.Dns.Succeeded -and
+                    -not (
+                        $Context.Clean.Dns.PSObject.Properties.Name -contains 'Skipped' -and
+                        $Context.Clean.Dns.Skipped
+                    )
+                )
+                if ($dnsWasApplied) {
+                    try {
+                        $dnsEntries = @(Get-DnsClientCache -ErrorAction Stop)
+                        $checks.Add([pscustomobject]@{
+                                Category         = 'DnsCache'
+                                Target           = 'DNS client cache'
+                                VerificationType = 'ConditionalState'
+                                Applicable       = $true
+                                Expected         = 'Empty when no wired LAN is connected'
+                                Actual           = $dnsEntries.Count
+                                Passed           = ($dnsEntries.Count -eq 0)
+                                Error            = $null
+                            })
+                    }
+                    catch {
+                        $checks.Add([pscustomobject]@{
+                                Category         = 'DnsCache'
+                                Target           = 'DNS client cache'
+                                VerificationType = 'ConditionalState'
+                                Applicable       = $true
+                                Expected         = 'Empty when no wired LAN is connected'
+                                Actual           = 'Unknown'
+                                Passed           = $false
+                                Error            = $_.Exception.Message
+                            })
+                    }
+                }
+
+                $arpWasApplied = (
+                    $Context.Clean.PSObject.Properties.Name -contains 'Arp' -and
+                    $Context.Clean.Arp -and
+                    $Context.Clean.Arp.PSObject.Properties.Name -contains 'Succeeded' -and
+                    $Context.Clean.Arp.Succeeded -and
+                    -not (
+                        $Context.Clean.Arp.PSObject.Properties.Name -contains 'Skipped' -and
+                        $Context.Clean.Arp.Skipped
+                    )
+                )
+                if ($arpWasApplied) {
+                    try {
+                        $physicalInterfaceIndexes = @(
+                            $physicalAdapters |
+                                Where-Object { $null -ne $_.InterfaceIndex } |
+                                Select-Object -ExpandProperty InterfaceIndex -Unique
+                        )
+                        $dynamicNeighbors = if ($physicalInterfaceIndexes.Count -eq 0) {
+                            @()
+                        }
+                        else {
+                            @(
+                                Get-NetNeighbor `
+                                    -InterfaceIndex $physicalInterfaceIndexes `
+                                    -AddressFamily IPv4 `
+                                    -PolicyStore ActiveStore `
+                                    -ErrorAction Stop |
+                                    Where-Object { [string]$_.State -ne 'Permanent' }
+                            )
+                        }
+                        $dynamicNeighborCount = @($dynamicNeighbors).Count
+                        $checks.Add([pscustomobject]@{
+                                Category         = 'ArpCache'
+                                Target           = 'Physical-adapter IPv4 neighbor cache'
+                                VerificationType = 'ConditionalState'
+                                Applicable       = $true
+                                Expected         = 'No dynamic entries when no wired LAN is connected'
+                                Actual           = @($dynamicNeighbors | ForEach-Object { $_.IPAddress })
+                                Passed           = ($dynamicNeighborCount -eq 0)
+                                Error            = $null
+                            })
+                    }
+                    catch {
+                        $checks.Add([pscustomobject]@{
+                                Category         = 'ArpCache'
+                                Target           = 'Physical-adapter IPv4 neighbor cache'
+                                VerificationType = 'ConditionalState'
+                                Applicable       = $true
+                                Expected         = 'No dynamic entries when no wired LAN is connected'
+                                Actual           = 'Unknown'
+                                Passed           = $false
+                                Error            = $_.Exception.Message
+                            })
+                    }
+                }
+            }
+        }
+        catch {
+            $checks.Add([pscustomobject]@{
+                    Category         = 'ConnectivityDetection'
+                    Target           = 'Physical network adapters'
+                    VerificationType = 'IndependentState'
+                    Applicable       = $true
+                    Expected         = 'Adapter state available'
+                    Actual           = 'Unknown'
+                    Passed           = $false
+                    Error            = $_.Exception.Message
+                })
+        }
+    }
+
+    return [pscustomobject]@{
+        Applicable = $true
+        Passed     = (@($checks | Where-Object { -not $_.Passed }).Count -eq 0)
+        Reason     = 'Verified'
+        Checks     = $checks.ToArray()
+    }
+}
+
+<#
+.SYNOPSIS
 Performs post-cleaning state verification by comparing inventories before and after cleaning.
 .DESCRIPTION
 Compares protected inventory before and after cleaning and checks that saved
@@ -341,6 +881,64 @@ function Test-NetCleanPostState {
 
 <#
 .SYNOPSIS
+Writes a machine-readable post-cleanup verification ledger.
+.DESCRIPTION
+Serializes the independently observed protection, privacy-artifact, and adapter
+checks to UTF-8 JSON in the private backup directory. The report contains no
+pre-cleaning inventory beyond missing-item names needed to explain failures.
+.PARAMETER Dest
+Private backup directory that receives the report.
+.PARAMETER Verification
+Post-state verification object returned by Test-NetCleanPostState.
+.PARAMETER DryRun
+Returns the planned path without creating or changing files.
+.OUTPUTS
+System.String
+#>
+function Export-NetCleanVerificationReport {
+    [CmdletBinding()]
+    [OutputType([System.String])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Dest,
+
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Verification,
+
+        [switch]$DryRun
+    )
+
+    $file = Join-Path $Dest ("VerificationReport_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+    if ($DryRun) {
+        return $file
+    }
+
+    New-DirectoryIfNotExist -Path $Dest
+    Set-NetCleanPrivateDirectoryAcl -Path $Dest
+
+    $report = [ordered]@{
+        VerifiedAt = (Get-Date).ToString('s')
+        VerificationMode = $Verification.VerificationMode
+        Passed = [bool]$Verification.Passed
+        ProtectedInventory = [ordered]@{
+            MissingVendors = @($Verification.VendorComparison.Missing)
+            MissingInterfaceGuids = @($Verification.GuidComparison.Missing)
+            MissingServices = @($Verification.ServiceComparison.Missing)
+        }
+        PrivacyArtifacts = [ordered]@{
+            RemainingWiFiProfiles = @($Verification.RemainingWiFiProfiles)
+            RemainingNetworkProfiles = @($Verification.RemainingNetworkProfiles)
+        }
+        AdapterVerification = $Verification.AdapterVerification
+    }
+
+    $json = $report | ConvertTo-Json -Depth 10
+    WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
+    return $file
+}
+
+<#
+.SYNOPSIS
 Performs verification checks after cleaning to assess the state of the system.
 .DESCRIPTION
 Confirms that protected inventory remains intact and that saved Wi-Fi and
@@ -365,6 +963,16 @@ function Invoke-NetCleanPhase4Verify {
     if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message 'Invoke-NetCleanPhase4Verify: starting verification.' }
 
     $verification = Test-NetCleanPostState -Context $Context
+    $verificationReport = $null
+    if (
+        $Context.PSObject.Properties.Name -contains 'BackupPath' -and
+        -not [string]::IsNullOrWhiteSpace($Context.BackupPath)
+    ) {
+        $verificationReport = Export-NetCleanVerificationReport `
+            -Dest $Context.BackupPath `
+            -Verification $verification `
+            -DryRun:($verification.VerificationMode -eq 'Planned')
+    }
 
     $newContext = [pscustomobject]@{}
     foreach ($p in $Context.PSObject.Properties) {
@@ -380,6 +988,7 @@ function Invoke-NetCleanPhase4Verify {
             RemainingWiFiProfiles = $verification.RemainingWiFiProfiles
             RemainingNetworkProfiles = $verification.RemainingNetworkProfiles
             AdapterVerification = $verification.AdapterVerification
+            VerificationReport = $verificationReport
             Summary           = [pscustomobject]@{
                 MissingVendorsCount         = @($verification.VendorComparison.Missing).Count
                 MissingGuidCount            = @($verification.GuidComparison.Missing).Count

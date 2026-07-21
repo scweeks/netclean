@@ -968,6 +968,7 @@ function Clear-NetworkEventLogsSafe {
                     Reason    = 'DryRun'
                     ExitCode  = 0
                     Error     = $null
+                    CompletedAt = $null
                 })
 
             continue
@@ -988,6 +989,7 @@ function Clear-NetworkEventLogsSafe {
                     Reason    = 'WhatIf'
                     ExitCode  = $null
                     Error     = $null
+                    CompletedAt = $null
                 })
 
             continue
@@ -1009,6 +1011,7 @@ function Clear-NetworkEventLogsSafe {
                     Reason    = $(if ($result.Succeeded) { $null } else { 'CommandFailed' })
                     ExitCode  = $result.ExitCode
                     Error     = $result.Error
+                    CompletedAt = $(if ($result.Succeeded) { Get-Date } else { $null })
                 })
 
             if ($canLog) {
@@ -1035,6 +1038,7 @@ function Clear-NetworkEventLogsSafe {
                     Reason    = 'Exception'
                     ExitCode  = -1
                     Error     = $_.Exception.Message
+                    CompletedAt = $null
                 })
         }
     }

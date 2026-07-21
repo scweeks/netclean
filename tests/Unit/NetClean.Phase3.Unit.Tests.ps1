@@ -508,6 +508,7 @@ Describe 'NetClean Phase 3 unit tests' {
                 $result = @(Clear-NetworkEventLogsSafe)
 
                 $result.Count | Should -BeGreaterThan 0
+                @($result | Where-Object { $null -ne $_.CompletedAt }).Count | Should -Be $result.Count
                 Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count
                 Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count -ParameterFilter { -not $IgnoreExitCode }
             }
