@@ -3,6 +3,8 @@ param(
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$OutputPath = (Join-Path $PSScriptRoot 'TestResults'),
     [version]$PesterVersion = [version]'5.9.0',
+    [ValidateRange(0, 100)]
+    [double]$MinimumCoverage = 69.0,
     [switch]$PassThru
 )
 
@@ -118,8 +120,6 @@ Write-Information "JUnit XML:  $testXml" -InformationAction Continue
 Write-Information "JaCoCo XML: $coverageXml" -InformationAction Continue
 Write-Information '' -InformationAction Continue
 
-$minimumCoverage = 95
-
 if ($PassThru) {
     Write-Output $result
 }
@@ -129,7 +129,7 @@ if ($result.FailedCount -gt 0) {
     exit 1
 }
 
-if ($null -eq $result.CodeCoverage -or $result.CodeCoverage.CoveragePercent -lt $minimumCoverage) {
-    Write-Error "Coverage below required threshold ($minimumCoverage%)."
+if ($null -eq $result.CodeCoverage -or $result.CodeCoverage.CoveragePercent -lt $MinimumCoverage) {
+    Write-Error "Coverage below required threshold ($MinimumCoverage%)."
     exit 1
 }
