@@ -181,13 +181,26 @@ unsupported without preventing static Quad9 DNS configuration.
 .PARAMETER ServerAddresses
 Quad9 resolver addresses to configure.
 #>
-function Set-NetCleanQuad9DnsOverHttps {
-    [CmdletBinding()]
+function Set-NetCleanQuad9Doh {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([pscustomobject])]
     param(
         [Parameter(Mandatory = $true)]
         [string[]]$ServerAddresses
     )
+
+    if (-not $PSCmdlet.ShouldProcess(
+            'Windows DNS client',
+            'Configure the Quad9 DNS-over-HTTPS resolver table'
+        )) {
+        return [pscustomobject]@{
+            Supported       = $true
+            ConfiguredCount = 0
+            FailedCount     = 0
+            Reason          = 'WhatIf'
+            Operations      = @()
+        }
+    }
 
     $requiredCommands = @(
         'Get-DnsClientDohServerAddress',
@@ -271,9 +284,21 @@ Sets DisabledComponents to 0x20. IPv6 remains enabled for Windows components
 and IPv6-only connectivity; the preference takes full effect after restart.
 #>
 function Set-NetCleanIPv4Preference {
-    [CmdletBinding()]
+    [CmdletBinding(SupportsShouldProcess = $true)]
     [OutputType([pscustomobject])]
     param()
+
+    if (-not $PSCmdlet.ShouldProcess(
+            'Windows IP stack',
+            'Set DisabledComponents to prefer IPv4 while retaining IPv6'
+        )) {
+        return [pscustomobject]@{
+            Succeeded = $false
+            Skipped   = $true
+            Reason    = 'WhatIf'
+            Error     = $null
+        }
+    }
 
     try {
         Set-ItemProperty `
@@ -420,7 +445,7 @@ function Reset-NetCleanAdapterConfigurationSafe {
                 'Windows IP stack',
                 'Prefer IPv4 over IPv6 while keeping IPv6 enabled'
             )) {
-            $preferenceResult = Set-NetCleanIPv4Preference
+            $preferenceResult = Set-NetCleanIPv4Preference -Confirm:$false
             $preferenceResult | Add-Member -NotePropertyName Skipped -NotePropertyValue $false
         }
         else {
@@ -445,7 +470,9 @@ function Reset-NetCleanAdapterConfigurationSafe {
                 'Windows DNS client',
                 'Configure Quad9 DNS over HTTPS without plaintext fallback'
             )) {
-            $dohResult = Set-NetCleanQuad9DnsOverHttps -ServerAddresses $dnsServers
+            $dohResult = Set-NetCleanQuad9Doh `
+                -ServerAddresses $dnsServers `
+                -Confirm:$false
         }
         else {
             $dohResult = [pscustomobject]@{
@@ -1651,6 +1678,8 @@ function Invoke-NetCleanPhase3Clean {
             Removed    = 0
             Profiles   = @()
             Operations = @()
+            Skipped    = $true
+            Reason     = 'SkippedByOption'
         }
 
         if ($canLog) {

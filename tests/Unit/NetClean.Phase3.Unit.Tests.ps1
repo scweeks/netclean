@@ -772,6 +772,8 @@ Describe 'NetClean Phase 3 unit tests' {
                 $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun -SkipWifi
 
                 $result.Clean.Summary.WiFiProfilesRemoved | Should -Be 0
+                $result.Clean.WiFi.Skipped | Should -BeTrue
+                $result.Clean.WiFi.Reason | Should -Be 'SkippedByOption'
                 Should -Invoke Remove-WiFiProfilesSafe -Times 0
             }
 

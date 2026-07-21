@@ -37,7 +37,6 @@ Describe 'NetClean Phase 4 unit tests' {
             Mock Get-ProtectionInventory { $script:postInventory }
             Mock Get-WiFiProfileName { @() }
             Mock Get-NetworkListProfileName { @() }
-            Mock Export-NetCleanVerificationReport { 'C:\backup\VerificationReport.json' }
             Mock Write-NetCleanLog {}
             Mock Write-Information {}
         }
@@ -603,6 +602,10 @@ Describe 'NetClean Phase 4 unit tests' {
         }
 
         Context 'Invoke-NetCleanPhase4Verify' {
+
+            BeforeEach {
+                Mock Export-NetCleanVerificationReport { 'C:\backup\VerificationReport.json' }
+            }
 
             It 'preserves the incoming context and adds a passing verification summary' {
                 $result = Invoke-NetCleanPhase4Verify -Context $script:context

@@ -857,6 +857,7 @@ function Test-NetCleanPostState {
         $remainingNetworkProfiles = @(Get-NetworkListProfileName)
     }
     $adapterVerification = Test-NetCleanAdapterPostState -Context $Context
+    $cleanupVerification = Test-NetCleanCleanupPostState -Context $Context
 
     return [pscustomobject]@{
         VerificationMode         = if ($isDryRun) { 'Planned' } else { 'Observed' }
@@ -868,13 +869,15 @@ function Test-NetCleanPostState {
         RemainingWiFiProfiles    = $remainingWiFiProfiles
         RemainingNetworkProfiles = $remainingNetworkProfiles
         AdapterVerification      = $adapterVerification
+        CleanupVerification      = $cleanupVerification
         Passed                   = (
             @($vendorComparison.Missing).Count -eq 0 -and
             @($guidComparison.Missing).Count -eq 0 -and
             @($serviceComparison.Missing).Count -eq 0 -and
             $remainingWiFiProfiles.Count -eq 0 -and
             $remainingNetworkProfiles.Count -eq 0 -and
-            $adapterVerification.Passed
+            $adapterVerification.Passed -and
+            $cleanupVerification.Passed
         )
     }
 }
@@ -930,6 +933,7 @@ function Export-NetCleanVerificationReport {
             RemainingNetworkProfiles = @($Verification.RemainingNetworkProfiles)
         }
         AdapterVerification = $Verification.AdapterVerification
+        CleanupVerification = $Verification.CleanupVerification
     }
 
     $json = $report | ConvertTo-Json -Depth 10
@@ -988,6 +992,7 @@ function Invoke-NetCleanPhase4Verify {
             RemainingWiFiProfiles = $verification.RemainingWiFiProfiles
             RemainingNetworkProfiles = $verification.RemainingNetworkProfiles
             AdapterVerification = $verification.AdapterVerification
+            CleanupVerification = $verification.CleanupVerification
             VerificationReport = $verificationReport
             Summary           = [pscustomobject]@{
                 MissingVendorsCount         = @($verification.VendorComparison.Missing).Count
@@ -997,6 +1002,10 @@ function Invoke-NetCleanPhase4Verify {
                 RemainingNetworkProfileCount = @($verification.RemainingNetworkProfiles).Count
                 AdapterCheckFailureCount    = @(
                     $verification.AdapterVerification.Checks |
+                        Where-Object { -not $_.Passed }
+                ).Count
+                CleanupCheckFailureCount    = @(
+                    $verification.CleanupVerification.Checks |
                         Where-Object { -not $_.Passed }
                 ).Count
                 Passed                      = $verification.Passed
@@ -1049,17 +1058,57 @@ function Invoke-NetCleanPhase4Verify {
             }
             Write-NetCleanLog -Level $level -Message $message
         }
+
+        foreach ($check in @($verification.CleanupVerification.Checks)) {
+            $level = if ($check.Passed) { 'INFO' } else { 'WARN' }
+            $applicable = if ($check.PSObject.Properties.Name -contains 'Applicable') {
+                [bool]$check.Applicable
+            }
+            else {
+                $true
+            }
+            $expected = if ($check.PSObject.Properties.Name -contains 'Expected') {
+                @($check.Expected) -join ', '
+            }
+            else {
+                $null
+            }
+            $actual = if ($check.PSObject.Properties.Name -contains 'Actual') {
+                @($check.Actual) -join ', '
+            }
+            else {
+                $null
+            }
+            $errorMessage = if ($check.PSObject.Properties.Name -contains 'Error') {
+                $check.Error
+            }
+            else {
+                $null
+            }
+            $message = 'Verification: {0} Target={1} Applicable={2} Passed={3} Expected={4} Actual={5}' -f `
+                $check.Category,
+                $check.Target,
+                $applicable,
+                $check.Passed,
+                $expected,
+                $actual
+            if ($errorMessage) {
+                $message += " Error=$errorMessage"
+            }
+            Write-NetCleanLog -Level $level -Message $message
+        }
     }
 
     # Console summary for verification
-    Write-Information (("Phase 4 verify: Passed={0} MissingVendors={1} MissingGuids={2} MissingServices={3} RemainingWiFi={4} RemainingNetworkProfiles={5} AdapterCheckFailures={6}" -f `
+    Write-Information (("Phase 4 verify: Passed={0} MissingVendors={1} MissingGuids={2} MissingServices={3} RemainingWiFi={4} RemainingNetworkProfiles={5} AdapterCheckFailures={6} CleanupCheckFailures={7}" -f `
                 $verification.Passed,
                 @($verification.VendorComparison.Missing).Count,
                 @($verification.GuidComparison.Missing).Count,
                 @($verification.ServiceComparison.Missing).Count,
                 @($verification.RemainingWiFiProfiles).Count,
                 @($verification.RemainingNetworkProfiles).Count,
-                @($verification.AdapterVerification.Checks | Where-Object { -not $_.Passed }).Count)) -InformationAction Continue
+                @($verification.AdapterVerification.Checks | Where-Object { -not $_.Passed }).Count,
+                @($verification.CleanupVerification.Checks | Where-Object { -not $_.Passed }).Count)) -InformationAction Continue
 
     return $newContext
 }
