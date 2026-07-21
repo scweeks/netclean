@@ -451,6 +451,7 @@ Describe 'NetClean Phase 2 unit tests' {
                 }
 
                 Mock New-DirectoryIfNotExist {}
+                Mock Set-NetCleanPrivateDirectoryAcl {}
                 Mock Export-ProtectionInventory { 'C:\backup\ProtectionInventory.json' }
                 Mock Export-ProtectionRegistryMap { 'C:\backup\ProtectionRegistryMap.json' }
                 Mock Export-SanitizableNetworkArtifact { 'C:\backup\SanitizableNetworkArtifacts.json' }
@@ -484,6 +485,7 @@ Describe 'NetClean Phase 2 unit tests' {
                 $null = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup'
 
                 Should -Invoke New-DirectoryIfNotExist -Times 1 -ParameterFilter { $Path -eq 'C:\backup' }
+                Should -Invoke Set-NetCleanPrivateDirectoryAcl -Times 1 -ParameterFilter { $Path -eq 'C:\backup' }
             }
 
             It 'handles empty protected registry paths gracefully' {

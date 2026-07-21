@@ -254,6 +254,44 @@ Describe 'NetClean core/shared helper unit tests' {
             }
         }
 
+        Context 'Invoke-InParallel' {
+
+            It 'returns an empty collection for empty input' {
+                $result = @(Invoke-InParallel -ScriptBlock { param($item) $item } -InputObjects @())
+
+                $result.Count | Should -Be 0
+            }
+
+            It 'collects one result for each independent input' {
+                $result = @(
+                    Invoke-InParallel -ScriptBlock {
+                        param($item)
+                        [pscustomobject]@{ Value = $item * 2 }
+                    } -InputObjects @(1, 2, 3) -ThrottleLimit 2
+                )
+
+                @($result.Value | Sort-Object) | Should -Be @(2, 4, 6)
+            }
+
+            It 'isolates a failed worker and returns successful worker results' {
+                $result = @(
+                    Invoke-InParallel -ScriptBlock {
+                        param($item)
+                        if ($item -eq 2) { throw 'worker failed' }
+                        $item
+                    } -InputObjects @(1, 2, 3) -ThrottleLimit 2
+                )
+
+                @($result | Sort-Object) | Should -Be @(1, 3)
+            }
+
+            It 'rejects a non-positive throttle limit' {
+                {
+                    Invoke-InParallel -ScriptBlock { param($item) $item } -InputObjects @(1) -ThrottleLimit 0
+                } | Should -Throw
+            }
+        }
+
         Context 'Test-RegistryPathExist' {
 
             It 'returns true when Test-Path returns true' {
@@ -353,7 +391,46 @@ Describe 'NetClean core/shared helper unit tests' {
             }
         }
 
+        Context 'Set-NetCleanPrivateDirectoryAcl' {
+
+            It 'applies a protected ACL to an existing directory' {
+                Mock Set-Acl {}
+
+                Set-NetCleanPrivateDirectoryAcl -Path $TestDrive
+
+                Should -Invoke Set-Acl -Times 1 -ParameterFilter {
+                    $LiteralPath -eq $TestDrive -and
+                    $AclObject.AreAccessRulesProtected
+                }
+            }
+
+            It 'honors WhatIf without applying an ACL' {
+                Mock Set-Acl {}
+
+                Set-NetCleanPrivateDirectoryAcl -Path $TestDrive -WhatIf
+
+                Should -Invoke Set-Acl -Times 0
+            }
+
+            It 'fails closed when the directory does not exist' {
+                {
+                    Set-NetCleanPrivateDirectoryAcl -Path (Join-Path $TestDrive 'missing')
+                } | Should -Throw
+            }
+        }
+
         Context 'Start-NetCleanLog' {
+
+            It 'secures the directory before creating a log file' {
+                $logDir = Join-Path $TestDrive 'PrivateLogs'
+                Mock Set-NetCleanPrivateDirectoryAcl {}
+
+                Start-NetCleanLog -Directory $logDir
+
+                Should -Invoke Set-NetCleanPrivateDirectoryAcl -Times 1 -ParameterFilter {
+                    $Path -eq $logDir
+                }
+            }
 
             It 'creates a log file in the target directory' {
                 $logDir = Join-Path $TestDrive 'Logs'

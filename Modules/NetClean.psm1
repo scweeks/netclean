@@ -23,8 +23,8 @@ $script:ModuleRoot = Split-Path -Parent $PSCommandPath
 . (Join-Path $script:ModuleRoot 'NetCleanPhase3.ps1')
 . (Join-Path $script:ModuleRoot 'NetCleanPhase4.ps1')
 
-# Invoke a scriptblock over an input list in parallel using Start-Job with simple throttling.
-# Returns an array of results collected from each job's output. This is compatible with Windows PowerShell.
+# Invoke independent work in a bounded runspace pool. Runspaces provide
+# in-process multithreading on both Windows PowerShell 5.1 and PowerShell 7.
 function Invoke-InParallel {
     [CmdletBinding()]
     [OutputType([object[]])]
@@ -33,62 +33,66 @@ function Invoke-InParallel {
         [scriptblock]$ScriptBlock,
 
         [Parameter(Mandatory = $true)]
+        [AllowEmptyCollection()]
         [object[]]$InputObjects,
 
+        [ValidateRange(1, 256)]
         [int]$ThrottleLimit = ([System.Environment]::ProcessorCount)
     )
-    # Prefer PowerShell 7+ runspace parallelism when available for efficiency.
-    if ($PSVersionTable.PSVersion -and $PSVersionTable.PSVersion.Major -ge 7) {
-        try {
-            $ps7Results = @()
-            $InputObjects | ForEach-Object -Parallel {
-                try {
-                    $res = & $using:ScriptBlock $_
-                    if ($res) { $res }
-                }
-                catch { Write-Verbose "Invoke-InParallel (PS7): $($_.Exception.Message)" }
-            } -ThrottleLimit $ThrottleLimit -ErrorAction Stop | ForEach-Object { $ps7Results += $_ }
 
-            return , $ps7Results
-        }
-        catch { Write-Verbose "Invoke-InParallel PS7 fallback: $($_.Exception.Message)" }
+    if ($InputObjects.Count -eq 0) {
+        return @()
     }
 
-    # Fallback: Start-Job batching for Windows PowerShell compatibility
-    $jobs = @()
-    $results = New-Object System.Collections.Generic.List[object]
+    if ($InputObjects.Count -eq 1) {
+        try {
+            return @(& $ScriptBlock $InputObjects[0])
+        }
+        catch {
+            Write-Verbose "Invoke-InParallel worker failed: $($_.Exception.Message)"
+            return @()
+        }
+    }
 
-    foreach ($item in $InputObjects) {
-        while ($jobs.Count -ge $ThrottleLimit) {
-            [void](Wait-Job -Job $jobs -Any -Timeout 1)
-            $finished = $jobs | Where-Object { $_.State -ne 'Running' }
-            foreach ($j in $finished) {
-                try {
-                    $r = Receive-Job -Job $j -ErrorAction SilentlyContinue
-                    if ($r) {
-                        foreach ($itemOut in $r) { $results.Add($itemOut) }
+    $workerCount = [System.Math]::Min($ThrottleLimit, $InputObjects.Count)
+    $runspacePool = [System.Management.Automation.Runspaces.RunspaceFactory]::CreateRunspacePool(1, $workerCount)
+    $workers = [System.Collections.Generic.List[object]]::new()
+    $results = [System.Collections.Generic.List[object]]::new()
+
+    try {
+        $runspacePool.Open()
+
+        foreach ($item in $InputObjects) {
+            $powerShell = [System.Management.Automation.PowerShell]::Create()
+            $powerShell.RunspacePool = $runspacePool
+            [void]$powerShell.AddScript($ScriptBlock.ToString()).AddArgument($item)
+
+            $workers.Add([pscustomobject]@{
+                    PowerShell = $powerShell
+                    AsyncResult = $powerShell.BeginInvoke()
+                })
+        }
+
+        foreach ($worker in $workers) {
+            try {
+                foreach ($outputItem in @($worker.PowerShell.EndInvoke($worker.AsyncResult))) {
+                    if ($null -ne $outputItem) {
+                        $results.Add($outputItem)
                     }
                 }
-                catch { Write-Verbose "Invoke-InParallel (Receive-Job): $($_.Exception.Message)" }
-                Remove-Job -Job $j -Force -ErrorAction SilentlyContinue
             }
-            $jobs = $jobs | Where-Object { $_.State -eq 'Running' }
+            catch {
+                Write-Verbose "Invoke-InParallel worker failed: $($_.Exception.Message)"
+            }
         }
-
-        $jobs += Start-Job -ArgumentList $item -ScriptBlock $ScriptBlock
     }
-
-    # Wait for remaining
-    if ($jobs.Count -gt 0) {
-        Wait-Job -Job $jobs
-        foreach ($j in $jobs) {
-            try {
-                $r = Receive-Job -Job $j -ErrorAction SilentlyContinue
-                if ($r) { foreach ($itemOut in $r) { $results.Add($itemOut) } }
-            }
-            catch { Write-Verbose "Invoke-InParallel (final Receive-Job): $($_.Exception.Message)" }
-            Remove-Job -Job $j -Force -ErrorAction SilentlyContinue
+    finally {
+        foreach ($worker in $workers) {
+            $worker.PowerShell.Dispose()
         }
+
+        $runspacePool.Close()
+        $runspacePool.Dispose()
     }
 
     return $results.ToArray()
@@ -237,11 +241,70 @@ function Get-NetCleanDeviceManagementState {
     }
 }
 
+<#
+.SYNOPSIS
+Returns the active NetClean log-file path.
+.DESCRIPTION
+Returns the path initialized by Start-NetCleanLog, or null when logging has
+not been initialized.
+.OUTPUTS
+System.String
+#>
 function Get-NetCleanLogFile {
     [CmdletBinding()]
     param()
 
     return $script:LogFile
+}
+
+<#
+.SYNOPSIS
+Restricts a NetClean data directory to the current user, Administrators, and SYSTEM.
+.DESCRIPTION
+Replaces inherited access rules so sensitive backups and logs are not readable
+through broad parent-directory permissions.
+.PARAMETER Path
+Existing directory whose access control list will be replaced.
+#>
+function Set-NetCleanPrivateDirectoryAcl {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Container)) {
+        throw "Private data directory does not exist: $Path"
+    }
+
+    $acl = [System.Security.AccessControl.DirectorySecurity]::new()
+    $acl.SetAccessRuleProtection($true, $false)
+
+    $identities = @(
+        [System.Security.Principal.WindowsIdentity]::GetCurrent().User,
+        [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'),
+        [System.Security.Principal.SecurityIdentifier]::new('S-1-5-18')
+    ) | Select-Object -Unique
+
+    $inheritance = (
+        [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+        [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+    )
+
+    foreach ($identity in $identities) {
+        $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+            $identity,
+            [System.Security.AccessControl.FileSystemRights]::FullControl,
+            $inheritance,
+            [System.Security.AccessControl.PropagationFlags]::None,
+            [System.Security.AccessControl.AccessControlType]::Allow
+        )
+        [void]$acl.AddAccessRule($rule)
+    }
+
+    if ($PSCmdlet.ShouldProcess($Path, 'Restrict directory access')) {
+        Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
+    }
 }
 
 <#
@@ -267,6 +330,13 @@ function Start-NetCleanLog {
         if ($PSCmdlet.ShouldProcess($Directory, "Create directory")) {
             New-Item -Path $Directory -ItemType Directory -Force | Out-Null
         }
+    }
+
+    if (Test-Path -LiteralPath $Directory -PathType Container) {
+        Set-NetCleanPrivateDirectoryAcl -Path $Directory
+    }
+    elseif (-not $WhatIfPreference) {
+        throw "Unable to create private log directory: $Directory"
     }
 
     $candidateLogFile = Join-Path $Directory ("NetClean_{0}.log" -f (Get-Date -Format 'yyyy-MM-dd_HH-mm-ss'))
@@ -2034,6 +2104,7 @@ Export-ModuleMember -Function @(
     'Invoke-NetCleanPhase3Clean',
     'Invoke-NetCleanPhase4Verify',
     'Invoke-NetCleanWorkflow',
+    'Get-NetCleanLogFile',
     'Start-NetCleanLog',
     'Write-NetCleanLog'
 ) -Alias @(

@@ -172,6 +172,434 @@ function Remove-WiFiProfilesSafe {
 
 <#
 .SYNOPSIS
+Configures the Quad9 Secure resolver set for DNS over HTTPS.
+.DESCRIPTION
+Adds or updates each Quad9 IPv4 and IPv6 resolver in the Windows encrypted-DNS
+table, enabling automatic DoH upgrade without plaintext DNS fallback. Older
+Windows versions without the required DNS client commands are reported as
+unsupported without preventing static Quad9 DNS configuration.
+.PARAMETER ServerAddresses
+Quad9 resolver addresses to configure.
+#>
+function Set-NetCleanQuad9DnsOverHttps {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$ServerAddresses
+    )
+
+    $requiredCommands = @(
+        'Get-DnsClientDohServerAddress',
+        'Set-DnsClientDohServerAddress',
+        'Add-DnsClientDohServerAddress'
+    )
+
+    foreach ($commandName in $requiredCommands) {
+        if (-not (Get-Command $commandName -ErrorAction SilentlyContinue)) {
+            return [pscustomobject]@{
+                Supported       = $false
+                ConfiguredCount = 0
+                FailedCount     = 0
+                Reason          = 'UnsupportedWindowsVersion'
+                Operations      = @()
+            }
+        }
+    }
+
+    $operations = [System.Collections.Generic.List[object]]::new()
+    $template = 'https://dns.quad9.net/dns-query'
+
+    foreach ($serverAddress in $ServerAddresses) {
+        try {
+            $existing = @(
+                Get-DnsClientDohServerAddress `
+                    -ServerAddress $serverAddress `
+                    -ErrorAction SilentlyContinue
+            )
+
+            if ($existing.Count -gt 0) {
+                Set-DnsClientDohServerAddress `
+                    -ServerAddress $serverAddress `
+                    -DohTemplate $template `
+                    -AutoUpgrade $true `
+                    -AllowFallbackToUdp $false `
+                    -ErrorAction Stop
+                $action = 'Updated'
+            }
+            else {
+                Add-DnsClientDohServerAddress `
+                    -ServerAddress $serverAddress `
+                    -DohTemplate $template `
+                    -AutoUpgrade $true `
+                    -AllowFallbackToUdp $false `
+                    -ErrorAction Stop
+                $action = 'Added'
+            }
+
+            $operations.Add([pscustomobject]@{
+                    ServerAddress = $serverAddress
+                    Succeeded     = $true
+                    Action        = $action
+                    Error         = $null
+                })
+        }
+        catch {
+            $operations.Add([pscustomobject]@{
+                    ServerAddress = $serverAddress
+                    Succeeded     = $false
+                    Action        = 'Failed'
+                    Error         = $_.Exception.Message
+                })
+        }
+    }
+
+    return [pscustomobject]@{
+        Supported       = $true
+        ConfiguredCount = @($operations | Where-Object Succeeded).Count
+        FailedCount     = @($operations | Where-Object { -not $_.Succeeded }).Count
+        Reason          = 'Configured'
+        Operations      = $operations.ToArray()
+    }
+}
+
+<#
+.SYNOPSIS
+Sets the Microsoft-recommended Windows preference for IPv4 over IPv6.
+.DESCRIPTION
+Sets DisabledComponents to 0x20. IPv6 remains enabled for Windows components
+and IPv6-only connectivity; the preference takes full effect after restart.
+#>
+function Set-NetCleanIPv4Preference {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+
+    try {
+        Set-ItemProperty `
+            -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' `
+            -Name 'DisabledComponents' `
+            -Value 32 `
+            -Type DWord `
+            -Force `
+            -ErrorAction Stop
+
+        return [pscustomobject]@{
+            Succeeded = $true
+            Reason    = 'Configured'
+            Error     = $null
+        }
+    }
+    catch {
+        return [pscustomobject]@{
+            Succeeded = $false
+            Reason    = 'Failed'
+            Error     = $_.Exception.Message
+        }
+    }
+}
+
+<#
+.SYNOPSIS
+Resets eligible adapter addressing and DNS for conference preparation.
+.DESCRIPTION
+Plans or applies IPv4 DHCP and Quad9 Secure DNS to visible adapters while
+preserving organization-managed devices and adapter GUIDs associated with
+detected VPN, security, and virtualization products. IPv6 remains enabled;
+Windows is configured to prefer IPv4 after restart.
+.PARAMETER Context
+Detection context containing device-management state and protected adapter GUIDs.
+.PARAMETER Adapters
+Optional adapter inventory. When omitted, visible Windows adapters are enumerated.
+.PARAMETER DryRun
+Returns the planned changes without modifying the computer.
+#>
+function Reset-NetCleanAdapterConfigurationSafe {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Context,
+
+        [Parameter()]
+        [AllowEmptyCollection()]
+        [object[]]$Adapters,
+
+        [switch]$DryRun
+    )
+
+    $dnsServers = @(
+        '9.9.9.9',
+        '149.112.112.112',
+        '2620:fe::fe',
+        '2620:fe::9'
+    )
+
+    if (-not $PSBoundParameters.ContainsKey('Adapters')) {
+        $Adapters = @(Get-NetAdapter -ErrorAction Stop)
+    }
+
+    $isManaged = (
+        $Context.PSObject.Properties.Name -contains 'ManagementState' -and
+        $Context.ManagementState -and
+        $Context.ManagementState.IsManaged
+    )
+
+    $protectedGuids = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase
+    )
+
+    if ($Context.PSObject.Properties.Name -contains 'ProtectedInterfaceGuids') {
+        foreach ($guid in @($Context.ProtectedInterfaceGuids)) {
+            if (-not [string]::IsNullOrWhiteSpace($guid)) {
+                [void]$protectedGuids.Add($guid.Trim('{}'))
+            }
+        }
+    }
+
+    $adapterPlans = [System.Collections.Generic.List[object]]::new()
+    foreach ($adapter in @($Adapters)) {
+        $adapterGuid = if ($adapter.InterfaceGuid) {
+            ([string]$adapter.InterfaceGuid).Trim('{}')
+        }
+        else {
+            $null
+        }
+
+        $skipReason = if ($isManaged) {
+            'ManagedDevice'
+        }
+        elseif ($adapterGuid -and $protectedGuids.Contains($adapterGuid)) {
+            'ProtectedAdapter'
+        }
+        else {
+            $null
+        }
+
+        $adapterPlans.Add([pscustomobject]@{
+                Adapter    = $adapter
+                AdapterGuid = $adapterGuid
+                SkipReason = $skipReason
+            })
+    }
+
+    $eligibleCount = @($adapterPlans | Where-Object { -not $_.SkipReason }).Count
+
+    if ($isManaged) {
+        $preferenceResult = [pscustomobject]@{
+            Succeeded = $true
+            Skipped   = $true
+            Reason    = 'ManagedDevice'
+            Error     = $null
+        }
+        $dohResult = [pscustomobject]@{
+            Supported       = $true
+            ConfiguredCount = 0
+            FailedCount     = 0
+            Reason          = 'ManagedDevice'
+            Operations      = @()
+        }
+    }
+    elseif ($DryRun) {
+        $preferenceResult = [pscustomobject]@{
+            Succeeded = $true
+            Skipped   = $false
+            Reason    = 'DryRun'
+            Error     = $null
+        }
+        $dohResult = [pscustomobject]@{
+            Supported       = $true
+            ConfiguredCount = $dnsServers.Count
+            FailedCount     = 0
+            Reason          = 'DryRun'
+            Operations      = @()
+        }
+    }
+    else {
+        if ($PSCmdlet.ShouldProcess(
+                'Windows IP stack',
+                'Prefer IPv4 over IPv6 while keeping IPv6 enabled'
+            )) {
+            $preferenceResult = Set-NetCleanIPv4Preference
+            $preferenceResult | Add-Member -NotePropertyName Skipped -NotePropertyValue $false
+        }
+        else {
+            $preferenceResult = [pscustomobject]@{
+                Succeeded = $false
+                Skipped   = $true
+                Reason    = 'WhatIf'
+                Error     = $null
+            }
+        }
+
+        if ($eligibleCount -eq 0) {
+            $dohResult = [pscustomobject]@{
+                Supported       = $true
+                ConfiguredCount = 0
+                FailedCount     = 0
+                Reason          = 'NoEligibleAdapters'
+                Operations      = @()
+            }
+        }
+        elseif ($PSCmdlet.ShouldProcess(
+                'Windows DNS client',
+                'Configure Quad9 DNS over HTTPS without plaintext fallback'
+            )) {
+            $dohResult = Set-NetCleanQuad9DnsOverHttps -ServerAddresses $dnsServers
+        }
+        else {
+            $dohResult = [pscustomobject]@{
+                Supported       = $true
+                ConfiguredCount = 0
+                FailedCount     = 0
+                Reason          = 'WhatIf'
+                Operations      = @()
+            }
+        }
+    }
+
+    $operations = [System.Collections.Generic.List[object]]::new()
+
+    foreach ($plan in $adapterPlans) {
+        $adapter = $plan.Adapter
+        $adapterGuid = $plan.AdapterGuid
+        $skipReason = $plan.SkipReason
+
+        if ($skipReason) {
+            $operations.Add([pscustomobject]@{
+                    Name           = $adapter.Name
+                    InterfaceIndex = $adapter.InterfaceIndex
+                    InterfaceGuid  = $adapterGuid
+                    DhcpEnabled    = $false
+                    DnsServers     = @()
+                    Succeeded      = $true
+                    Skipped        = $true
+                    DryRun         = [bool]$DryRun
+                    Reason         = $skipReason
+                    Error          = $null
+                })
+            continue
+        }
+
+        if ($DryRun) {
+            $operations.Add([pscustomobject]@{
+                    Name           = $adapter.Name
+                    InterfaceIndex = $adapter.InterfaceIndex
+                    InterfaceGuid  = $adapterGuid
+                    DhcpEnabled    = $true
+                    DnsServers     = $dnsServers
+                    Succeeded      = $true
+                    Skipped        = $false
+                    DryRun         = $true
+                    Reason         = 'DryRun'
+                    Error          = $null
+                })
+            continue
+        }
+
+        if (-not $PSCmdlet.ShouldProcess(
+                "Network adapter '$($adapter.Name)'",
+                'Enable IPv4 DHCP and configure Quad9 Secure DNS'
+            )) {
+            $operations.Add([pscustomobject]@{
+                    Name           = $adapter.Name
+                    InterfaceIndex = $adapter.InterfaceIndex
+                    InterfaceGuid  = $adapterGuid
+                    DhcpEnabled    = $false
+                    DnsServers     = @()
+                    Succeeded      = $false
+                    Skipped        = $true
+                    DryRun         = $false
+                    Reason         = 'WhatIf'
+                    Error          = $null
+                })
+            continue
+        }
+
+        $dhcpResult = Invoke-ExternalCommandSafe `
+            -Name ("Reset IPv4 address for {0}" -f $adapter.Name) `
+            -FilePath 'netsh.exe' `
+            -ArgumentList @(
+                'interface',
+                'ipv4',
+                'set',
+                'address',
+                ("name={0}" -f $adapter.InterfaceIndex),
+                'source=dhcp'
+            )
+
+        if (-not $dhcpResult.Succeeded) {
+            $operations.Add([pscustomobject]@{
+                    Name           = $adapter.Name
+                    InterfaceIndex = $adapter.InterfaceIndex
+                    InterfaceGuid  = $adapterGuid
+                    DhcpEnabled    = $false
+                    DnsServers     = @()
+                    Succeeded      = $false
+                    Skipped        = $false
+                    DryRun         = $false
+                    Reason         = 'DhcpResetFailed'
+                    Error          = $dhcpResult.Error
+                })
+            continue
+        }
+
+        try {
+            Set-DnsClientServerAddress `
+                -InterfaceIndex $adapter.InterfaceIndex `
+                -ServerAddresses $dnsServers `
+                -ErrorAction Stop
+
+            $operations.Add([pscustomobject]@{
+                    Name           = $adapter.Name
+                    InterfaceIndex = $adapter.InterfaceIndex
+                    InterfaceGuid  = $adapterGuid
+                    DhcpEnabled    = $true
+                    DnsServers     = $dnsServers
+                    Succeeded      = $true
+                    Skipped        = $false
+                    DryRun         = $false
+                    Reason         = 'Configured'
+                    Error          = $null
+                })
+        }
+        catch {
+            $operations.Add([pscustomobject]@{
+                    Name           = $adapter.Name
+                    InterfaceIndex = $adapter.InterfaceIndex
+                    InterfaceGuid  = $adapterGuid
+                    DhcpEnabled    = $true
+                    DnsServers     = @()
+                    Succeeded      = $false
+                    Skipped        = $false
+                    DryRun         = $false
+                    Reason         = 'DnsConfigurationFailed'
+                    Error          = $_.Exception.Message
+                })
+        }
+    }
+
+    return [pscustomobject]@{
+        Provider        = 'Quad9 Secure'
+        DnsServers      = $dnsServers
+        PreferIPv4      = -not [bool]$isManaged
+        IPv4Preference  = $preferenceResult
+        DnsOverHttps    = $dohResult
+        RequiresRestart = (-not $isManaged -and -not $preferenceResult.Skipped)
+        ConfiguredCount = @($operations | Where-Object { $_.Succeeded -and -not $_.Skipped }).Count
+        SkippedCount    = @($operations | Where-Object Skipped).Count
+        FailedCount     = @($operations | Where-Object { -not $_.Succeeded }).Count
+        Succeeded       = (
+            @($operations | Where-Object { -not $_.Succeeded -and -not $_.Skipped }).Count -eq 0 -and
+            $preferenceResult.Succeeded -and
+            $dohResult.FailedCount -eq 0
+        )
+        Operations      = $operations.ToArray()
+    }
+}
+
+<#
+.SYNOPSIS
 Clears the DNS resolver cache (supports -WhatIf).
 .DESCRIPTION
 Invokes the platform command to flush the DNS resolver cache. Honors `-DryRun`, `-WhatIf` and `-Confirm`.
@@ -1155,7 +1583,7 @@ function Invoke-NetworkPerformanceTune {
 .SYNOPSIS
 Performs cleaning operations to remove network privacy artifacts and reset network state.
 .DESCRIPTION
-Based on the provided context and mode, executes cleaning operations such as removing Wi-Fi profiles, flushing DNS cache, clearing ARP cache, removing registry artifacts, and optionally performing advanced repairs and performance tuning. Each operation supports `-DryRun` to simulate actions without making changes. Returns an updated context object containing details of the operations and their results.
+Based on the provided context and mode, executes cleaning operations such as removing Wi-Fi profiles, resetting eligible adapters to IPv4 DHCP and Quad9 Secure DNS, flushing DNS and ARP caches, removing registry artifacts, and optionally performing advanced repairs and performance tuning. Each operation supports `-DryRun` to simulate actions without making changes. Returns an updated context object containing details of the operations and their results.
 .PARAMETER Context
 The context object produced during the detect/protect phases, containing inventory and protection information.
 .PARAMETER Mode
@@ -1176,7 +1604,7 @@ Specifies the validated performance profile used when Mode is PerformanceTune.
 .EXAMPLE
 Invoke-NetCleanPhase3Clean -Context $ctx -Mode 'SafeConferencePrep' -DryRun
 .OUTPUTS
-An updated context object containing the results of Wi-Fi removal, cache clearing, registry artifact removal, event-log clearing, user artifact clearing, and any selected repair or performance-tuning operations.
+An updated context object containing adapter configuration, Wi-Fi removal, cache clearing, registry artifact removal, event-log clearing, user artifact clearing, and any selected repair or performance-tuning operations.
 .NOTES
 - Ensure that the context object provided contains the necessary inventory and protection information for accurate cleaning operations.
 #>
@@ -1277,6 +1705,11 @@ function Invoke-NetCleanPhase3Clean {
         $userResults = @(Clear-UserNetworkArtifactsSafe -DryRun:$DryRun)
     }
 
+    $adapterResult = Reset-NetCleanAdapterConfigurationSafe `
+        -Context $Context `
+        -DryRun:$DryRun `
+        -Confirm:$false
+
     $advancedRepair = @()
     if ($Mode -eq 'AdvancedRepair') {
         $advancedRepair = @(Invoke-AdvancedNetworkRepair -DryRun:$DryRun)
@@ -1297,6 +1730,7 @@ function Invoke-NetCleanPhase3Clean {
             WiFi              = $wifiResult
             Dns               = $dnsResult
             Arp               = $arpResult
+            AdapterConfiguration = $adapterResult
             RegistryArtifacts = $artifacts
             Nla               = @($nlaResults)
             EventLogs         = @($logResults)
@@ -1308,6 +1742,11 @@ function Invoke-NetCleanPhase3Clean {
                 RegistryArtifactsRemoved = $artifacts.RemovedCount
                 EventLogsTouched         = @($logResults).Count
                 UserArtifactsTouched     = @($userResults | Where-Object { $_.Removed }).Count
+                AdaptersConfigured       = $adapterResult.ConfiguredCount
+                AdaptersSkipped          = $adapterResult.SkippedCount
+                AdapterFailures          = $adapterResult.FailedCount
+                PreferIPv4               = $adapterResult.PreferIPv4
+                AdapterRestartRequired   = $adapterResult.RequiresRestart
                 AdvancedRepairActions    = @($advancedRepair).Count
                 PerformanceTuningActions = @($tuningResults).Count
             }
@@ -1315,8 +1754,10 @@ function Invoke-NetCleanPhase3Clean {
 
     if ($canLog) {
         if ($DryRun) {
-            Write-NetCleanLog -Level INFO -Message ("Preview summary: WiFiWouldRemove={0} RegistryWouldRemove={1} EventLogsTouched={2} UserArtifactsTouched={3} AdvancedRepairActions={4} PerformanceTuningActions={5}" -f `
+            Write-NetCleanLog -Level INFO -Message ("Preview summary: WiFiWouldRemove={0} AdaptersWouldConfigure={1} AdapterFailures={2} RegistryWouldRemove={3} EventLogsTouched={4} UserArtifactsTouched={5} AdvancedRepairActions={6} PerformanceTuningActions={7}" -f `
                     $wifiResult.Removed,
+                $adapterResult.ConfiguredCount,
+                $adapterResult.FailedCount,
                 $artifacts.RemovedCount,
                 @($logResults).Count,
                 @($userResults | Where-Object { $_.Removed }).Count,
@@ -1326,8 +1767,10 @@ function Invoke-NetCleanPhase3Clean {
             Write-NetCleanLog -Level INFO -Message 'Preview complete. No changes were made.'
         }
         else {
-            Write-NetCleanLog -Level INFO -Message ("Phase 3 clean complete. WiFiRemoved={0} RegistryRemoved={1} EventLogsTouched={2} UserArtifactsTouched={3} AdvancedRepairActions={4} PerformanceTuningActions={5}" -f `
+            Write-NetCleanLog -Level INFO -Message ("Phase 3 clean complete. WiFiRemoved={0} AdaptersConfigured={1} AdapterFailures={2} RegistryRemoved={3} EventLogsTouched={4} UserArtifactsTouched={5} AdvancedRepairActions={6} PerformanceTuningActions={7}" -f `
                     $wifiResult.Removed,
+                $adapterResult.ConfiguredCount,
+                $adapterResult.FailedCount,
                 $artifacts.RemovedCount,
                 @($logResults).Count,
                 @($userResults | Where-Object { $_.Removed }).Count,
@@ -1375,6 +1818,19 @@ function Invoke-NetCleanPhase3Clean {
         foreach ($u in @($userResults)) {
             $userStatus = if ($u.Succeeded) { 'OK' } else { "ERR: $($u.Reason)" }
             Write-NetCleanLog -Level INFO -Message ("User artifact: {0} => {1}" -f $u.Path, $userStatus)
+        }
+
+        foreach ($adapterOperation in @($adapterResult.Operations)) {
+            $adapterStatus = if ($adapterOperation.Skipped) {
+                "Skipped: $($adapterOperation.Reason)"
+            }
+            elseif ($adapterOperation.Succeeded) {
+                'IPv4 DHCP and Quad9 DNS configured'
+            }
+            else {
+                "Failed: $($adapterOperation.Error)"
+            }
+            Write-NetCleanLog -Level INFO -Message ("Adapter configuration: {0} => {1}" -f $adapterOperation.Name, $adapterStatus)
         }
 
         # Advanced repair and tuning actions

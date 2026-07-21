@@ -667,6 +667,7 @@ function Invoke-NetCleanPhase2Protect {
 
     if (-not $DryRun) {
         New-DirectoryIfNotExist -Path $BackupPath
+        Set-NetCleanPrivateDirectoryAcl -Path $BackupPath
     }
 
     $inventory = @($Context.Inventory)

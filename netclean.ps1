@@ -413,6 +413,16 @@ function Show-NetCleanSummary {
     Write-Information '----------------' -InformationAction Continue
     Write-Information "Mode: $SelectedMode" -InformationAction Continue
 
+    if ($Result.PSObject.Properties.Name -contains 'ManagementState') {
+        Write-Information "Device management: $($Result.ManagementState.JoinType)" -InformationAction Continue
+        if ($Result.ManagementState.IsManaged) {
+            Write-Information 'Organization-managed network configuration will be preserved.' -InformationAction Continue
+        }
+        else {
+            Write-Information 'No organization management was detected.' -InformationAction Continue
+        }
+    }
+
     if ($Result.PSObject.Properties.Name -contains 'Summary') {
         Write-Information '' -InformationAction Continue
         Write-Information 'Phase 1 - Detect' -InformationAction Continue
@@ -437,6 +447,22 @@ function Show-NetCleanSummary {
         Write-Information "  Registry artifacts removed: $($Result.Clean.Summary.RegistryArtifactsRemoved)" -InformationAction Continue
         Write-Information "  Event logs touched: $($Result.Clean.Summary.EventLogsTouched)" -InformationAction Continue
         Write-Information "  User artifacts touched: $($Result.Clean.Summary.UserArtifactsTouched)" -InformationAction Continue
+        if ($Result.Clean.Summary.PSObject.Properties.Name -contains 'AdaptersConfigured') {
+            Write-Information "  Adapters reset to IPv4 DHCP: $($Result.Clean.Summary.AdaptersConfigured)" -InformationAction Continue
+            Write-Information "  Adapters preserved: $($Result.Clean.Summary.AdaptersSkipped)" -InformationAction Continue
+            Write-Information "  Adapter reset failures: $($Result.Clean.Summary.AdapterFailures)" -InformationAction Continue
+        }
+        if ($Result.Clean.PSObject.Properties.Name -contains 'AdapterConfiguration') {
+            $adapterConfiguration = $Result.Clean.AdapterConfiguration
+            Write-Information "  DNS provider: $($adapterConfiguration.Provider)" -InformationAction Continue
+            Write-Information "  DNS servers: $(@($adapterConfiguration.DnsServers) -join ', ')" -InformationAction Continue
+        }
+        if (
+            $Result.Clean.Summary.PSObject.Properties.Name -contains 'PreferIPv4' -and
+            $Result.Clean.Summary.PreferIPv4
+        ) {
+            Write-Information '  IPv6 remains enabled; IPv4 will be preferred after restart.' -InformationAction Continue
+        }
         Write-Information "  Advanced repair actions: $($Result.Clean.Summary.AdvancedRepairActions)" -InformationAction Continue
         Write-Information "  Performance tuning actions: $($Result.Clean.Summary.PerformanceTuningActions)" -InformationAction Continue
     }
@@ -560,6 +586,17 @@ function Show-PreviewSummary {
     Write-Information '' -InformationAction Continue
     Write-Information 'Preview Summary' -InformationAction Continue
     Write-Information '---------------' -InformationAction Continue
+
+    if ($Result.PSObject.Properties.Name -contains 'ManagementState') {
+        Write-Information "Device management: $($Result.ManagementState.JoinType)" -InformationAction Continue
+        if ($Result.ManagementState.IsManaged) {
+            Write-Information 'Organization-managed network configuration will be preserved.' -InformationAction Continue
+        }
+        else {
+            Write-Information 'No organization management was detected.' -InformationAction Continue
+        }
+    }
+
     Write-Information "Protected vendors detected: $($Result.Summary.ProtectedVendorsCount)" -InformationAction Continue
     Write-Information "Protected interface GUIDs: $($Result.Summary.ProtectedInterfaceGuidCount)" -InformationAction Continue
     Write-Information "Candidate artifacts: $($Result.Summary.CandidateArtifactCount)" -InformationAction Continue

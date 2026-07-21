@@ -213,6 +213,73 @@ Describe 'NetClean launcher functional tests' {
 
     Context 'Console output behavior' {
 
+        It 'explains when organization-managed network configuration is preserved' {
+            $script:messages = [System.Collections.Generic.List[string]]::new()
+            Mock Write-Information {
+                if ($null -ne $MessageData) {
+                    [void]$script:messages.Add([string]$MessageData)
+                }
+            }
+            Mock Get-NetCleanLogFile { $null }
+
+            Show-NetCleanSummary -SelectedMode SafeConferencePrep -Result ([pscustomobject]@{
+                ManagementState = [pscustomobject]@{
+                    IsManaged = $true
+                    JoinType  = 'MicrosoftEntraJoined'
+                }
+            })
+
+            $script:messages | Should -Contain 'Device management: MicrosoftEntraJoined'
+            $script:messages | Should -Contain 'Organization-managed network configuration will be preserved.'
+        }
+
+        It 'explains adapter reset, Quad9 DNS, and IPv4 preference results' {
+            $script:messages = [System.Collections.Generic.List[string]]::new()
+            Mock Write-Information {
+                if ($null -ne $MessageData) {
+                    [void]$script:messages.Add([string]$MessageData)
+                }
+            }
+            Mock Get-NetCleanLogFile { $null }
+
+            Show-NetCleanSummary -SelectedMode SafeConferencePrep -Result ([pscustomobject]@{
+                Clean = [pscustomobject]@{
+                    Summary = [pscustomobject]@{
+                        WiFiProfilesRemoved      = 0
+                        RegistryArtifactsRemoved = 0
+                        EventLogsTouched         = 0
+                        UserArtifactsTouched     = 0
+                        AdaptersConfigured       = 2
+                        AdaptersSkipped          = 1
+                        AdapterFailures          = 0
+                        PreferIPv4               = $true
+                        AdapterRestartRequired   = $true
+                        AdvancedRepairActions    = 0
+                        PerformanceTuningActions = 0
+                    }
+                    AdapterConfiguration = [pscustomobject]@{
+                        Provider = 'Quad9 Secure'
+                        DnsServers = @(
+                            '9.9.9.9',
+                            '149.112.112.112',
+                            '2620:fe::fe',
+                            '2620:fe::9'
+                        )
+                    }
+                    WiFi             = $null
+                    RegistryArtifacts = $null
+                    EventLogs         = @()
+                }
+            })
+
+            $script:messages | Should -Contain '  Adapters reset to IPv4 DHCP: 2'
+            $script:messages | Should -Contain '  Adapters preserved: 1'
+            $script:messages | Should -Contain '  Adapter reset failures: 0'
+            $script:messages | Should -Contain '  DNS provider: Quad9 Secure'
+            $script:messages | Should -Contain '  DNS servers: 9.9.9.9, 149.112.112.112, 2620:fe::fe, 2620:fe::9'
+            $script:messages | Should -Contain '  IPv6 remains enabled; IPv4 will be preferred after restart.'
+        }
+
         It 'prints verification success message when workflow passes' {
 
             Mock Invoke-NetCleanWorkflow {

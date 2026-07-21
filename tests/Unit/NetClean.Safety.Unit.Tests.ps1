@@ -68,6 +68,7 @@ Describe 'NetClean safety regression tests' {
 
             BeforeEach {
                 Mock New-DirectoryIfNotExist {}
+                Mock Set-NetCleanPrivateDirectoryAcl {}
                 Mock Invoke-RegExport { $FilePath }
                 Mock Invoke-ExternalCommandSafe {
                     [pscustomobject]@{
@@ -113,6 +114,7 @@ Describe 'NetClean safety regression tests' {
 
                 $result.Phase | Should -Be 'Protect'
                 Should -Invoke New-DirectoryIfNotExist -Times 0
+                Should -Invoke Set-NetCleanPrivateDirectoryAcl -Times 0
             }
         }
     }

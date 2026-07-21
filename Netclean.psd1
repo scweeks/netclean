@@ -14,6 +14,7 @@
         'Invoke-NetCleanPhase3Clean',
         'Invoke-NetCleanPhase4Verify',
         'Invoke-NetCleanWorkflow',
+        'Get-NetCleanLogFile',
         'Start-NetCleanLog',
         'Write-NetCleanLog'
     )

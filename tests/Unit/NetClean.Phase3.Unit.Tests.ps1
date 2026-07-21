@@ -100,6 +100,197 @@ Describe 'NetClean Phase 3 unit tests' {
             }
         }
 
+        Context 'Reset-NetCleanAdapterConfigurationSafe' {
+
+            BeforeEach {
+                $script:Adapters = @(
+                    [pscustomobject]@{
+                        Name           = 'Wi-Fi'
+                        InterfaceIndex = 12
+                        InterfaceGuid  = '{11111111-1111-1111-1111-111111111111}'
+                    }
+                    [pscustomobject]@{
+                        Name           = 'Protected VPN'
+                        InterfaceIndex = 13
+                        InterfaceGuid  = '{22222222-2222-2222-2222-222222222222}'
+                    }
+                )
+
+                $script:AdapterContext = [pscustomobject]@{
+                    ManagementState = [pscustomobject]@{ IsManaged = $false }
+                    ProtectedInterfaceGuids = @('22222222-2222-2222-2222-222222222222')
+                }
+            }
+
+            It 'plans IPv4 DHCP and Quad9 DNS only for unmanaged unprotected adapters' {
+                $result = Reset-NetCleanAdapterConfigurationSafe `
+                    -Context $script:AdapterContext `
+                    -Adapters $script:Adapters `
+                    -DryRun
+
+                $result.Provider | Should -Be 'Quad9 Secure'
+                @($result.DnsServers) | Should -Be @(
+                    '9.9.9.9',
+                    '149.112.112.112',
+                    '2620:fe::fe',
+                    '2620:fe::9'
+                )
+                $result.PreferIPv4 | Should -BeTrue
+                $result.ConfiguredCount | Should -Be 1
+                $result.SkippedCount | Should -Be 1
+
+                $wifi = $result.Operations | Where-Object Name -eq 'Wi-Fi'
+                $wifi.DhcpEnabled | Should -BeTrue
+                @($wifi.DnsServers) | Should -Be @(
+                    '9.9.9.9',
+                    '149.112.112.112',
+                    '2620:fe::fe',
+                    '2620:fe::9'
+                )
+                $wifi.Reason | Should -Be 'DryRun'
+
+                $vpn = $result.Operations | Where-Object Name -eq 'Protected VPN'
+                $vpn.Skipped | Should -BeTrue
+                $vpn.Reason | Should -Be 'ProtectedAdapter'
+            }
+
+            It 'preserves every adapter on an organization-managed device' {
+                $script:AdapterContext.ManagementState.IsManaged = $true
+
+                $result = Reset-NetCleanAdapterConfigurationSafe `
+                    -Context $script:AdapterContext `
+                    -Adapters $script:Adapters `
+                    -DryRun
+
+                $result.ConfiguredCount | Should -Be 0
+                $result.SkippedCount | Should -Be 2
+                @($result.Operations | Where-Object Reason -eq 'ManagedDevice').Count | Should -Be 2
+            }
+
+            It 'applies DHCP, Quad9 DNS, encrypted DNS, and the IPv4 preference' {
+                Mock Invoke-ExternalCommandSafe {
+                    [pscustomobject]@{
+                        Name      = $Name
+                        ExitCode  = 0
+                        Succeeded = $true
+                        Error     = $null
+                    }
+                }
+                Mock Set-DnsClientServerAddress {}
+                Mock Get-DnsClientDohServerAddress {
+                    [pscustomobject]@{ ServerAddress = $ServerAddress }
+                }
+                Mock Set-DnsClientDohServerAddress {}
+                Mock Add-DnsClientDohServerAddress {}
+                Mock Set-ItemProperty {}
+
+                $result = Reset-NetCleanAdapterConfigurationSafe `
+                    -Context $script:AdapterContext `
+                    -Adapters @($script:Adapters[0]) `
+                    -Confirm:$false
+
+                $result.ConfiguredCount | Should -Be 1
+                $result.FailedCount | Should -Be 0
+                $result.DnsOverHttps.ConfiguredCount | Should -Be 4
+
+                Should -Invoke Invoke-ExternalCommandSafe -Times 1 -ParameterFilter {
+                    $FilePath -eq 'netsh.exe' -and
+                    $ArgumentList -contains 'ipv4' -and
+                    $ArgumentList -contains 'name=12' -and
+                    $ArgumentList -contains 'source=dhcp'
+                }
+                Should -Invoke Set-DnsClientServerAddress -Times 1 -ParameterFilter {
+                    $InterfaceIndex -eq 12 -and
+                    @($ServerAddresses).Count -eq 4 -and
+                    $ServerAddresses -contains '9.9.9.9' -and
+                    $ServerAddresses -contains '2620:fe::fe'
+                }
+                Should -Invoke Set-DnsClientDohServerAddress -Times 4 -ParameterFilter {
+                    $DohTemplate -eq 'https://dns.quad9.net/dns-query' -and
+                    $AutoUpgrade -eq $true -and
+                    $AllowFallbackToUdp -eq $false
+                }
+                Should -Invoke Add-DnsClientDohServerAddress -Times 0
+                Should -Invoke Set-ItemProperty -Times 1 -ParameterFilter {
+                    $Name -eq 'DisabledComponents' -and
+                    $Value -eq 32 -and
+                    $Type -eq 'DWord'
+                }
+            }
+
+            It 'adds Quad9 to the encrypted DNS table when entries are absent' {
+                Mock Invoke-ExternalCommandSafe {
+                    [pscustomobject]@{ ExitCode = 0; Succeeded = $true; Error = $null }
+                }
+                Mock Set-DnsClientServerAddress {}
+                Mock Get-DnsClientDohServerAddress { @() }
+                Mock Set-DnsClientDohServerAddress {}
+                Mock Add-DnsClientDohServerAddress {}
+                Mock Set-ItemProperty {}
+
+                $result = Reset-NetCleanAdapterConfigurationSafe `
+                    -Context $script:AdapterContext `
+                    -Adapters @($script:Adapters[0]) `
+                    -Confirm:$false
+
+                $result.DnsOverHttps.ConfiguredCount | Should -Be 4
+                Should -Invoke Add-DnsClientDohServerAddress -Times 4 -ParameterFilter {
+                    $DohTemplate -eq 'https://dns.quad9.net/dns-query' -and
+                    $AutoUpgrade -eq $true -and
+                    $AllowFallbackToUdp -eq $false
+                }
+                Should -Invoke Set-DnsClientDohServerAddress -Times 0
+            }
+
+            It 'reports a failed DHCP reset and does not apply DNS to that adapter' {
+                Mock Invoke-ExternalCommandSafe {
+                    [pscustomobject]@{
+                        ExitCode  = 1
+                        Succeeded = $false
+                        Error     = 'DHCP reset failed'
+                    }
+                }
+                Mock Set-DnsClientServerAddress {}
+                Mock Get-DnsClientDohServerAddress { @() }
+                Mock Set-DnsClientDohServerAddress {}
+                Mock Add-DnsClientDohServerAddress {}
+                Mock Set-ItemProperty {}
+
+                $result = Reset-NetCleanAdapterConfigurationSafe `
+                    -Context $script:AdapterContext `
+                    -Adapters @($script:Adapters[0]) `
+                    -Confirm:$false
+
+                $result.ConfiguredCount | Should -Be 0
+                $result.FailedCount | Should -Be 1
+                $result.Operations[0].Succeeded | Should -BeFalse
+                $result.Operations[0].Error | Should -Be 'DHCP reset failed'
+                Should -Invoke Set-DnsClientServerAddress -Times 0
+            }
+
+            It 'honors WhatIf without changing adapter, DNS, or preference state' {
+                Mock Invoke-ExternalCommandSafe {}
+                Mock Set-DnsClientServerAddress {}
+                Mock Get-DnsClientDohServerAddress {}
+                Mock Set-DnsClientDohServerAddress {}
+                Mock Add-DnsClientDohServerAddress {}
+                Mock Set-ItemProperty {}
+
+                $result = Reset-NetCleanAdapterConfigurationSafe `
+                    -Context $script:AdapterContext `
+                    -Adapters @($script:Adapters[0]) `
+                    -WhatIf
+
+                $result.ConfiguredCount | Should -Be 0
+                $result.Operations[0].Reason | Should -Be 'WhatIf'
+                Should -Invoke Invoke-ExternalCommandSafe -Times 0
+                Should -Invoke Set-DnsClientServerAddress -Times 0
+                Should -Invoke Set-DnsClientDohServerAddress -Times 0
+                Should -Invoke Add-DnsClientDohServerAddress -Times 0
+                Should -Invoke Set-ItemProperty -Times 0
+            }
+        }
+
         Context 'Clear-DnsCacheSafe' {
 
             It 'returns a dry-run result when DryRun is specified' {
@@ -497,6 +688,25 @@ Describe 'NetClean Phase 3 unit tests' {
                     }
                 }
 
+                Mock Reset-NetCleanAdapterConfigurationSafe {
+                    [pscustomobject]@{
+                        Provider        = 'Quad9 Secure'
+                        DnsServers      = @(
+                            '9.9.9.9',
+                            '149.112.112.112',
+                            '2620:fe::fe',
+                            '2620:fe::9'
+                        )
+                        PreferIPv4      = $true
+                        RequiresRestart = $true
+                        ConfiguredCount = 1
+                        SkippedCount    = 0
+                        FailedCount     = 0
+                        Succeeded       = $true
+                        Operations      = @()
+                    }
+                }
+
                 Mock Remove-NetworkPrivacyArtifactsSafe {
                     [pscustomobject]@{
                         TotalCandidates = 1
@@ -533,6 +743,19 @@ Describe 'NetClean Phase 3 unit tests' {
                 $result.Clean.Summary.RegistryArtifactsRemoved | Should -Be 1
                 $result.Clean.Summary.AdvancedRepairActions | Should -Be 0
                 $result.Clean.Summary.PerformanceTuningActions | Should -Be 0
+            }
+
+            It 'resets eligible adapter state and propagates dry-run behavior' {
+                $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun
+
+                $result.Clean.AdapterConfiguration.Provider | Should -Be 'Quad9 Secure'
+                $result.Clean.Summary.AdaptersConfigured | Should -Be 1
+                $result.Clean.Summary.AdaptersSkipped | Should -Be 0
+                $result.Clean.Summary.AdapterFailures | Should -Be 0
+                $result.Clean.Summary.PreferIPv4 | Should -BeTrue
+                Should -Invoke Reset-NetCleanAdapterConfigurationSafe -Times 1 -ParameterFilter {
+                    $Context -eq $script:Context -and $DryRun
+                }
             }
 
             It 'preserves NLA connectivity-probe configuration during privacy cleanup' {
