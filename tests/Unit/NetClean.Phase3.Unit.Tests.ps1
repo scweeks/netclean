@@ -749,6 +749,7 @@ Describe 'NetClean Phase 3 unit tests' {
                 $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun
 
                 $result.Clean.AdapterConfiguration.Provider | Should -Be 'Quad9 Secure'
+                $result.Clean.DryRun | Should -BeTrue
                 $result.Clean.Summary.AdaptersConfigured | Should -Be 1
                 $result.Clean.Summary.AdaptersSkipped | Should -Be 0
                 $result.Clean.Summary.AdapterFailures | Should -Be 0

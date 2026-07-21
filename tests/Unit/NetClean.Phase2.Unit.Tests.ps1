@@ -402,6 +402,74 @@ Describe 'NetClean Phase 2 unit tests' {
             }
         }
 
+        Context 'Export-NetCleanAdapterConfiguration' {
+
+            It 'returns the planned adapter snapshot path in dry-run mode' {
+                $result = Export-NetCleanAdapterConfiguration -Dest 'C:\backup' -DryRun
+
+                $result | Should -Match 'AdapterConfiguration'
+            }
+
+            It 'writes compact addressing, route, DNS, and IPv6 preference state' {
+                Mock Get-NetAdapter {
+                    [pscustomobject]@{
+                        Name                 = 'Wi-Fi'
+                        InterfaceDescription = 'Test adapter'
+                        InterfaceIndex       = 12
+                        InterfaceGuid        = '{11111111-1111-1111-1111-111111111111}'
+                        Status               = 'Up'
+                        MacAddress           = '00-11-22-33-44-55'
+                    }
+                }
+                Mock Get-NetIPInterface {
+                    [pscustomobject]@{
+                        InterfaceIndex = 12
+                        AddressFamily  = 'IPv4'
+                        Dhcp           = 'Disabled'
+                    }
+                }
+                Mock Get-NetIPAddress {
+                    [pscustomobject]@{
+                        InterfaceIndex = 12
+                        IPAddress      = '192.0.2.10'
+                        PrefixLength   = 24
+                        PrefixOrigin   = 'Manual'
+                        SuffixOrigin   = 'Manual'
+                    }
+                }
+                Mock Get-NetRoute {
+                    [pscustomobject]@{
+                        InterfaceIndex    = 12
+                        DestinationPrefix = '0.0.0.0/0'
+                        NextHop           = '192.0.2.1'
+                        RouteMetric       = 10
+                        Protocol          = 'NetMgmt'
+                    }
+                }
+                Mock Get-DnsClientServerAddress {
+                    [pscustomobject]@{
+                        InterfaceIndex = 12
+                        AddressFamily  = 'IPv4'
+                        ServerAddresses = @('192.0.2.53')
+                    }
+                }
+                Mock Get-ItemProperty {
+                    [pscustomobject]@{ DisabledComponents = 0 }
+                }
+                Mock WriteAllText {}
+
+                $result = Export-NetCleanAdapterConfiguration -Dest $TestDrive
+
+                Should -Invoke WriteAllText -Times 1 -Exactly -ParameterFilter {
+                    $Path -eq $result -and
+                    $Contents -match '192.0.2.10' -and
+                    $Contents -match '192.0.2.53' -and
+                    $Contents -match 'DisabledComponents' -and
+                    $Encoding.WebName -eq 'utf-8'
+                }
+            }
+        }
+
         Context 'Export-NetCleanManifest' {
 
             It 'returns expected output path in dry-run mode' {
@@ -458,6 +526,7 @@ Describe 'NetClean Phase 2 unit tests' {
                 Mock Export-NetworkList { 'C:\backup\NetworkList.reg' }
                 Mock Export-WiFiProfile { @('C:\backup\WiFiProfiles.txt') }
                 Mock Export-FirewallPolicy { 'C:\backup\FirewallPolicy.wfw' }
+                Mock Export-NetCleanAdapterConfiguration { 'C:\backup\AdapterConfiguration.json' }
                 Mock Export-ProtectedRegistryKey { @('C:\backup\CrowdStrike.reg') }
                 Mock Export-NetCleanManifest { 'C:\backup\Manifest.json' }
             }
@@ -469,7 +538,9 @@ Describe 'NetClean Phase 2 unit tests' {
                 $result.BackupPath | Should -Be 'C:\backup'
                 $result.Protect.Manifest.NetworkListBackup | Should -Be 'C:\backup\NetworkList.reg'
                 $result.Protect.Manifest.FirewallPolicyBackup | Should -Be 'C:\backup\FirewallPolicy.wfw'
+                $result.Protect.Manifest.AdapterConfigurationJson | Should -Be 'C:\backup\AdapterConfiguration.json'
                 $result.Protect.Summary.ProtectedRegistryPathCount | Should -Be 1
+                $result.Protect.Summary.AdapterConfigurationBackupCount | Should -Be 1
                 $result.Protect.Summary.WiFiBackupCount | Should -Be 1
                 $result.Protect.Summary.ProtectedRegistryBackupCount | Should -Be 1
             }

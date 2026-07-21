@@ -1727,6 +1727,7 @@ function Invoke-NetCleanPhase3Clean {
     Add-Member -InputObject $newContext -NotePropertyName Phase -NotePropertyValue 'Clean' -Force
     Add-Member -InputObject $newContext -NotePropertyName Clean -NotePropertyValue ([pscustomobject]@{
             Mode              = $Mode
+            DryRun            = [bool]$DryRun
             WiFi              = $wifiResult
             Dns               = $dnsResult
             Arp               = $arpResult

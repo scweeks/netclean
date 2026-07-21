@@ -572,6 +572,135 @@ function Export-SanitizableNetworkArtifact {
 
 <#
 .SYNOPSIS
+Exports the network-adapter configuration that will be reset.
+.DESCRIPTION
+Writes a compact UTF-8 JSON snapshot of visible adapters, IPv4 DHCP state,
+IPv4 addresses and routes, IPv4/IPv6 DNS servers, and the Windows IPv6
+DisabledComponents value. The snapshot is informational and is not restored
+automatically because conference preparation intentionally returns unmanaged
+adapters to DHCP and Quad9 Secure DNS.
+.PARAMETER Dest
+Private backup directory for the JSON snapshot.
+.PARAMETER DryRun
+Returns the planned output path without reading configuration or writing a file.
+.OUTPUTS
+System.String
+#>
+function Export-NetCleanAdapterConfiguration {
+    [CmdletBinding()]
+    [OutputType([System.String])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Dest,
+
+        [switch]$DryRun
+    )
+
+    $file = Join-Path $Dest ("AdapterConfiguration_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
+    if ($DryRun) {
+        return $file
+    }
+
+    New-DirectoryIfNotExist -Path $Dest
+
+    $adapters = @(
+        Get-NetAdapter -ErrorAction Stop |
+            Select-Object Name,
+                InterfaceDescription,
+                InterfaceIndex,
+                InterfaceGuid,
+                Status,
+                MacAddress,
+                LinkSpeed,
+                Virtual,
+                HardwareInterface
+    )
+
+    $interfaceIndices = [System.Collections.Generic.HashSet[uint32]]::new()
+    foreach ($adapter in $adapters) {
+        [void]$interfaceIndices.Add([uint32]$adapter.InterfaceIndex)
+    }
+
+    $ipv4Interfaces = @(
+        Get-NetIPInterface -AddressFamily IPv4 -ErrorAction Stop |
+            Where-Object { $interfaceIndices.Contains([uint32]$_.InterfaceIndex) } |
+            Select-Object InterfaceAlias,
+                InterfaceIndex,
+                Dhcp,
+                ConnectionState,
+                InterfaceMetric
+    )
+
+    $ipv4Addresses = @(
+        Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
+            Where-Object { $interfaceIndices.Contains([uint32]$_.InterfaceIndex) } |
+            Select-Object InterfaceAlias,
+                InterfaceIndex,
+                IPAddress,
+                PrefixLength,
+                PrefixOrigin,
+                SuffixOrigin,
+                AddressState,
+                SkipAsSource
+    )
+
+    $ipv4Routes = @(
+        Get-NetRoute -AddressFamily IPv4 -ErrorAction Stop |
+            Where-Object { $interfaceIndices.Contains([uint32]$_.InterfaceIndex) } |
+            Select-Object InterfaceAlias,
+                InterfaceIndex,
+                DestinationPrefix,
+                NextHop,
+                RouteMetric,
+                Protocol,
+                PolicyStore
+    )
+
+    $dnsServers = @(
+        Get-DnsClientServerAddress -ErrorAction Stop |
+            Where-Object { $interfaceIndices.Contains([uint32]$_.InterfaceIndex) } |
+            Select-Object InterfaceAlias,
+                InterfaceIndex,
+                AddressFamily,
+                ServerAddresses
+    )
+
+    $disabledComponents = 0
+    $disabledComponentsPresent = $false
+    try {
+        $preference = Get-ItemProperty `
+            -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Services\Tcpip6\Parameters' `
+            -Name 'DisabledComponents' `
+            -ErrorAction Stop
+        if ($preference.PSObject.Properties.Name -contains 'DisabledComponents') {
+            $disabledComponents = [uint32]$preference.DisabledComponents
+            $disabledComponentsPresent = $true
+        }
+    }
+    catch {
+        Write-Verbose "IPv6 preference was not explicitly configured: $($_.Exception.Message)"
+    }
+
+    $snapshot = [ordered]@{
+        CapturedAt = (Get-Date).ToString('s')
+        Adapters = $adapters
+        IPv4Interfaces = $ipv4Interfaces
+        IPv4Addresses = $ipv4Addresses
+        IPv4Routes = $ipv4Routes
+        DnsServers = $dnsServers
+        IPv6Preference = [ordered]@{
+            DisabledComponentsPresent = $disabledComponentsPresent
+            DisabledComponents = $disabledComponents
+        }
+    }
+
+    $json = $snapshot | ConvertTo-Json -Depth 8
+    WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
+    return $file
+}
+
+<#
+.SYNOPSIS
 Export the NetClean manifest containing backup and summary metadata.
 .DESCRIPTION
 Serializes the manifest hashtable to JSON in the destination directory. Honors `-DryRun` to avoid filesystem writes.
@@ -680,6 +809,7 @@ function Invoke-NetCleanPhase2Protect {
         ProtectionInventoryJson   = $null
         ProtectionRegistryMapJson = $null
         SanitizableArtifactsJson  = $null
+        AdapterConfigurationJson  = $null
         FirewallPolicyBackup      = $null
         NetworkListBackup         = $null
         WiFiExports               = @()
@@ -689,6 +819,7 @@ function Invoke-NetCleanPhase2Protect {
     $manifest.ProtectionInventoryJson = Export-ProtectionInventory -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
     $manifest.ProtectionRegistryMapJson = Export-ProtectionRegistryMap -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
     $manifest.SanitizableArtifactsJson = Export-SanitizableNetworkArtifact -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
+    $manifest.AdapterConfigurationJson = Export-NetCleanAdapterConfiguration -Dest $BackupPath -DryRun:$DryRun
     $manifest.NetworkListBackup = Export-NetworkList -Dest $BackupPath -DryRun:$DryRun
     if ($canLog) {
         if ($DryRun) {
@@ -745,6 +876,7 @@ function Invoke-NetCleanPhase2Protect {
         if ($manifest.ProtectionInventoryJson) { Write-NetCleanLog -Level INFO -Message ("Protection inventory file: {0}" -f $manifest.ProtectionInventoryJson) }
         if ($manifest.ProtectionRegistryMapJson) { Write-NetCleanLog -Level INFO -Message ("Protection registry map file: {0}" -f $manifest.ProtectionRegistryMapJson) }
         if ($manifest.SanitizableArtifactsJson) { Write-NetCleanLog -Level INFO -Message ("Sanitizable artifacts file: {0}" -f $manifest.SanitizableArtifactsJson) }
+        if ($manifest.AdapterConfigurationJson) { Write-NetCleanLog -Level INFO -Message ("Adapter configuration snapshot: {0}" -f $manifest.AdapterConfigurationJson) }
         if ($manifest.NetworkListBackup) { Write-NetCleanLog -Level INFO -Message ("NetworkList backup: {0}" -f $manifest.NetworkListBackup) }
 
         if ($manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {
@@ -784,6 +916,7 @@ function Invoke-NetCleanPhase2Protect {
             ManifestFile = $manifestFile
             Summary      = [pscustomobject]@{
                 ProtectedRegistryPathCount   = $protectedPaths.Count
+                AdapterConfigurationBackupCount = @($manifest.AdapterConfigurationJson | Where-Object { $_ }).Count
                 WiFiBackupCount              = @($manifest.WiFiExports).Count
                 ProtectedRegistryBackupCount = @($manifest.ProtectedRegistryBackups).Count
             }
