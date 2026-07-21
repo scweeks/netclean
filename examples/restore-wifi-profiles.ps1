@@ -1,10 +1,10 @@
 param(
-    [string]$BackupPath = "$env:ProgramData\NetworkCleaner\Backups"
+    [string]$BackupPath = "$env:ProgramData\NetClean\Backups"
 )
 
 if (-not (Test-Path $BackupPath)) { Write-Error "Backup path not found: $BackupPath"; exit 1 }
 
-$xmlFiles = Get-ChildItem -Path $BackupPath -Filter 'WiFiProfile_*.xml' -File -ErrorAction SilentlyContinue
+$xmlFiles = Get-ChildItem -LiteralPath $BackupPath -Filter '*.xml' -File -ErrorAction SilentlyContinue
 if (-not $xmlFiles) { Write-Output "No Wi-Fi profile exports found in $BackupPath"; exit 0 }
 
 foreach ($f in $xmlFiles) {

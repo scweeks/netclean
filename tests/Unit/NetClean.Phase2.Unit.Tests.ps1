@@ -313,9 +313,14 @@ Describe 'NetClean Phase 2 unit tests' {
                 Mock WriteAllText {}
 
                 $inventory = @([pscustomobject]@{ Vendor = 'CrowdStrike' })
-                $result = Export-ProtectionInventory -Inventory $inventory -Dest 'C:\backup'
+                $result = Export-ProtectionInventory -Inventory $inventory -Dest $TestDrive
 
                 $result | Should -Match 'ProtectionInventory'
+                Should -Invoke WriteAllText -Times 1 -Exactly -ParameterFilter {
+                    $Path -eq $result -and
+                    $Contents -match 'CrowdStrike' -and
+                    $Encoding.WebName -eq 'utf-8'
+                }
             }
         }
 
@@ -329,6 +334,21 @@ Describe 'NetClean Phase 2 unit tests' {
                 $result = Export-ProtectionRegistryMap -Inventory @() -Dest 'C:\backup' -DryRun
                 $result | Should -Match 'ProtectionRegistryMap'
             }
+
+            It 'writes the registry map through the UTF-8 text seam' {
+                Mock Get-ProtectionRegistryMap {
+                    @([pscustomobject]@{ Vendor = 'CrowdStrike' })
+                }
+                Mock WriteAllText {}
+
+                $result = Export-ProtectionRegistryMap -Inventory @() -Dest $TestDrive
+
+                Should -Invoke WriteAllText -Times 1 -Exactly -ParameterFilter {
+                    $Path -eq $result -and
+                    $Contents -match 'CrowdStrike' -and
+                    $Encoding.WebName -eq 'utf-8'
+                }
+            }
         }
 
         Context 'Export-SanitizableNetworkArtifact' {
@@ -340,6 +360,21 @@ Describe 'NetClean Phase 2 unit tests' {
 
                 $result = Export-SanitizableNetworkArtifact -Inventory @() -Dest 'C:\backup' -DryRun
                 $result | Should -Match 'SanitizableNetworkArtifact'
+            }
+
+            It 'writes sanitizable artifacts through the UTF-8 text seam' {
+                Mock Get-SanitizableNetworkArtifact {
+                    @([pscustomobject]@{ RegistryPath = 'HKLM\SOFTWARE\Test' })
+                }
+                Mock WriteAllText {}
+
+                $result = Export-SanitizableNetworkArtifact -Inventory @() -Dest $TestDrive
+
+                Should -Invoke WriteAllText -Times 1 -Exactly -ParameterFilter {
+                    $Path -eq $result -and
+                    $Contents -match 'RegistryPath' -and
+                    $Encoding.WebName -eq 'utf-8'
+                }
             }
         }
 
@@ -380,9 +415,14 @@ Describe 'NetClean Phase 2 unit tests' {
                 Mock WriteAllText {}
 
                 $manifest = @{ BackupPath = 'C:\backup' }
-                $result = Export-NetCleanManifest -Manifest $manifest -Dest 'C:\backup'
+                $result = Export-NetCleanManifest -Manifest $manifest -Dest $TestDrive
 
                 $result | Should -Match 'Manifest'
+                Should -Invoke WriteAllText -Times 1 -Exactly -ParameterFilter {
+                    $Path -eq $result -and
+                    $Contents -match 'BackupPath' -and
+                    $Encoding.WebName -eq 'utf-8'
+                }
             }
         }
 

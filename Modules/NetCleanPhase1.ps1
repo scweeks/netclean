@@ -897,17 +897,15 @@ function Get-ProtectionEvidence {
 
 <#
 .SYNOPSIS
-Exports specified registry keys to .reg files in a provider-safe manner.
+Builds the protection inventory used by later workflow phases.
 .DESCRIPTION
-For each registry path provided, performs an export using `reg.exe` to ensure provider safety. Exports are saved to the specified destination directory with timestamped filenames. If `-DryRun` is specified, simulates the export process and returns the intended file paths without performing any exports.
+Correlates collected system evidence with known protection vendors and returns
+the services, drivers, adapters, interface GUIDs, registry keys, and evidence
+that later phases must preserve.
 .EXAMPLE
-Export-RegistryKeys -RegistryPaths @('HKLM\SYSTEM\CurrentControlSet\Services\MyService', 'HKLM\SYSTEM\CurrentControlSet\Services\AnotherService') -DestinationPath 'C:\RegistryExports'
-.EXAMPLE
-Export-RegistryKeys -RegistryPaths @('HKLM\SYSTEM\CurrentControlSet\Services\MyService') -DestinationPath 'C:\RegistryExports' -DryRun
+Get-ProtectionInventory
 .OUTPUTS
-System.String[]
-.NOTES
-This function relies on `reg.exe` for exporting registry keys, which ensures that the export process is provider-safe. The exported .reg files can be used for backup, analysis, or transfer to another system.
+System.Object[]
 #>
 function Get-ProtectionInventory {
     [CmdletBinding()]

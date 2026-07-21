@@ -1,8 +1,8 @@
 param(
     [switch]$DryRun,
     [switch]$Force,
-    [string]$BackupPath = "$env:ProgramData\NetworkCleaner\Backups",
-    [string]$LogPath = "$env:ProgramData\NetworkCleaner\Logs"
+    [string]$BackupPath = "$env:ProgramData\NetClean\Backups",
+    [string]$LogPath = "$env:ProgramData\NetClean\Logs"
 )
 
 $script = Join-Path $PSScriptRoot "..\netclean.ps1"

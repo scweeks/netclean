@@ -348,15 +348,16 @@ function Export-WiFiProfile {
 
 <#
 .SYNOPSIS
-Export Wi-Fi profiles and write a list file.
+Export the Windows Firewall policy to a .wfw file.
 .DESCRIPTION
-Exports each Wi-Fi profile to XML using `netsh` and returns a list of exported files. Honors `-DryRun` to simulate exports.
+Uses `netsh advfirewall export` to back up the firewall policy. Honors
+`-DryRun` and returns the intended output path.
 .PARAMETER Dest
-Destination folder for exported profiles.
+Destination directory for the exported firewall policy.
 .PARAMETER DryRun
-Simulate export operations without calling external commands.
+Simulate export without running the external command.
 .OUTPUTS
-Array of exported file paths and markers for profiles when in dry-run.
+System.String
 #>
 function Export-FirewallPolicy {
     [CmdletBinding()]
@@ -401,15 +402,19 @@ function Export-FirewallPolicy {
 
 <#
 .SYNOPSIS
-Export firewall policy to a .wfw file.
+Export protection inventory to JSON.
 .DESCRIPTION
-Uses `netsh advfirewall export` to export the firewall policy configuration to the destination file. Honors `-DryRun` and returns the intended file path.
+Writes the supplied inventory, or newly detected inventory when omitted, as
+UTF-8 JSON. Honors `-DryRun` without creating directories or files.
 .PARAMETER Dest
-Destination directory for the exported firewall policy.
+Destination directory for the inventory JSON file.
+.PARAMETER Inventory
+Optional inventory to serialize. Current protection inventory is detected when
+the argument is omitted or null.
 .PARAMETER DryRun
-Simulate export without running external commands.
+Return the intended output path without writing a file.
 .OUTPUTS
-Path to the exported firewall policy file.
+System.String
 #>
 function Export-ProtectionInventory {
     [CmdletBinding()]
@@ -446,7 +451,8 @@ function Export-ProtectionInventory {
         return $file
     }
 
-    $Inventory | ConvertTo-Json -Depth 8 | Out-File -FilePath $file -Encoding UTF8
+    $json = $Inventory | ConvertTo-Json -Depth 8
+    WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
 
     if ($canLog) {
         Write-NetCleanLog -Level INFO -Message ("Exported protection inventory to: {0}" -f $file)
@@ -457,17 +463,18 @@ function Export-ProtectionInventory {
 
 <#
 .SYNOPSIS
-Export protection inventory to JSON.
+Export the protection registry map to JSON.
 .DESCRIPTION
-Writes the provided protection inventory (or current detected inventory) to a JSON file in the destination directory. Honors `-DryRun` to avoid writing files.
+Derives the protection registry map from the supplied inventory and writes it
+as UTF-8 JSON. Honors `-DryRun` without creating directories or files.
 .PARAMETER Dest
-Destination directory for the inventory JSON file.
+Destination directory for the registry-map JSON file.
 .PARAMETER Inventory
-Optional inventory object to serialize; detected inventory is used if omitted.
+Optional inventory used to derive the registry map.
 .PARAMETER DryRun
-Simulate writing without creating files.
+Return the intended output path without writing a file.
 .OUTPUTS
-Path to the JSON file that would be or was written.
+System.String
 #>
 function Export-ProtectionRegistryMap {
     [CmdletBinding()]
@@ -499,7 +506,8 @@ function Export-ProtectionRegistryMap {
         return $file
     }
 
-    $map | ConvertTo-Json -Depth 8 | Out-File -FilePath $file -Encoding UTF8
+    $json = $map | ConvertTo-Json -Depth 8
+    WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
 
     if ($canLog) {
         Write-NetCleanLog -Level INFO -Message ("Exported protection registry map to: {0}" -f $file)
@@ -552,7 +560,8 @@ function Export-SanitizableNetworkArtifact {
         return $file
     }
 
-    $artifacts | ConvertTo-Json -Depth 8 | Out-File -FilePath $file -Encoding UTF8
+    $json = $artifacts | ConvertTo-Json -Depth 8
+    WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
 
     if ($canLog) {
         Write-NetCleanLog -Level INFO -Message ("Exported sanitizable artifact inventory to: {0}" -f $file)
@@ -608,7 +617,8 @@ function Export-NetCleanManifest {
         return $file
     }
 
-    $Manifest | ConvertTo-Json -Depth 8 | Out-File -FilePath $file -Encoding UTF8
+    $json = $Manifest | ConvertTo-Json -Depth 8
+    WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
 
     if ($canLog) {
         Write-NetCleanLog -Level INFO -Message ("Exported restore manifest to: {0}" -f $file)
@@ -619,17 +629,21 @@ function Export-NetCleanManifest {
 
 <#
 .SYNOPSIS
-Export the NetClean manifest containing backup and summary metadata.
+Run the Phase 2 protection and backup workflow.
 .DESCRIPTION
-Serializes the manifest hashtable to JSON in the destination directory. Honors `-DryRun` to avoid filesystem writes.
-.PARAMETER Dest
-Destination directory for the manifest file.
-.PARAMETER Manifest
-Hashtable describing backup artifacts and summary information.
+Creates the requested backups and metadata exports, then returns a new workflow
+context containing the protection manifest and summary. Honors `-DryRun`
+without creating directories, files, or external-command side effects.
+.PARAMETER Context
+Detection context returned by Phase 1.
+.PARAMETER BackupPath
+Destination directory for protection backups and metadata.
 .PARAMETER DryRun
-Simulate writing without creating files.
+Plan backup operations without writing or invoking external commands.
+.PARAMETER SkipFirewallBackup
+Skip the Windows Firewall policy export.
 .OUTPUTS
-Path to the manifest JSON file.
+System.Object
 #>
 function Invoke-NetCleanPhase2Protect {
     [CmdletBinding()]
