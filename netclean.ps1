@@ -312,9 +312,13 @@ function Show-ModeExplanation {
             Write-Information '  - detect protection software and protected adapters' -InformationAction Continue
             Write-Information '  - back up protected registry, firewall policy, and Wi-Fi profiles' -InformationAction Continue
             Write-Information '  - remove saved Wi-Fi profiles' -InformationAction Continue
+            Write-Information '  - reset eligible adapters to IPv4 DHCP' -InformationAction Continue
+            Write-Information '  - set Quad9 Secure DNS for IPv4 and IPv6' -InformationAction Continue
+            Write-Information '  - keep IPv6 enabled and prefer IPv4 after restart' -InformationAction Continue
             Write-Information '  - flush DNS cache' -InformationAction Continue
             Write-Information '  - remove non-protected network history and metadata' -InformationAction Continue
             Write-Information '  - verify protected products remain present' -InformationAction Continue
+            Write-Information '  - require a restart for the IPv4 preference to take full effect' -InformationAction Continue
         }
         'AdvancedRepair' {
             Write-Information 'You selected: Advanced repair' -InformationAction Continue
