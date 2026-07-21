@@ -1,19 +1,21 @@
-$repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$manifestPath = Join-Path $repoRoot 'NetClean.psd1'
-$scriptPath   = Join-Path $repoRoot 'NetClean.ps1'
-
-if (-not (Test-Path -LiteralPath $manifestPath)) {
-    throw "NetClean.psd1 not found at path: $manifestPath"
-}
-
-if (-not (Test-Path -LiteralPath $scriptPath)) {
-    throw "NetClean.ps1 not found at path: $scriptPath"
-}
-
-Remove-Module NetClean -ErrorAction SilentlyContinue
-Import-Module $manifestPath -Force
-
 Describe 'NetClean script integration tests' {
+
+    BeforeAll {
+        $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+        $manifestPath = Join-Path $repoRoot 'NetClean.psd1'
+        $scriptPath = Join-Path $repoRoot 'NetClean.ps1'
+
+        if (-not (Test-Path -LiteralPath $manifestPath)) {
+            throw "NetClean.psd1 not found at path: $manifestPath"
+        }
+
+        if (-not (Test-Path -LiteralPath $scriptPath)) {
+            throw "NetClean.ps1 not found at path: $scriptPath"
+        }
+
+        Remove-Module NetClean -ErrorAction SilentlyContinue
+        Import-Module $manifestPath -Force
+    }
 
     BeforeEach {
         Mock Import-Module {}

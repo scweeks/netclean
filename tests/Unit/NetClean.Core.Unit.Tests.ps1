@@ -312,8 +312,11 @@ Describe 'NetClean core/shared helper unit tests' {
             It 'writes to the error stream for ERROR level' {
                 $logDir = Join-Path $TestDrive 'ErrorLogs'
                 Start-NetCleanLog -Directory $logDir
+                $writeErrors = @()
 
-                { Write-NetCleanLog -Level ERROR -Message 'error message' } | Should -Throw
+                { Write-NetCleanLog -Level ERROR -Message 'error message' -ErrorVariable +writeErrors } |
+                    Should -Not -Throw
+                $writeErrors.Count | Should -BeGreaterThan 0
             }
         }
 
@@ -372,7 +375,7 @@ Describe 'NetClean core/shared helper unit tests' {
 
             It 'captures non-zero exit code and respects IgnoreExitCode' {
                 $bat = Join-Path $TestDrive 'exit5.bat'
-                Set-Content -Path $bat -Values 'exit /b 5' -NoNewline
+                Set-Content -Path $bat -Value 'exit /b 5' -NoNewline
 
                 $r = Invoke-NetCleanNativeCapture -FilePath $bat -ArgumentList @()
 

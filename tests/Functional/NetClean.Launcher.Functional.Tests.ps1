@@ -1,18 +1,22 @@
-$moduleManifest = Join-Path $PSScriptRoot '..\..\NetClean.psd1'
-$scriptPath     = Join-Path $PSScriptRoot '..\..\NetClean.ps1'
-
-if (-not (Test-Path $moduleManifest)) {
-    throw "Module manifest not found: $moduleManifest"
-}
-
-if (-not (Test-Path $scriptPath)) {
-    throw "Launcher script not found: $scriptPath"
-}
-
-Remove-Module NetClean -ErrorAction SilentlyContinue
-Import-Module $moduleManifest -Force
-
 Describe 'NetClean launcher functional tests' {
+
+    BeforeAll {
+        $moduleManifest = Join-Path $PSScriptRoot '..\..\NetClean.psd1'
+        $scriptPath = Join-Path $PSScriptRoot '..\..\NetClean.ps1'
+
+        if (-not (Test-Path -LiteralPath $moduleManifest)) {
+            throw "Module manifest not found: $moduleManifest"
+        }
+
+        if (-not (Test-Path -LiteralPath $scriptPath)) {
+            throw "Launcher script not found: $scriptPath"
+        }
+
+        Remove-Module NetClean -ErrorAction SilentlyContinue
+        Import-Module $moduleManifest -Force
+        $script:NetCleanTestMode = $true
+        . $scriptPath
+    }
 
     BeforeEach {
         Mock Write-Host {}

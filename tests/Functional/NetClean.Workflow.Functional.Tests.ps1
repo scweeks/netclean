@@ -57,7 +57,7 @@ Describe 'NetClean workflow functional tests' {
                 Mock Invoke-NetCleanPhase3Clean {}
                 Mock Invoke-NetCleanPhase4Verify {}
                 Mock Get-WiFiProfileName { @() }
-                Mock Get-NetworkListProfileNames { @() }
+                Mock Get-NetworkListProfileName { @() }
 
                 $result = Invoke-NetCleanWorkflow -Mode Preview -BackupPath 'C:\backup' -DryRun
 
@@ -170,7 +170,7 @@ Describe 'NetClean workflow functional tests' {
                 }
 
                 Mock Get-WiFiProfileName { @() }
-                Mock Get-NetworkListProfileNames { @() }
+                Mock Get-NetworkListProfileName { @() }
 
                 $result = Invoke-NetCleanWorkflow -Mode SafeConferencePrep -BackupPath 'C:\backup' -DryRun
 
@@ -250,7 +250,7 @@ Describe 'NetClean workflow functional tests' {
                 }
 
                 Mock Get-WiFiProfileName { @() }
-                Mock Get-NetworkListProfileNames { @() }
+                Mock Get-NetworkListProfileName { @() }
 
                 $null = Invoke-NetCleanWorkflow `
                     -Mode SafeConferencePrep `
@@ -340,7 +340,7 @@ Describe 'NetClean workflow functional tests' {
                 }
 
                 Mock Get-WiFiProfileName { @() }
-                Mock Get-NetworkListProfileNames { @() }
+                Mock Get-NetworkListProfileName { @() }
 
                 $result = Invoke-NetCleanWorkflow -Mode AdvancedRepair -BackupPath 'C:\backup' -DryRun
 
@@ -377,7 +377,7 @@ Describe 'NetClean workflow functional tests' {
                 }
 
                 Mock Get-WiFiProfileName { @() }
-                Mock Get-NetworkListProfileNames { @() }
+                Mock Get-NetworkListProfileName { @() }
 
                 { Invoke-NetCleanWorkflow -Mode PerformanceTune -BackupPath 'C:\backup' -DryRun } | Should -Throw
             }
@@ -449,7 +449,7 @@ Describe 'NetClean workflow functional tests' {
                 }
 
                 Mock Get-WiFiProfileName { @() }
-                Mock Get-NetworkListProfileNames { @() }
+                Mock Get-NetworkListProfileName { @() }
 
                 $result = Invoke-NetCleanWorkflow -Mode PerformanceTune -BackupPath 'C:\backup' -PerformanceProfile Optimal -DryRun
 
@@ -527,7 +527,7 @@ Describe 'NetClean workflow functional tests' {
                 }
 
                 Mock Get-WiFiProfileName { @() }
-                Mock Get-NetworkListProfileNames { @() }
+                Mock Get-NetworkListProfileName { @() }
 
                 $result = Invoke-NetCleanWorkflow -Mode PerformanceTune -BackupPath 'C:\backup' -PerformanceProfile Gaming -DryRun
 
@@ -601,7 +601,7 @@ Describe 'NetClean workflow functional tests' {
                 }
 
                 Mock Get-WiFiProfileName { @() }
-                Mock Get-NetworkListProfileNames { @() }
+                Mock Get-NetworkListProfileName { @() }
 
                 $result = Invoke-NetCleanWorkflow -Mode SafeConferencePrep -BackupPath 'C:\backup' -DryRun
 
@@ -674,7 +674,7 @@ Describe 'NetClean workflow functional tests' {
                 }
 
                 Mock Get-WiFiProfileName { @() }
-                Mock Get-NetworkListProfileNames { @() }
+                Mock Get-NetworkListProfileName { @() }
 
                 $result = Invoke-NetCleanWorkflow -Mode SafeConferencePrep -BackupPath 'C:\backup' -DryRun
 

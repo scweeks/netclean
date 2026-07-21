@@ -1,14 +1,16 @@
-$repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-$manifestPath = Join-Path $repoRoot 'NetClean.psd1'
-
-if (-not (Test-Path -LiteralPath $manifestPath)) {
-    throw "NetClean.psd1 not found at path: $manifestPath"
-}
-
-Remove-Module NetClean -ErrorAction SilentlyContinue
-Import-Module $manifestPath -Force
-
 Describe 'NetClean module integration tests' {
+
+    BeforeAll {
+        $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+        $manifestPath = Join-Path $repoRoot 'NetClean.psd1'
+
+        if (-not (Test-Path -LiteralPath $manifestPath)) {
+            throw "NetClean.psd1 not found at path: $manifestPath"
+        }
+
+        Remove-Module NetClean -ErrorAction SilentlyContinue
+        Import-Module $manifestPath -Force
+    }
 
     It 'validates the module manifest' {
         { Test-ModuleManifest $manifestPath } | Should -Not -Throw
