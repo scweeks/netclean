@@ -1279,8 +1279,8 @@ If specified, DNS cache flushing will be skipped.
 If specified, network event log clearing will be skipped.
 .PARAMETER SkipUserArtifacts
 If specified, user network artifact clearing will be skipped.
-.PARAMETER EnableConservativePerformanceTuning
-If specified, conservative performance tuning commands will be executed in addition to the standard cleaning operations.
+.PARAMETER PerformanceProfile
+Specifies the validated performance profile used when Mode is PerformanceTune.
 .EXAMPLE
 Invoke-NetCleanPhase3Clean -Context $ctx -Mode 'SafeConferencePrep' -DryRun
 .OUTPUTS

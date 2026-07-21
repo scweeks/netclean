@@ -278,93 +278,6 @@ function Read-NetCleanMenuSelection {
 
 <#
 .SYNOPSIS
-    Reads the power selection for the NetClean process.
-.DESCRIPTION
-    This function prompts the user to select a power option from the NetClean menu.
-.EXAMPLE
-    Read-NetCleanPowerSelection
-.OUTPUTS
-    System.String - The selected power option.
-#>
-function Read-NetCleanPowerSelection {
-    [CmdletBinding()]
-    [OutputType([string])]
-    param()
-
-    while ($true) {
-
-        Write-Information "==========================================" -InformationAction Continue
-        Write-Information " NetClean - System Power Options" -InformationAction Continue
-        Write-Information "==========================================" -InformationAction Continue
-        Write-Information "" -InformationAction Continue
-        Write-Information "Some network changes may require a restart" -InformationAction Continue
-        Write-Information "to fully apply." -InformationAction Continue
-        Write-Information "" -InformationAction Continue
-        Write-Information "1. Restart now" -InformationAction Continue
-        Write-Information "2. Shut down now" -InformationAction Continue
-        Write-Information "3. Restart / shut down later" -InformationAction Continue
-        Write-Information "" -InformationAction Continue
-
-        $choice = Read-Host "Select an option (1-3)"
-
-        switch ($choice) {
-            '1' { return 'Restart' }
-            '2' { return 'Shutdown' }
-            '3' { return 'Later' }
-            default {
-                Write-Information "" -InformationAction Continue
-                Write-Information "Invalid selection. Please choose 1 through 3." -InformationAction Continue
-                Write-Information "" -InformationAction Continue
-            }
-        }
-    }
-}
-
-<#
-.SYNOPSIS
-    Invokes the selected power action for the NetClean process.
-.DESCRIPTION
-    This function executes the chosen power action (restart, shutdown, or later).
-.PARAMETER Action
-    The power action to execute.
-.EXAMPLE
-    Invoke-NetCleanPowerAction -Action 'Restart'
-#>
-function Invoke-NetCleanPowerAction {
-
-    param(
-        [Parameter(Mandatory)]
-        [ValidateSet('Restart', 'Shutdown', 'Later')]
-        [string]$Action
-    )
-
-    switch ($Action) {
-
-        'Restart' {
-
-            Write-Information "" -InformationAction Continue
-            Write-Information "Restarting system..." -InformationAction Continue
-            shutdown.exe /r /t 0
-        }
-
-        'Shutdown' {
-
-            Write-Information "" -InformationAction Continue
-            Write-Information "Shutting down system..." -InformationAction Continue
-            shutdown.exe /s /t 0
-        }
-
-        'Later' {
-
-            Write-Information "" -InformationAction Continue
-            Write-Information "No power action selected." -InformationAction Continue
-            Write-Information "You may restart or shut down later if needed." -InformationAction Continue
-        }
-    }
-}
-
-<#
-.SYNOPSIS
     Shows the explanation for the selected NetClean mode.
 .DESCRIPTION
     This function displays the explanation for the selected NetClean mode.
@@ -820,15 +733,21 @@ function Invoke-NetCleanLauncher {
 
     Show-ModeExplanation -SelectedMode $selectedMode
 
-    $options = Read-NetCleanOption `
-        -SelectedMode $selectedMode `
-        -DryRun:$DryRun `
-        -SkipWifi:$SkipWifi `
-        -SkipDnsFlush:$SkipDnsFlush `
-        -SkipEventLogs:$SkipEventLogs `
-        -SkipUserArtifacts:$SkipUserArtifacts `
-        -SkipFirewallBackup:$SkipFirewallBackup `
-        -PerformanceProfile $selectedPerformanceProfile
+    $optionParameters = @{
+        SelectedMode       = $selectedMode
+        DryRun             = [bool]$DryRun
+        SkipWifi           = [bool]$SkipWifi
+        SkipDnsFlush       = [bool]$SkipDnsFlush
+        SkipEventLogs      = [bool]$SkipEventLogs
+        SkipUserArtifacts  = [bool]$SkipUserArtifacts
+        SkipFirewallBackup = [bool]$SkipFirewallBackup
+    }
+
+    if ($selectedMode -eq 'PerformanceTune') {
+        $optionParameters.PerformanceProfile = $selectedPerformanceProfile
+    }
+
+    $options = Read-NetCleanOption @optionParameters
 
     if (-not $Force) {
         if (-not (Read-YesNo -Prompt 'Proceed with the selected NetClean operation?' -DefaultNo $true)) {
@@ -864,30 +783,27 @@ function Invoke-NetCleanLauncher {
         return
     }
 
-    $result = Invoke-NetCleanWorkflow `
-        -Mode $selectedMode `
-        -BackupPath $BackupPath `
-        -DryRun:$options.DryRun `
-        -SkipWifi:$options.SkipWifi `
-        -SkipDnsFlush:$options.SkipDnsFlush `
-        -SkipEventLogs:$options.SkipEventLogs `
-        -SkipUserArtifacts:$options.SkipUserArtifacts `
-        -SkipFirewallBackup:$options.SkipFirewallBackup `
-        -PerformanceProfile $options.PerformanceProfile
+    $workflowParameters = @{
+        Mode               = $selectedMode
+        BackupPath         = $BackupPath
+        DryRun             = [bool]$options.DryRun
+        SkipWifi           = [bool]$options.SkipWifi
+        SkipDnsFlush       = [bool]$options.SkipDnsFlush
+        SkipEventLogs      = [bool]$options.SkipEventLogs
+        SkipUserArtifacts  = [bool]$options.SkipUserArtifacts
+        SkipFirewallBackup = [bool]$options.SkipFirewallBackup
+    }
+
+    if ($selectedMode -eq 'PerformanceTune') {
+        $workflowParameters.PerformanceProfile = $options.PerformanceProfile
+    }
+
+    $result = Invoke-NetCleanWorkflow @workflowParameters
 
     Show-NetCleanSummary -Result $result -SelectedMode $selectedMode
 
     $postRunAction = Read-PostRunAction
     Invoke-PostRunAction -Action $postRunAction -DryRunMode:$options.DryRun
-
-    if ($selectedMode -in @(
-            'SafeConferencePrep',
-            'AdvancedRepair',
-            'PerformanceTune'
-        )) {
-        $powerChoice = Read-NetCleanPowerSelection
-        Invoke-NetCleanPowerAction -Action $powerChoice
-    }
 }
 
 if (-not $script:NetCleanTestMode -and $MyInvocation.InvocationName -ne '.') {

@@ -161,6 +161,56 @@ Describe 'NetClean launcher functional tests' {
 
     }
 
+    Context 'Post-run power handling' {
+
+        BeforeEach {
+            $script:Mode = 'SafeConferencePrep'
+            $script:DryRun = $true
+            $script:Force = $true
+            $script:CreateLog = $false
+            $script:BackupPath = $TestDrive
+            $script:LogPath = $TestDrive
+            $script:SkipWifi = $false
+            $script:SkipDnsFlush = $false
+            $script:SkipEventLogs = $false
+            $script:SkipUserArtifacts = $false
+            $script:SkipFirewallBackup = $false
+            $script:PerformanceProfile = 'Default'
+            $script:RebootNow = $false
+
+            Mock Test-NetCleanAdministrator {}
+            Mock Read-NetCleanMenuSelection { 'SafeConferencePrep' }
+            Mock Read-YesNo { $true }
+            Mock Show-ModeExplanation {}
+            Mock Read-NetCleanOption {
+                [pscustomobject]@{
+                    SelectedMode      = 'SafeConferencePrep'
+                    DryRun            = $true
+                    SkipWifi          = $false
+                    SkipDnsFlush      = $false
+                    SkipEventLogs     = $false
+                    SkipUserArtifacts = $false
+                    SkipFirewallBackup = $false
+                    PerformanceProfile = $null
+                }
+            }
+            Mock Start-NetCleanLog {}
+            Mock Write-NetCleanLog {}
+            Mock Invoke-NetCleanWorkflow { [pscustomobject]@{ Phase = 'Verify' } }
+            Mock Show-NetCleanSummary {}
+            Mock Read-PostRunAction { 'None' }
+            Mock Invoke-PostRunAction {}
+        }
+
+        It 'uses only the post-run action path' {
+            Invoke-NetCleanLauncher
+
+            Should -Invoke Invoke-PostRunAction -Times 1
+            Get-Command Read-NetCleanPowerSelection -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+            Get-Command Invoke-NetCleanPowerAction -ErrorAction SilentlyContinue | Should -BeNullOrEmpty
+        }
+    }
+
     Context 'Console output behavior' {
 
         It 'prints verification success message when workflow passes' {

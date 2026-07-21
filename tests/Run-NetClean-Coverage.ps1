@@ -93,9 +93,22 @@ Write-Information "Skipped: $($result.SkippedCount)" -InformationAction Continue
 Write-Information '' -InformationAction Continue
 
 if ($null -ne $result.CodeCoverage) {
+    $analyzedCount = if ($result.CodeCoverage.PSObject.Properties.Name -contains 'CommandsAnalyzedCount') {
+        $result.CodeCoverage.CommandsAnalyzedCount
+    }
+    else {
+        $result.CodeCoverage.NumberOfCommandsAnalyzed
+    }
+    $executedCount = if ($result.CodeCoverage.PSObject.Properties.Name -contains 'CommandsExecutedCount') {
+        $result.CodeCoverage.CommandsExecutedCount
+    }
+    else {
+        $result.CodeCoverage.NumberOfCommandsExecuted
+    }
+
     Write-Information 'Coverage summary' -InformationAction Continue
-    Write-Information ("Commands analyzed: {0}" -f $result.CodeCoverage.NumberOfCommandsAnalyzed) -InformationAction Continue
-    Write-Information ("Commands executed: {0}" -f $result.CodeCoverage.NumberOfCommandsExecuted) -InformationAction Continue
+    Write-Information ("Commands analyzed: {0}" -f $analyzedCount) -InformationAction Continue
+    Write-Information ("Commands executed: {0}" -f $executedCount) -InformationAction Continue
     Write-Information ("Percent covered:   {0:N2}%" -f $result.CodeCoverage.CoveragePercent) -InformationAction Continue
     Write-Information '' -InformationAction Continue
 }

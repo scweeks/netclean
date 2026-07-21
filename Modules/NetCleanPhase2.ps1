@@ -134,7 +134,7 @@ Array of Wi-Fi profile name strings.
 #>
 function Get-WiFiProfileName {
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([string[]])]
     param()
 
     $result = Invoke-NetCleanNativeCapture `
@@ -145,7 +145,7 @@ function Get-WiFiProfileName {
 
     if (-not $result.Succeeded -or -not $result.Output -or $result.Output.Count -eq 0) {
         Write-NetCleanLog -Level DEBUG -Message 'No Wi-Fi profiles returned by netsh.'
-        return @()
+        return [string[]]@()
     }
 
     $profiles = [System.Collections.Generic.List[string]]::new()
@@ -175,11 +175,11 @@ function Get-WiFiProfileName {
         }
     }
 
-    $finalProfiles = @($profiles | Sort-Object -Unique)
+    [string[]]$finalProfiles = @($profiles | Sort-Object -Unique)
 
     Write-NetCleanLog -Level DEBUG -Message ("Detected Wi-Fi profiles: {0}" -f ($finalProfiles -join ', '))
 
-    return $finalProfiles
+    return [string[]]$finalProfiles
 }
 
 <#

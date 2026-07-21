@@ -1,35 +1,39 @@
 # Contributing
 
-Thanks for considering contributing to `netclean` — your help improves the tool for everyone.
+Contributions should be small, focused, and based on the latest `main` branch unless a maintainer specifies another base.
 
-Please follow these guidelines for a smooth collaboration:
+## Engineering expectations
 
-- Fork the repository and open a feature branch from `main`.
-- Keep commits small and focused; use clear commit messages.
-- Run `PSScriptAnalyzer` locally and fix warnings where practical.
+- Use red-green-refactor: add or correct a focused Pester v5 test, observe the intended failure, apply the smallest production change, then refactor with the suite green.
+- Preserve dry-run, `ShouldProcess`, protected-artifact, and backup behavior for state-changing operations.
+- Keep functions compact and single-purpose; isolate native commands and filesystem/registry access behind testable helpers.
+- Do not weaken security checks, analyzer rules, test assertions, or the 95% coverage threshold to make CI pass.
+- Update public help, README, and CHANGELOG entries when behavior or interfaces change.
 
-Suggested checks before opening a pull request:
+## Local validation
 
 ```powershell
-Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
-Invoke-ScriptAnalyzer -Path . -Recurse
+Install-Module Pester -Scope CurrentUser -MinimumVersion 5.0.0 -MaximumVersion 5.999.999 -Force -SkipPublisherCheck
+Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+
+$settings = Join-Path $PWD 'PSScriptAnalyzerSettings.psd1'
+$paths = @('.\NetClean.ps1', '.\NetClean.psd1', '.\Modules', '.\tests')
+foreach ($path in $paths) {
+    Invoke-ScriptAnalyzer -Path $path -Recurse -Settings $settings
+}
+
+Invoke-Pester -Path .\tests
+.\tests\Run-NetClean-Coverage.ps1
 ```
 
-Pull request checklist
+Run state-changing manual tests only on a disposable Windows system you control. Never commit generated test results, coverage reports, logs, exported registry data, Wi-Fi profiles, credentials, or other machine inventory.
 
-- [ ] Code changes include tests or verification steps (if applicable).
-- [ ] README and CHANGELOG updated if behavior or interface changed.
-- [ ] CI passes (GitHub Actions will lint and run safe dry-runs).
+## Pull request checklist
 
-Code style and tests
+- [ ] A focused test demonstrated the defect or missing behavior before the implementation change.
+- [ ] Pester v5 tests pass locally.
+- [ ] PSScriptAnalyzer reports no warnings or errors.
+- [ ] Documentation and change notes match the implementation.
+- [ ] No generated output, secrets, credentials, or host-specific inventory is included.
 
-- Use clear, descriptive names for functions and parameters.
-- Keep scripts idempotent where possible and add checks for required privileges.
-
-Reporting issues
-
-- Use the repository's Issues to report bugs or request features. Provide reproduction steps and environment details.
-
-License
-
-By contributing you agree that your contributions will be licensed under the project's license.
+Contributions are licensed under the repository's GPLv3 license.
