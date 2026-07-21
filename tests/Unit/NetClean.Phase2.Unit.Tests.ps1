@@ -238,7 +238,11 @@ Describe 'NetClean Phase 2 unit tests' {
             }
 
             It 'calls reg export through safe external command helper' {
-                Mock Invoke-RegExport { param($Key, $FilePath, $DryRun) $FilePath }
+                Mock Invoke-RegExport {
+                    param($Key, $FilePath, $DryRun)
+                    $null = $Key, $DryRun
+                    $FilePath
+                }
 
                 $result = Export-NetworkList -Dest 'C:\backup'
                 $result | Should -Match 'NetworkList'
@@ -257,7 +261,11 @@ Describe 'NetClean Phase 2 unit tests' {
             }
 
             It 'exports each protected registry key path' {
-                Mock Invoke-RegExport { param($Path, $OutputPath) $OutputPath }
+                Mock Invoke-RegExport {
+                    param($Key, $FilePath, $DryRun)
+                    $null = $Key, $DryRun
+                    $FilePath
+                }
 
                 $result = @(Export-ProtectedRegistryKey -Paths @(
                     'HKLM\SOFTWARE\CrowdStrike',
@@ -279,7 +287,11 @@ Describe 'NetClean Phase 2 unit tests' {
                     if ($Path -match 'badpath$') { throw 'invalid' } else { 'Registry::HKEY_LOCAL_MACHINE\\SOFTWARE\\Good' }
                 }
 
-                Mock Invoke-RegExport { param($Key, $FilePath, $DryRun) $FilePath }
+                Mock Invoke-RegExport {
+                    param($Key, $FilePath, $DryRun)
+                    $null = $Key, $DryRun
+                    $FilePath
+                }
 
                 $result = @(Export-ProtectedRegistryKey -Paths @('badpath', 'HKLM\\SOFTWARE\\Good') -Dest 'C:\\backup' -DryRun)
 

@@ -1503,8 +1503,8 @@ If set, skips clearing network-related event logs during the clean phase.
 If set, skips removing user artifacts during the clean phase.
 .PARAMETER SkipFirewallBackup
 If set, skips backing up firewall policies during the protect phase.
-.PARAMETER EnableConservativePerformanceTuning
-If set, enables conservative performance tuning options.
+.PARAMETER PerformanceProfile
+Specifies the validated performance profile used only with PerformanceTune mode.
 .EXAMPLE
 Invoke-NetCleanWorkflow -Mode 'SafeConferencePrep' -BackupPath 'C:\NetCleanBackups' -DryRun
 .OUTPUTS
@@ -1640,15 +1640,21 @@ function Invoke-NetCleanWorkflow {
         Write-NetCleanLog -Level INFO -Message ("Phase Clean start: {0}" -f $t0.ToString('s'))
     }
 
-    $ctx = Invoke-NetCleanPhase3Clean `
-        -Context $ctx `
-        -Mode $Mode `
-        -DryRun:$DryRun `
-        -SkipWifi:$SkipWifi `
-        -SkipDnsFlush:$SkipDnsFlush `
-        -SkipEventLogs:$SkipEventLogs `
-        -SkipUserArtifacts:$SkipUserArtifacts `
-        -PerformanceProfile $PerformanceProfile
+    $cleanParameters = @{
+        Context           = $ctx
+        Mode              = $Mode
+        DryRun            = [bool]$DryRun
+        SkipWifi          = [bool]$SkipWifi
+        SkipDnsFlush      = [bool]$SkipDnsFlush
+        SkipEventLogs     = [bool]$SkipEventLogs
+        SkipUserArtifacts = [bool]$SkipUserArtifacts
+    }
+
+    if ($Mode -eq 'PerformanceTune') {
+        $cleanParameters.PerformanceProfile = $PerformanceProfile
+    }
+
+    $ctx = Invoke-NetCleanPhase3Clean @cleanParameters
 
     if ($backupPathFromProtect -and -not ($ctx.PSObject.Properties.Name -contains 'BackupPath')) {
         Add-Member -InputObject $ctx -NotePropertyName BackupPath -NotePropertyValue $backupPathFromProtect -Force
@@ -1679,6 +1685,10 @@ function Invoke-NetCleanWorkflow {
 
     if ($backupPathFromProtect -and -not ($ctx.PSObject.Properties.Name -contains 'BackupPath')) {
         Add-Member -InputObject $ctx -NotePropertyName BackupPath -NotePropertyValue $backupPathFromProtect -Force
+    }
+
+    if ($Mode -eq 'PerformanceTune') {
+        Add-Member -InputObject $ctx -NotePropertyName PerformanceProfile -NotePropertyValue $PerformanceProfile -Force
     }
 
     $t1 = Get-Date

@@ -22,3 +22,7 @@ ai_outputs/
 
 # Node/npm lockfiles or others you might not want to commit (optional)
 # package-lock.json
+
+# Generated test and coverage output
+tests/TestResults/
+coverage*.xml

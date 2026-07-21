@@ -312,11 +312,11 @@ Describe 'NetClean core/shared helper unit tests' {
             It 'writes to the error stream for ERROR level' {
                 $logDir = Join-Path $TestDrive 'ErrorLogs'
                 Start-NetCleanLog -Directory $logDir
-                $writeErrors = @()
 
-                { Write-NetCleanLog -Level ERROR -Message 'error message' -ErrorVariable +writeErrors } |
-                    Should -Not -Throw
-                $writeErrors.Count | Should -BeGreaterThan 0
+                $streamOutput = @(Write-NetCleanLog -Level ERROR -Message 'error message' 2>&1)
+
+                @($streamOutput | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }).Count |
+                    Should -BeGreaterThan 0
             }
         }
 

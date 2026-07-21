@@ -34,10 +34,15 @@ jobs:
             Sort-Object Version -Descending |
             Select-Object -First 5 Name, Version, Path
 
-      - name: Install PSScriptAnalyzer
+      - name: Install PowerShell test and analysis tools
         run: |
           Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -Scope CurrentUser -MinimumVersion 5.0.0 -MaximumVersion 5.999.999 -Force -SkipPublisherCheck -ErrorAction Stop
           Install-Module PSScriptAnalyzer -Scope CurrentUser -Force -ErrorAction Stop
+          Import-Module Pester -MinimumVersion 5.0.0 -MaximumVersion 5.999.999 -Force -ErrorAction Stop
+          if ((Get-Module Pester).Version.Major -ne 5) {
+            throw 'CI requires Pester v5.'
+          }
           Get-Module PSScriptAnalyzer -ListAvailable |
             Sort-Object Version -Descending |
             Select-Object -First 1 Name, Version, Path
@@ -65,7 +70,11 @@ jobs:
             '.\tests'
           ) | Where-Object { Test-Path -LiteralPath $_ }
 
-          $results = Invoke-ScriptAnalyzer -Path $paths -Recurse -Settings $settingsPath
+          $results = @(
+            foreach ($path in $paths) {
+              Invoke-ScriptAnalyzer -Path $path -Recurse -Settings $settingsPath
+            }
+          )
 
           if ($null -ne $results -and $results.Count -gt 0) {
             $results |

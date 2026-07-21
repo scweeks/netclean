@@ -8,6 +8,15 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$pesterModule = Get-Module -ListAvailable Pester |
+    Where-Object { $_.Version.Major -eq 5 } |
+    Sort-Object Version -Descending |
+    Select-Object -First 1
+if ($null -eq $pesterModule) {
+    throw 'Run-NetClean-Coverage.ps1 requires Pester v5.'
+}
+Import-Module $pesterModule.Path -Force -ErrorAction Stop
+
 $manifestPath = Join-Path $RepoRoot 'NetClean.psd1'
 $scriptPath   = Join-Path $RepoRoot 'NetClean.ps1'
 $testsPath    = Join-Path $RepoRoot 'tests'
@@ -68,7 +77,7 @@ $config.CodeCoverage.OutputFormat = 'JaCoCo'
 $config.CodeCoverage.OutputPath = $coverageXml
 
 Write-Information '' -InformationAction Continue
-Write-Information 'Running Pester with coverage...'-InformationAction Continue
+Write-Information 'Running Pester with coverage...' -InformationAction Continue
 Write-Information "RepoRoot:    $RepoRoot" -InformationAction Continue
 Write-Information "Tests:       $($testFiles.Count)" -InformationAction Continue
 Write-Information "Coverage on: $($coverageFiles.Count) files" -InformationAction Continue
@@ -77,14 +86,14 @@ Write-Information ''
 $result = Invoke-Pester -Configuration $config
 
 Write-Information '' -InformationAction Continue
-Write-Information 'Pester summary'-InformationAction Continue
+Write-Information 'Pester summary' -InformationAction Continue
 Write-Information "Passed: $($result.PassedCount)" -InformationAction Continue
 Write-Information "Failed: $($result.FailedCount)" -InformationAction Continue
 Write-Information "Skipped: $($result.SkippedCount)" -InformationAction Continue
 Write-Information '' -InformationAction Continue
 
 if ($null -ne $result.CodeCoverage) {
-    Write-Information 'Coverage summary'-InformationAction Continue
+    Write-Information 'Coverage summary' -InformationAction Continue
     Write-Information ("Commands analyzed: {0}" -f $result.CodeCoverage.NumberOfCommandsAnalyzed) -InformationAction Continue
     Write-Information ("Commands executed: {0}" -f $result.CodeCoverage.NumberOfCommandsExecuted) -InformationAction Continue
     Write-Information ("Percent covered:   {0:N2}%" -f $result.CodeCoverage.CoveragePercent) -InformationAction Continue
@@ -97,15 +106,16 @@ Write-Information '' -InformationAction Continue
 
 $minimumCoverage = 95
 
-if ($result.CodeCoverage.CoveragePercent -lt $minimumCoverage) {
-    Write-Error "Coverage below required threshold ($minimumCoverage%)."
-    exit 1
-}
-
 if ($PassThru) {
-    return $result
+    Write-Output $result
 }
 
 if ($result.FailedCount -gt 0) {
+    Write-Error ("Pester reported {0} failed test(s)." -f $result.FailedCount)
+    exit 1
+}
+
+if ($null -eq $result.CodeCoverage -or $result.CodeCoverage.CoveragePercent -lt $minimumCoverage) {
+    Write-Error "Coverage below required threshold ($minimumCoverage%)."
     exit 1
 }

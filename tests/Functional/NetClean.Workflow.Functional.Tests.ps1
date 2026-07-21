@@ -36,6 +36,7 @@ Describe 'NetClean workflow functional tests' {
 
                 Mock Invoke-NetCleanPhase2Protect {
                     param($Context, $BackupPath, $DryRun, $SkipFirewallBackup)
+                    $null = $Context, $DryRun, $SkipFirewallBackup
 
                     [pscustomobject]@{
                         Phase      = 'Protect'
@@ -87,6 +88,7 @@ Describe 'NetClean workflow functional tests' {
 
                 Mock Invoke-NetCleanPhase2Protect {
                     param($Context, $BackupPath, $DryRun, $SkipFirewallBackup)
+                    $null = $Context, $DryRun, $SkipFirewallBackup
 
                     [pscustomobject]@{
                         Phase      = 'Protect'
@@ -102,8 +104,6 @@ Describe 'NetClean workflow functional tests' {
                 }
 
                 Mock Invoke-NetCleanPhase3Clean {
-                    param($Context, $Mode, $DryRun, $SkipWifi, $SkipDnsFlush, $SkipEventLogs, $SkipUserArtifacts, $PerformanceProfile)
-
                     [pscustomobject]@{
                         Phase      = 'Clean'
                         BackupPath = 'C:\backup'
@@ -143,8 +143,6 @@ Describe 'NetClean workflow functional tests' {
                 }
 
                 Mock Invoke-NetCleanPhase4Verify {
-                    param($Context)
-
                     [pscustomobject]@{
                         Phase      = 'Verify'
                         BackupPath = 'C:\backup'

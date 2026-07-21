@@ -134,7 +134,7 @@ Array of Wi-Fi profile name strings.
 #>
 function Get-WiFiProfileName {
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([string])]
     param()
 
     $result = Invoke-NetCleanNativeCapture `
