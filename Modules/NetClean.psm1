@@ -129,6 +129,114 @@ $script:LogFile = $null
 $script:NewLine = [Environment]::NewLine
 $script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 
+<#
+.SYNOPSIS
+Detects whether Windows is connected to organization management.
+.DESCRIPTION
+Uses dsregcmd /status for Active Directory, Microsoft Entra, enterprise, and
+workplace join state. It also treats EnterpriseMgmt scheduled-task evidence as
+MDM enrollment evidence. If dsregcmd is unavailable, domain join state falls
+back to Win32_ComputerSystem. No tenant or domain identifier is returned or
+logged.
+.OUTPUTS
+A PSCustomObject describing the management state and detection warnings.
+#>
+function Get-NetCleanDeviceManagementState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param()
+
+    $warnings = [System.Collections.Generic.List[string]]::new()
+    $state = [ordered]@{
+        EntraJoined       = $false
+        EnterpriseJoined  = $false
+        DomainJoined      = $false
+        WorkplaceJoined   = $false
+    }
+
+    $dsregSucceeded = $false
+    try {
+        $dsreg = Invoke-NetCleanNativeCapture -Name 'Detect Windows organization join state' -FilePath 'dsregcmd.exe' -ArgumentList @('/status')
+
+        if ($dsreg.Succeeded) {
+            foreach ($line in @($dsreg.Output)) {
+                if ($line -match '^\s*(AzureAdJoined|EnterpriseJoined|DomainJoined|WorkplaceJoined)\s*:\s*(YES|NO)\s*$') {
+                    $propertyName = if ($Matches[1] -eq 'AzureAdJoined') { 'EntraJoined' } else { $Matches[1] }
+                    $state[$propertyName] = $Matches[2] -eq 'YES'
+                    $dsregSucceeded = $true
+                }
+            }
+        }
+
+        if (-not $dsregSucceeded) {
+            [void]$warnings.Add('Microsoft Entra join-state detection was unavailable.')
+        }
+    }
+    catch {
+        [void]$warnings.Add('Microsoft Entra join-state detection was unavailable.')
+    }
+
+    if (-not $dsregSucceeded) {
+        try {
+            $computerSystem = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction Stop
+            $state.DomainJoined = [bool]$computerSystem.PartOfDomain
+        }
+        catch {
+            [void]$warnings.Add('Active Directory domain-state fallback was unavailable.')
+        }
+    }
+
+    $mdmEnrolled = $false
+    try {
+        $mdmTasks = @(Get-ScheduledTask -TaskPath '\Microsoft\Windows\EnterpriseMgmt\*' -ErrorAction Stop)
+        $mdmEnrolled = $mdmTasks.Count -gt 0
+    }
+    catch {
+        [void]$warnings.Add('MDM enrollment-task detection was unavailable.')
+    }
+
+    $isManaged = (
+        $state.EntraJoined -or
+        $state.EnterpriseJoined -or
+        $state.DomainJoined -or
+        $state.WorkplaceJoined -or
+        $mdmEnrolled
+    )
+
+    $joinType = if ($state.EntraJoined -and $state.DomainJoined) {
+        'MicrosoftEntraHybridJoined'
+    }
+    elseif ($state.EntraJoined) {
+        'MicrosoftEntraJoined'
+    }
+    elseif ($state.DomainJoined) {
+        'DomainJoined'
+    }
+    elseif ($state.EnterpriseJoined) {
+        'EnterpriseJoined'
+    }
+    elseif ($state.WorkplaceJoined) {
+        'WorkplaceRegistered'
+    }
+    elseif ($mdmEnrolled) {
+        'MdmEnrolled'
+    }
+    else {
+        'Workgroup'
+    }
+
+    return [pscustomobject]@{
+        IsManaged        = [bool]$isManaged
+        JoinType         = $joinType
+        DomainJoined     = [bool]$state.DomainJoined
+        EntraJoined      = [bool]$state.EntraJoined
+        EnterpriseJoined = [bool]$state.EnterpriseJoined
+        WorkplaceJoined  = [bool]$state.WorkplaceJoined
+        MdmEnrolled      = [bool]$mdmEnrolled
+        Warnings         = $warnings.ToArray()
+    }
+}
+
 function Get-NetCleanLogFile {
     [CmdletBinding()]
     param()

@@ -23,7 +23,7 @@ function Remove-WiFiProfilesSafe {
 
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    if ($PSBoundParameters.ContainsKey('WifiProfiles') -and $WifiProfiles) {
+    if ($PSBoundParameters.ContainsKey('WifiProfiles')) {
         $profiles = @($WifiProfiles)
     }
     else {
@@ -1226,16 +1226,14 @@ function Invoke-NetCleanPhase3Clean {
         }
     }
     else {
-        $profilesToRemove = $null
+        $profilesToRemove = @()
         if ($Context -and $Context.PSObject.Properties.Name -contains 'Protect' -and $Context.Protect.PSObject.Properties.Name -contains 'Summary' -and $Context.Protect.Summary.PSObject.Properties.Name -contains 'WiFiProfilesFound') {
-            $profilesToRemove = @($Context.Protect.Summary.WiFiProfilesFound)
+            $profilesToRemove += @($Context.Protect.Summary.WiFiProfilesFound)
         }
-        if ($profilesToRemove -and $profilesToRemove.Count -gt 0) {
-            $wifiResult = Remove-WiFiProfilesSafe -DryRun:$DryRun -WifiProfiles $profilesToRemove
-        }
-        else {
-            $wifiResult = Remove-WiFiProfilesSafe -DryRun:$DryRun
-        }
+
+        $profilesToRemove += @(Get-WiFiProfileName)
+        $profilesToRemove = @(Get-UniqueNonEmptyString -InputObject $profilesToRemove)
+        $wifiResult = Remove-WiFiProfilesSafe -DryRun:$DryRun -WifiProfiles $profilesToRemove
     }
 
     if ($SkipDnsFlush) {

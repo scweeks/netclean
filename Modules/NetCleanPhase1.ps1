@@ -1427,6 +1427,7 @@ function Invoke-NetCleanPhase1Detect {
         Write-NetCleanLog -Level INFO -Message 'Phase 1 detection started.'
     }
 
+    $managementState = Get-NetCleanDeviceManagementState
     $inventory = @(Get-ProtectionInventory)
     $protectionMap = @(Get-ProtectionRegistryMap -Inventory $inventory)
     $protectedGuids = @(Get-ProtectedInterfaceGuidSet -Inventory $inventory)
@@ -1450,6 +1451,7 @@ function Invoke-NetCleanPhase1Detect {
         ModuleVersion           = $script:NetCleanModuleVersion
         Phase                   = 'Detect'
         DetectedAt              = Get-Date
+        ManagementState         = $managementState
         Inventory               = $inventory
         ProtectionRegistryMap   = $protectionMap
         ProtectedInterfaceGuids = $protectedGuids
@@ -1461,10 +1463,12 @@ function Invoke-NetCleanPhase1Detect {
             ProtectedInterfaceGuidCount = @($protectedGuids).Count
             CandidateArtifactCount      = @($candidateArtifacts).Count
             SanitizableArtifactCount    = @($sanitizableArtifacts).Count
+            ManagedDevice               = [bool]$managementState.IsManaged
         }
     }
 
     if ($canLog) {
+        Write-NetCleanLog -Level INFO -Message ("Device management state: {0}" -f $managementState.JoinType)
         Write-NetCleanLog -Level INFO -Message ("Protected vendors detected: {0}" -f $result.Summary.ProtectedVendorsCount)
         Write-NetCleanLog -Level INFO -Message ("Protected interface GUIDs detected: {0}" -f $result.Summary.ProtectedInterfaceGuidCount)
         Write-NetCleanLog -Level INFO -Message ("Candidate artifacts detected: {0}" -f $result.Summary.CandidateArtifactCount)

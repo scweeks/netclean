@@ -48,6 +48,15 @@ Describe 'NetClean Phase 3 unit tests' {
                 @($result.Profiles) | Should -Contain 'LabSSID'
             }
 
+            It 'honors an explicitly empty profile inventory without rescanning' {
+                Mock Get-WiFiProfileName { throw 'Should not be called' }
+
+                $result = Remove-WiFiProfilesSafe -DryRun -WifiProfiles @()
+
+                $result.Removed | Should -Be 0
+                Should -Invoke Get-WiFiProfileName -Times 0
+            }
+
             It 'returns WhatIf-skipped operations when ShouldProcess declines' {
                 Mock Get-WiFiProfileName { @('HomeSSID') }
 
@@ -539,6 +548,23 @@ Describe 'NetClean Phase 3 unit tests' {
 
                 $result.Clean.Summary.WiFiProfilesRemoved | Should -Be 0
                 Should -Invoke Remove-WiFiProfilesSafe -Times 0
+            }
+
+            It 'removes the union of backed-up and newly discovered Wi-Fi profiles' {
+                $script:Context | Add-Member -NotePropertyName Protect -NotePropertyValue ([pscustomobject]@{
+                    Summary = [pscustomobject]@{
+                        WiFiProfilesFound = @('BackedUpSSID')
+                    }
+                })
+                Mock Get-WiFiProfileName { @('NewSSID') }
+
+                $null = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun
+
+                Should -Invoke Remove-WiFiProfilesSafe -Times 1 -ParameterFilter {
+                    @($WifiProfiles).Count -eq 2 -and
+                    $WifiProfiles -contains 'BackedUpSSID' -and
+                    $WifiProfiles -contains 'NewSSID'
+                }
             }
 
             It 'skips DNS cleanup when SkipDnsFlush is used' {
