@@ -213,6 +213,22 @@ Describe 'NetClean launcher functional tests' {
 
     Context 'Console output behavior' {
 
+        It 'discloses adapter, DNS, IPv6, and restart changes before safe cleanup' {
+            $script:messages = [System.Collections.Generic.List[string]]::new()
+            Mock Write-Information {
+                if ($null -ne $MessageData) {
+                    [void]$script:messages.Add([string]$MessageData)
+                }
+            }
+
+            Show-ModeExplanation -SelectedMode SafeConferencePrep
+
+            $script:messages | Should -Contain '  - reset eligible adapters to IPv4 DHCP'
+            $script:messages | Should -Contain '  - set Quad9 Secure DNS for IPv4 and IPv6'
+            $script:messages | Should -Contain '  - keep IPv6 enabled and prefer IPv4 after restart'
+            $script:messages | Should -Contain '  - require a restart for the IPv4 preference to take full effect'
+        }
+
         It 'explains when organization-managed network configuration is preserved' {
             $script:messages = [System.Collections.Generic.List[string]]::new()
             Mock Write-Information {
