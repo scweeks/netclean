@@ -279,33 +279,6 @@ Describe 'NetClean Phase 3 unit tests' {
             }
         }
 
-        Context 'Clear-NlaProbeStateSafe' {
-
-            It 'returns dry-run results when DryRun is specified' {
-                $result = @(Clear-NlaProbeStateSafe -DryRun)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Reason -eq 'DryRun' }).Count | Should -Be $result.Count
-            }
-
-            It 'returns skipped results when WhatIf is used' {
-                $result = @(Clear-NlaProbeStateSafe -WhatIf)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object { $_.Reason -eq 'WhatIf' }).Count | Should -Be $result.Count
-            }
-
-            It 'attempts to remove all configured NLA probe paths in normal mode' {
-                Mock Remove-ItemProperty {}
-
-                $result = @(Clear-NlaProbeStateSafe)
-
-                $result.Count | Should -BeGreaterThan 0
-                @($result | Where-Object Succeeded).Count | Should -Be $result.Count
-                Should -Invoke Remove-ItemProperty -Times $result.Count
-            }
-        }
-
         Context 'Clear-NetworkEventLogsSafe' {
 
             It 'returns dry-run result objects for event logs' {
@@ -529,7 +502,6 @@ Describe 'NetClean Phase 3 unit tests' {
                     }
                 }
 
-                Mock Clear-NlaProbeStateSafe { @() }
                 Mock Clear-NetworkEventLogsSafe {
                     @([pscustomobject]@{ Name = 'Clear test event log'; Succeeded = $true; Error = $null })
                 }
@@ -552,6 +524,14 @@ Describe 'NetClean Phase 3 unit tests' {
                 $result.Clean.Summary.RegistryArtifactsRemoved | Should -Be 1
                 $result.Clean.Summary.AdvancedRepairActions | Should -Be 0
                 $result.Clean.Summary.PerformanceTuningActions | Should -Be 0
+            }
+
+            It 'preserves NLA connectivity-probe configuration during privacy cleanup' {
+                $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun
+
+                @($result.Clean.Nla).Count | Should -Be 0
+                Get-Command Clear-NlaProbeStateSafe -ErrorAction SilentlyContinue |
+                    Should -BeNullOrEmpty
             }
 
             It 'skips Wi-Fi cleanup when SkipWifi is used' {

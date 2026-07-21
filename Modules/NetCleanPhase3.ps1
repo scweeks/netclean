@@ -495,114 +495,6 @@ function Remove-NetworkPrivacyArtifactsSafe {
 
 <#
 .SYNOPSIS
-Clears NLA probe state properties.
-.DESCRIPTION
-Removes NLA internet probe properties to reset network location awareness probes. Honors `-DryRun`, `-WhatIf` and `-Confirm`.
-.PARAMETER DryRun
-Simulate actions without making changes.
-.EXAMPLE
-Clear-NlaProbeStateSafe -DryRun
-.OUTPUTS
-An array of results for each property processed, indicating the property name, whether it was removed, if it was a dry run, if the operation succeeded, and any error messages if applicable.
-.NOTES
-- Clearing NLA probe state can help reset network location awareness but may have side effects on network connectivity until the system re-probes. Use with caution.
-#>
-function Clear-NlaProbeStateSafe {
-    [CmdletBinding(SupportsShouldProcess = $true)]
-    [OutputType([System.Object[]])]
-    param(
-        [switch]$DryRun
-    )
-
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
-
-    $nlaInternetPath = 'HKLM\SYSTEM\CurrentControlSet\Services\NlaSvc\Parameters\Internet'
-    $properties = @(
-        'ActiveDnsProbeContent',
-        'ActiveDnsProbeHost',
-        'ActiveWebProbeContent',
-        'ActiveWebProbeHost'
-    )
-
-    $results = New-Object System.Collections.Generic.List[object]
-    $providerPath = Convert-RegToProviderPath -RegistryPath $nlaInternetPath
-
-    foreach ($property in $properties) {
-        if ($DryRun) {
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Would remove NLA probe property: {0}\{1}" -f $nlaInternetPath, $property)
-            }
-
-            $results.Add([pscustomobject]@{
-                    Path      = $nlaInternetPath
-                    Property  = $property
-                    Removed   = $true
-                    DryRun    = $true
-                    Succeeded = $true
-                    Skipped   = $false
-                    Reason    = 'DryRun'
-                })
-            continue
-        }
-
-        if (-not $PSCmdlet.ShouldProcess("$nlaInternetPath\$property", 'Remove property')) {
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented removal of NLA probe property: {0}\{1}" -f $nlaInternetPath, $property)
-            }
-
-            $results.Add([pscustomobject]@{
-                    Path      = $nlaInternetPath
-                    Property  = $property
-                    Removed   = $false
-                    DryRun    = $false
-                    Succeeded = $true
-                    Skipped   = $true
-                    Reason    = 'WhatIf'
-                    Error     = 'WhatIf'
-                })
-            continue
-        }
-
-        try {
-            Remove-ItemProperty -LiteralPath $providerPath -Name $property -ErrorAction Stop
-
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Removed NLA probe property: {0}\{1}" -f $nlaInternetPath, $property)
-            }
-
-            $results.Add([pscustomobject]@{
-                    Path      = $nlaInternetPath
-                    Property  = $property
-                    Removed   = $true
-                    DryRun    = $false
-                    Succeeded = $true
-                    Skipped   = $false
-                    Reason    = $null
-                })
-        }
-        catch {
-            if ($canLog) {
-                Write-NetCleanLog -Level WARN -Message ("Failed to remove NLA probe property '{0}\{1}': {2}" -f $nlaInternetPath, $property, $_.Exception.Message)
-            }
-
-            $results.Add([pscustomobject]@{
-                    Path      = $nlaInternetPath
-                    Property  = $property
-                    Removed   = $false
-                    DryRun    = $false
-                    Succeeded = $false
-                    Skipped   = $false
-                    Reason    = $_.Exception.Message
-                    Error     = $_.Exception.Message
-                })
-        }
-    }
-
-    return $results.ToArray()
-}
-
-<#
-.SYNOPSIS
 Safely clears user network event logs.
 .DESCRIPTION
 Clears user-specific network event logs such as WLAN AutoConfig, NetworkProfile and DHCP Client operational logs. Honors `-DryRun`, `-WhatIf` and `-Confirm` to allow safe simulation of actions.
@@ -1263,7 +1155,7 @@ function Invoke-NetworkPerformanceTune {
 .SYNOPSIS
 Performs cleaning operations to remove network privacy artifacts and reset network state.
 .DESCRIPTION
-Based on the provided context and mode, executes a series of cleaning operations such as removing Wi-Fi profiles, flushing DNS cache, clearing ARP cache, removing registry artifacts, clearing NLA probe state, and optionally performing advanced repairs and performance tuning. Each operation is performed safely with support for `-DryRun` to simulate actions without making changes. Returns an updated context object containing details of the cleaning operations performed and their results.
+Based on the provided context and mode, executes cleaning operations such as removing Wi-Fi profiles, flushing DNS cache, clearing ARP cache, removing registry artifacts, and optionally performing advanced repairs and performance tuning. Each operation supports `-DryRun` to simulate actions without making changes. Returns an updated context object containing details of the operations and their results.
 .PARAMETER Context
 The context object produced during the detect/protect phases, containing inventory and protection information.
 .PARAMETER Mode
@@ -1284,7 +1176,7 @@ Specifies the validated performance profile used when Mode is PerformanceTune.
 .EXAMPLE
 Invoke-NetCleanPhase3Clean -Context $ctx -Mode 'SafeConferencePrep' -DryRun
 .OUTPUTS
-An updated context object containing the results of the cleaning operations, including which Wi-Fi profiles were removed, the outcome of DNS cache flushing, ARP cache clearing, registry artifact removal, NLA probe state clearing, event log clearing, user artifact clearing, and any advanced repairs or performance tuning performed based on the selected mode.
+An updated context object containing the results of Wi-Fi removal, cache clearing, registry artifact removal, event-log clearing, user artifact clearing, and any selected repair or performance-tuning operations.
 .NOTES
 - Ensure that the context object provided contains the necessary inventory and protection information for accurate cleaning operations.
 #>
@@ -1365,7 +1257,7 @@ function Invoke-NetCleanPhase3Clean {
 
     $arpResult = Clear-ArpCacheSafe -DryRun:$DryRun
     $artifacts = Remove-NetworkPrivacyArtifactsSafe -Context $newContext -DryRun:$DryRun
-    $nlaResults = Clear-NlaProbeStateSafe -DryRun:$DryRun
+    $nlaResults = @()
 
     if ($SkipEventLogs) {
         $logResults = @()
@@ -1463,12 +1355,6 @@ function Invoke-NetCleanPhase3Clean {
             }
         }
 
-        # NLA probe changes
-        foreach ($n in @($nlaResults)) {
-            $nlaStatus = if ($n.Succeeded) { 'OK' } else { "ERR: $($n.Error)" }
-            Write-NetCleanLog -Level INFO -Message ("NLA probe property processed: {0} {1}" -f $n.Property, $nlaStatus)
-        }
-
         # Event logs (be defensive: test for properties before accessing them)
         foreach ($l in @($logResults)) {
             $cmd = $null
@@ -1508,7 +1394,6 @@ Export-ModuleMember -Function @(
     'Clear-ArpCacheSafe',
     'Remove-RegistryPathSafe',
     'Remove-NetworkPrivacyArtifactsSafe',
-    'Clear-NlaProbeStateSafe',
     'Clear-NetworkEventLogsSafe',
     'Clear-UserNetworkArtifactsSafe',
     'Invoke-AdvancedNetworkRepair',

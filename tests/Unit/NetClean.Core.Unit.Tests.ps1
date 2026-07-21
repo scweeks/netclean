@@ -161,6 +161,99 @@ Describe 'NetClean core/shared helper unit tests' {
             }
         }
 
+        Context 'Get-NetCleanDeviceManagementState' {
+
+            It 'classifies a hybrid Entra/domain device as managed' {
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Succeeded = $true
+                        Output    = @(
+                            ' AzureAdJoined : YES',
+                            ' DomainJoined : YES',
+                            ' EnterpriseJoined : NO',
+                            ' WorkplaceJoined : NO'
+                        )
+                        Error     = $null
+                    }
+                }
+                Mock Get-ScheduledTask { @() }
+
+                $result = Get-NetCleanDeviceManagementState
+
+                $result.IsManaged | Should -BeTrue
+                $result.JoinType | Should -Be 'MicrosoftEntraHybridJoined'
+                $result.EntraJoined | Should -BeTrue
+                $result.DomainJoined | Should -BeTrue
+            }
+
+            It 'classifies a workgroup device without MDM evidence as unmanaged' {
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Succeeded = $true
+                        Output    = @(
+                            ' AzureAdJoined : NO',
+                            ' DomainJoined : NO',
+                            ' EnterpriseJoined : NO',
+                            ' WorkplaceJoined : NO'
+                        )
+                        Error     = $null
+                    }
+                }
+                Mock Get-ScheduledTask { @() }
+
+                $result = Get-NetCleanDeviceManagementState
+
+                $result.IsManaged | Should -BeFalse
+                $result.JoinType | Should -Be 'Workgroup'
+                $result.MdmEnrolled | Should -BeFalse
+            }
+
+            It 'treats EnterpriseMgmt task evidence as managed conservatively' {
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Succeeded = $true
+                        Output    = @(
+                            ' AzureAdJoined : NO',
+                            ' DomainJoined : NO',
+                            ' EnterpriseJoined : NO',
+                            ' WorkplaceJoined : NO'
+                        )
+                        Error     = $null
+                    }
+                }
+                Mock Get-ScheduledTask {
+                    @([pscustomobject]@{ TaskName = 'Schedule #3'; TaskPath = '\Microsoft\Windows\EnterpriseMgmt\{guid}\' })
+                }
+
+                $result = Get-NetCleanDeviceManagementState
+
+                $result.IsManaged | Should -BeTrue
+                $result.MdmEnrolled | Should -BeTrue
+                $result.JoinType | Should -Be 'MdmEnrolled'
+            }
+
+            It 'falls back to the computer-system domain state when dsregcmd fails' {
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Succeeded = $false
+                        Output    = @()
+                        Error     = 'dsregcmd failed'
+                    }
+                }
+                Mock Get-CimInstance {
+                    [pscustomobject]@{ PartOfDomain = $true }
+                } -ParameterFilter { $ClassName -eq 'Win32_ComputerSystem' }
+                Mock Get-ScheduledTask { @() }
+
+                $result = Get-NetCleanDeviceManagementState
+
+                $result.IsManaged | Should -BeTrue
+                $result.DomainJoined | Should -BeTrue
+                $result.JoinType | Should -Be 'DomainJoined'
+                @($result.Warnings).Count | Should -BeGreaterThan 0
+            }
+        }
+
         Context 'Test-RegistryPathExist' {
 
             It 'returns true when Test-Path returns true' {

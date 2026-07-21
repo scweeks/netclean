@@ -101,8 +101,8 @@ The `examples` directory contains reusable launcher, Wi-Fi restore, and schedule
 The project uses Pester v5 and PSScriptAnalyzer. Changes should follow red-green-refactor and add focused regression coverage before production edits.
 
 ```powershell
-Install-Module Pester -Scope CurrentUser -MinimumVersion 5.0.0 -MaximumVersion 5.999.999 -Force -SkipPublisherCheck
-Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+Install-Module Pester -Scope CurrentUser -RequiredVersion 5.9.0 -Force -SkipPublisherCheck
+Install-Module PSScriptAnalyzer -Scope CurrentUser -RequiredVersion 1.25.0 -Force
 Invoke-Pester -Path .\tests
 .\tests\Run-NetClean-Coverage.ps1
 ```

@@ -47,6 +47,23 @@ Describe 'NetClean safety regression tests' {
             }
         }
 
+        Context 'network adapter configuration preservation' {
+
+            It 'does not classify TCP/IP or adapter-control configuration roots as sanitizable' {
+                $interfaceGuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+
+                Mock Test-RegistryPathExist { $true }
+                Mock Get-RegistryChildKeyNamesSafe { @($interfaceGuid) }
+
+                $artifacts = @(Get-SanitizableNetworkArtifact -Inventory @())
+
+                @($artifacts | Where-Object ArtifactType -In @('TcpipInterface', 'NetworkControl')).Count |
+                    Should -Be 0
+                @($artifacts | Where-Object ArtifactType -EQ 'NetworkList').Count |
+                    Should -BeGreaterThan 0
+            }
+        }
+
         Context 'dry-run backup behavior' {
 
             BeforeEach {

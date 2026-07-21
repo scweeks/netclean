@@ -13,14 +13,10 @@ Contributions should be small, focused, and based on the latest `main` branch un
 ## Local validation
 
 ```powershell
-Install-Module Pester -Scope CurrentUser -MinimumVersion 5.0.0 -MaximumVersion 5.999.999 -Force -SkipPublisherCheck
-Install-Module PSScriptAnalyzer -Scope CurrentUser -Force
+Install-Module Pester -Scope CurrentUser -RequiredVersion 5.9.0 -Force -SkipPublisherCheck
+Install-Module PSScriptAnalyzer -Scope CurrentUser -RequiredVersion 1.25.0 -Force
 
-$settings = Join-Path $PWD 'PSScriptAnalyzerSettings.psd1'
-$paths = @('.\NetClean.ps1', '.\NetClean.psd1', '.\Modules', '.\tests')
-foreach ($path in $paths) {
-    Invoke-ScriptAnalyzer -Path $path -Recurse -Settings $settings
-}
+.\tests\Invoke-NetCleanAnalyzer.ps1
 
 Invoke-Pester -Path .\tests
 .\tests\Run-NetClean-Coverage.ps1

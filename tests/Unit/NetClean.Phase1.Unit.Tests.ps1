@@ -508,6 +508,17 @@ Describe 'NetClean Phase 1 unit tests' {
                         }
                     )
                 }
+
+                Mock Get-NetCleanDeviceManagementState {
+                    [pscustomobject]@{
+                        IsManaged      = $true
+                        JoinType       = 'MicrosoftEntraJoined'
+                        DomainJoined   = $false
+                        EntraJoined    = $true
+                        MdmEnrolled    = $true
+                        WorkplaceJoined = $false
+                    }
+                }
             }
 
             It 'returns a detect context with populated summary fields' {
@@ -518,6 +529,8 @@ Describe 'NetClean Phase 1 unit tests' {
                 $ctx.Summary.ProtectedInterfaceGuidCount | Should -Be 1
                 $ctx.Summary.CandidateArtifactCount | Should -Be 1
                 $ctx.Summary.SanitizableArtifactCount | Should -Be 1
+                $ctx.ManagementState.IsManaged | Should -BeTrue
+                $ctx.Summary.ManagedDevice | Should -BeTrue
             }
 
             It 'returns zero counts when no inventory or artifacts are found' {

@@ -2,6 +2,7 @@
 param(
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$OutputPath = (Join-Path $PSScriptRoot 'TestResults'),
+    [version]$PesterVersion = [version]'5.9.0',
     [switch]$PassThru
 )
 
@@ -9,11 +10,11 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $pesterModule = Get-Module -ListAvailable Pester |
-    Where-Object { $_.Version.Major -eq 5 } |
+    Where-Object Version -EQ $PesterVersion |
     Sort-Object Version -Descending |
     Select-Object -First 1
 if ($null -eq $pesterModule) {
-    throw 'Run-NetClean-Coverage.ps1 requires Pester v5.'
+    throw "Run-NetClean-Coverage.ps1 requires Pester $PesterVersion."
 }
 Import-Module $pesterModule.Path -Force -ErrorAction Stop
 

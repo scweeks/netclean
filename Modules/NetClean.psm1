@@ -23,15 +23,6 @@ $script:ModuleRoot = Split-Path -Parent $PSCommandPath
 . (Join-Path $script:ModuleRoot 'NetCleanPhase3.ps1')
 . (Join-Path $script:ModuleRoot 'NetCleanPhase4.ps1')
 
-# Returns $true when the runtime supports simple parallelism helpers we use (Start-Job batching)
-function Test-ParallelCapability {
-    [CmdletBinding()]
-    [OutputType([bool])]
-    param()
-
-    return $true
-}
-
 # Invoke a scriptblock over an input list in parallel using Start-Job with simple throttling.
 # Returns an array of results collected from each job's output. This is compatible with Windows PowerShell.
 function Invoke-InParallel {

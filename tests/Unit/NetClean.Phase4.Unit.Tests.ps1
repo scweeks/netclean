@@ -35,6 +35,8 @@ Describe 'NetClean Phase 4 unit tests' {
             }
 
             Mock Get-ProtectionInventory { $script:postInventory }
+            Mock Get-WiFiProfileName { @() }
+            Mock Get-NetworkListProfileName { @() }
             Mock Write-NetCleanLog {}
             Mock Write-Information {}
         }
@@ -48,6 +50,8 @@ Describe 'NetClean Phase 4 unit tests' {
                 @($result.VendorComparison.Missing).Count | Should -Be 0
                 @($result.GuidComparison.Missing).Count | Should -Be 0
                 @($result.ServiceComparison.Missing).Count | Should -Be 0
+                @($result.RemainingWiFiProfiles).Count | Should -Be 0
+                @($result.RemainingNetworkProfiles).Count | Should -Be 0
             }
 
             It 'fails when a protected vendor is missing' {
@@ -83,6 +87,24 @@ Describe 'NetClean Phase 4 unit tests' {
 
                 (Test-NetCleanPostState -Context $script:context).Passed | Should -BeTrue
             }
+
+            It 'fails when a saved Wi-Fi profile remains' {
+                Mock Get-WiFiProfileName { @('HomeSSID') }
+
+                $result = Test-NetCleanPostState -Context $script:context
+
+                $result.Passed | Should -BeFalse
+                $result.RemainingWiFiProfiles | Should -Contain 'HomeSSID'
+            }
+
+            It 'fails when a Windows NetworkList profile remains' {
+                Mock Get-NetworkListProfileName { @('Home network') }
+
+                $result = Test-NetCleanPostState -Context $script:context
+
+                $result.Passed | Should -BeFalse
+                $result.RemainingNetworkProfiles | Should -Contain 'Home network'
+            }
         }
 
         Context 'Invoke-NetCleanPhase4Verify' {
@@ -97,6 +119,8 @@ Describe 'NetClean Phase 4 unit tests' {
                 $result.Verify.Summary.MissingVendorsCount | Should -Be 0
                 $result.Verify.Summary.MissingGuidCount | Should -Be 0
                 $result.Verify.Summary.MissingServiceCount | Should -Be 0
+                $result.Verify.Summary.RemainingWiFiProfileCount | Should -Be 0
+                $result.Verify.Summary.RemainingNetworkProfileCount | Should -Be 0
             }
 
             It 'reports all missing protected categories in the summary' {

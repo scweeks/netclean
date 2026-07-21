@@ -1307,6 +1307,7 @@ function Get-NetworkPrivacyArtifactCandidate {
                     RegistryPath  = $path
                     InterfaceGuid = $null
                     IsProtected   = $false
+                    CanSanitize   = $true
                     Reason        = 'Network profile/signature history'
                 })
         }
@@ -1332,11 +1333,12 @@ function Get-NetworkPrivacyArtifactCandidate {
         $isProtected = $protectedGuidSet.Contains($guid)
 
         $candidates.Add([pscustomobject]@{
-                ArtifactType  = 'TcpipInterface'
-                RegistryPath  = $path
-                InterfaceGuid = $guid
-                IsProtected   = $isProtected
-                Reason        = if ($isProtected) { 'Protected by inventory correlation' } else { 'Non-protected interface-specific network state' }
+            ArtifactType  = 'TcpipInterface'
+            RegistryPath  = $path
+            InterfaceGuid = $guid
+            IsProtected   = $isProtected
+            CanSanitize   = $false
+            Reason        = if ($isProtected) { 'Protected by inventory correlation' } else { 'Preserved adapter configuration; not safe for recursive deletion' }
             })
     }
 
@@ -1367,7 +1369,8 @@ function Get-NetworkPrivacyArtifactCandidate {
                         RegistryPath  = $path
                         InterfaceGuid = $guid
                         IsProtected   = $isProtected
-                        Reason        = if ($isProtected) { 'Protected by inventory correlation' } else { 'Non-protected network connection metadata' }
+                        CanSanitize   = $false
+                        Reason        = if ($isProtected) { 'Protected by inventory correlation' } else { 'Preserved adapter configuration; not safe for recursive deletion' }
                     })
             }
         }
@@ -1397,7 +1400,13 @@ function Get-SanitizableNetworkArtifact {
         $Inventory = @(Get-ProtectionInventory)
     }
 
-    return @(Get-NetworkPrivacyArtifactCandidate -Inventory $Inventory | Where-Object { -not $_.IsProtected })
+    return @(
+        Get-NetworkPrivacyArtifactCandidate -Inventory $Inventory |
+            Where-Object {
+                -not $_.IsProtected -and
+                ($_.PSObject.Properties.Name -notcontains 'CanSanitize' -or $_.CanSanitize)
+            }
+    )
 }
 
 <#
@@ -1422,7 +1431,13 @@ function Invoke-NetCleanPhase1Detect {
     $protectionMap = @(Get-ProtectionRegistryMap -Inventory $inventory)
     $protectedGuids = @(Get-ProtectedInterfaceGuidSet -Inventory $inventory)
     $candidateArtifacts = @(Get-NetworkPrivacyArtifactCandidate -Inventory $inventory)
-    $sanitizableArtifacts = @($candidateArtifacts | Where-Object { -not $_.IsProtected })
+    $sanitizableArtifacts = @(
+        $candidateArtifacts |
+            Where-Object {
+                -not $_.IsProtected -and
+                ($_.PSObject.Properties.Name -notcontains 'CanSanitize' -or $_.CanSanitize)
+            }
+    )
 
     $protectedRegistryPaths = @(
         $protectionMap |

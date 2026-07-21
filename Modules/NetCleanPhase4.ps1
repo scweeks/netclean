@@ -6,13 +6,17 @@
 .SYNOPSIS
 Performs post-cleaning state verification by comparing inventories before and after cleaning.
 .DESCRIPTION
-Compares the pre-cleaning inventory with the post-cleaning inventory to identify any remaining protected items. Evaluates differences in AV vendors, protected interface GUIDs, and associated services. Returns a detailed report of the findings and an overall pass/fail status based on whether any protected items remain.
+Compares protected inventory before and after cleaning and checks that saved
+Wi-Fi and Windows NetworkList profiles no longer remain. Verification succeeds
+only when protected vendors, interface GUIDs, and services were preserved and
+the targeted network-profile traces were removed.
 .PARAMETER Context
 The context object containing the pre-cleaning inventory and other relevant information.
 .EXAMPLE
 Test-NetCleanPostState -Context $ctx
 .OUTPUTS
-A custom object containing the pre- and post-cleaning inventories, comparisons of vendors, GUIDs, and services, and an overall pass/fail status indicating whether protected items were successfully removed.
+A custom object containing protected-inventory comparisons, remaining privacy
+artifacts, and an overall pass/fail status.
 .NOTES
 - This function assumes that the pre-cleaning inventory was accurately captured during the detect/protect phases. Ensure that those phases completed successfully for reliable verification results.
 #>
@@ -69,17 +73,23 @@ function Test-NetCleanPostState {
     if ($canlog) { Write-NetCleanLog -Level INFO -Message 'Phase 4 verify completed (inventory gathered).' }
 
     $serviceComparison = Compare-StringSet -Before $preServices -After $postServices
+    $remainingWiFiProfiles = @(Get-WiFiProfileName)
+    $remainingNetworkProfiles = @(Get-NetworkListProfileName)
 
     return [pscustomobject]@{
-        PreInventory      = $preInventory
-        PostInventory     = $postInventory
-        VendorComparison  = $vendorComparison
-        GuidComparison    = $guidComparison
-        ServiceComparison = $serviceComparison
-        Passed            = (
+        PreInventory             = $preInventory
+        PostInventory            = $postInventory
+        VendorComparison         = $vendorComparison
+        GuidComparison           = $guidComparison
+        ServiceComparison        = $serviceComparison
+        RemainingWiFiProfiles    = $remainingWiFiProfiles
+        RemainingNetworkProfiles = $remainingNetworkProfiles
+        Passed                   = (
             @($vendorComparison.Missing).Count -eq 0 -and
             @($guidComparison.Missing).Count -eq 0 -and
-            @($serviceComparison.Missing).Count -eq 0
+            @($serviceComparison.Missing).Count -eq 0 -and
+            $remainingWiFiProfiles.Count -eq 0 -and
+            $remainingNetworkProfiles.Count -eq 0
         )
     }
 }
@@ -88,7 +98,8 @@ function Test-NetCleanPostState {
 .SYNOPSIS
 Performs verification checks after cleaning to assess the state of the system.
 .DESCRIPTION
-Compares the post-cleaning inventory against the pre-cleaning inventory to determine if protected items were successfully removed. Evaluates differences in AV vendors, interface GUIDs, and associated services. Returns a detailed report of the comparisons and an overall pass/fail status.
+Confirms that protected inventory remains intact and that saved Wi-Fi and
+Windows NetworkList profiles were removed.
 .PARAMETER Context
 The context object containing the pre- and post-cleaning inventories.
 .EXAMPLE
@@ -121,11 +132,15 @@ function Invoke-NetCleanPhase4Verify {
             VendorComparison  = $verification.VendorComparison
             GuidComparison    = $verification.GuidComparison
             ServiceComparison = $verification.ServiceComparison
+            RemainingWiFiProfiles = $verification.RemainingWiFiProfiles
+            RemainingNetworkProfiles = $verification.RemainingNetworkProfiles
             Summary           = [pscustomobject]@{
-                MissingVendorsCount = @($verification.VendorComparison.Missing).Count
-                MissingGuidCount    = @($verification.GuidComparison.Missing).Count
-                MissingServiceCount = @($verification.ServiceComparison.Missing).Count
-                Passed              = $verification.Passed
+                MissingVendorsCount         = @($verification.VendorComparison.Missing).Count
+                MissingGuidCount            = @($verification.GuidComparison.Missing).Count
+                MissingServiceCount         = @($verification.ServiceComparison.Missing).Count
+                RemainingWiFiProfileCount   = @($verification.RemainingWiFiProfiles).Count
+                RemainingNetworkProfileCount = @($verification.RemainingNetworkProfiles).Count
+                Passed                      = $verification.Passed
             }
         }) -Force
 
@@ -153,11 +168,24 @@ function Invoke-NetCleanPhase4Verify {
         else {
             Write-NetCleanLog -Level INFO -Message 'Verification: No missing protected services detected.'
         }
+
+        if (@($verification.RemainingWiFiProfiles).Count -gt 0) {
+            Write-NetCleanLog -Level WARN -Message ("Verification: Remaining Wi-Fi profiles: {0}" -f ($verification.RemainingWiFiProfiles -join ', '))
+        }
+
+        if (@($verification.RemainingNetworkProfiles).Count -gt 0) {
+            Write-NetCleanLog -Level WARN -Message ("Verification: Remaining NetworkList profiles: {0}" -f ($verification.RemainingNetworkProfiles -join ', '))
+        }
     }
 
     # Console summary for verification
-    Write-Information (("Phase 4 verify: Passed={0} MissingVendors={1} MissingGuids={2} MissingServices={3}" -f `
-                $verification.Passed, @($verification.VendorComparison.Missing).Count, @($verification.GuidComparison.Missing).Count, @($verification.ServiceComparison.Missing).Count)) -InformationAction Continue
+    Write-Information (("Phase 4 verify: Passed={0} MissingVendors={1} MissingGuids={2} MissingServices={3} RemainingWiFi={4} RemainingNetworkProfiles={5}" -f `
+                $verification.Passed,
+                @($verification.VendorComparison.Missing).Count,
+                @($verification.GuidComparison.Missing).Count,
+                @($verification.ServiceComparison.Missing).Count,
+                @($verification.RemainingWiFiProfiles).Count,
+                @($verification.RemainingNetworkProfiles).Count)) -InformationAction Continue
 
     return $newContext
 }
