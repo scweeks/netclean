@@ -233,18 +233,17 @@ Describe 'NetClean launcher functional tests' {
             Mock Read-Host { $script:readResponses.Dequeue() }
             Mock Show-NetCleanMenu {}
 
-            Read-NetCleanMenuSelection | Should -Be 'PerformanceTune'
+            Read-NetCleanMenuSelection | Should -Be 'Exit'
             Should -Invoke Read-Host -Times 2
             Should -Invoke Show-NetCleanMenu -Times 2
-            $script:messages | Should -Contain 'Invalid selection. Please choose 1 through 5.'
+            $script:messages | Should -Contain 'Invalid selection. Please choose 1 through 4.'
         }
 
         It 'maps every valid menu choice' -ForEach @(
             @{ Choice = '1'; Expected = 'Preview' }
             @{ Choice = '2'; Expected = 'SafeConferencePrep' }
             @{ Choice = '3'; Expected = 'AdvancedRepair' }
-            @{ Choice = '4'; Expected = 'PerformanceTune' }
-            @{ Choice = '5'; Expected = 'Exit' }
+            @{ Choice = '4'; Expected = 'Exit' }
         ) {
             Mock Read-Host { $Choice }
             Mock Show-NetCleanMenu {}
@@ -257,7 +256,8 @@ Describe 'NetClean launcher functional tests' {
 
             $script:messages | Should -Contain ' NetClean - Conference / CTF Prep Tool'
             $script:messages | Should -Contain '1. Preview only'
-            $script:messages | Should -Contain '5. Exit'
+            $script:messages | Should -Contain '4. Exit'
+            $script:messages | Should -Not -Contain '4. Performance tuning'
         }
 
         It 'explains each non-default operating mode' -ForEach @(

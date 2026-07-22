@@ -21,7 +21,9 @@ NetClean is a Windows PowerShell tool for detecting, backing up, cleaning, and v
 | `Preview` | Runs detection and simulated protection/backup planning without cleanup. |
 | `SafeConferencePrep` | Detects, backs up, performs the standard cleanup, and verifies protected inventory. |
 | `AdvancedRepair` | Adds network-stack repair actions to the standard workflow. |
-| `PerformanceTune` | Adds the selected performance profile to the standard workflow. |
+| `PerformanceTune` | Direct invocation only while network-optimization work is tabled; adds the selected performance profile to the standard workflow. |
+
+The interactive menu currently offers Preview, Safe conference prep, Advanced repair, and Exit. Performance tuning remains available through the explicit `-Mode PerformanceTune` parameter for backward compatibility, but it is intentionally omitted from the menu while that work is tabled.
 
 ## Quick start
 
@@ -117,6 +119,6 @@ Invoke-Pester -Path .\tests
 .\tests\Run-NetClean-Coverage.ps1
 ```
 
-CI is defined in `.github/workflows/ci.yml`. It validates the module manifest, treats analyzer warnings/errors as failures, and runs Pester 6.0.1. Tests execute to exercise production behavior, but the coverage runner rejects source paths beneath `tests/`, so test code cannot inflate the result. Pester 6's profiler-based collector measures the current suite at 95.09% command coverage; the overall gate is ratcheted at 94% to retain regression margin, while pull-request reporting retains a 95% changed-file target. The suite now exceeds the 95% long-term overall target, and the enforced ratchet should only move upward as focused tests add durable margin. Generated output is written under `tests/TestResults` and is ignored by Git.
+CI is defined in `.github/workflows/ci.yml`. The authoritative PowerShell 7 job validates the module manifest, treats analyzer warnings/errors as failures, and runs Pester 6.0.1 with coverage. An independent Windows PowerShell 5.1 job runs the complete test suite and manifest validation in parallel. Tests execute to exercise production behavior, but the coverage runner rejects source paths beneath `tests/`, so test code cannot inflate the result. Pester 6's profiler-based collector measures the current suite at 95.09% command coverage; the overall gate is ratcheted at 94% to retain regression margin, while pull-request reporting retains a 95% changed-file target. The suite now exceeds the 95% long-term overall target, and the enforced ratchet should only move upward as focused tests add durable margin. Generated output is written under `tests/TestResults` and is ignored by Git.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations and [LICENSE](LICENSE) for GPLv3 terms.

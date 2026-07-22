@@ -22,6 +22,11 @@ All notable changes to this project should be documented in this file.
 - Raise the overall command-coverage ratchet from 85% to 90% after failure-path, strict-mode, and active-helper tests increased measured production coverage to 92.05%.
 - Expand active-path protection discovery, workflow, registry export, cleanup, and verification tests to 95.09% measured production coverage, and raise the overall command-coverage ratchet from 90% to 94% while retaining the 95% changed-file gate.
 - Reject test-directory files as coverage sources so test code cannot inflate reported production coverage.
+- Preserve textual vendor inference when executable metadata is present but does not identify a vendor.
+- Normalize exported `Wi-Fi-<profile>.xml` filenames before using them as expected profile names during workflow verification.
+- Retry a PSScriptAnalyzer target once only when version 1.25.0 raises its intermittent `NullReferenceException`; all repeated null references, other exceptions, and analyzer findings remain fatal.
+- Temporarily omit performance tuning from the interactive menu while retaining explicit `-Mode PerformanceTune` compatibility.
+- Add a parallel Windows PowerShell 5.1 compatibility job and update workflow actions to immutable Node.js 24 release commits.
 
 - Refactor: Make repository PSScriptAnalyzer-clean across all scripts and module functions.
 	- Replace `Write-Host` with structured logging and proper streams.

@@ -6,6 +6,58 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Test-NetCleanNullReferenceException {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Exception]$Exception
+    )
+
+    $currentException = $Exception
+    while ($null -ne $currentException) {
+        if ($currentException -is [System.NullReferenceException]) {
+            return $true
+        }
+
+        $currentException = $currentException.InnerException
+    }
+
+    return $false
+}
+
+function Invoke-NetCleanTargetAnalysis {
+    [CmdletBinding()]
+    [OutputType([System.Object[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetPath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SettingsPath
+    )
+
+    $maximumAttemptCount = 2
+    for ($attemptNumber = 1; $attemptNumber -le $maximumAttemptCount; $attemptNumber++) {
+        try {
+            return @(
+                Invoke-ScriptAnalyzer `
+                    -Path $TargetPath `
+                    -Settings $SettingsPath `
+                    -ErrorAction Stop
+            )
+        }
+        catch {
+            $isRetryable = Test-NetCleanNullReferenceException -Exception $_.Exception
+            if (-not $isRetryable -or $attemptNumber -ge $maximumAttemptCount) {
+                throw
+            }
+
+            Write-Warning ("PSScriptAnalyzer returned a transient NullReferenceException for '{0}'. Retrying once." -f $TargetPath)
+        }
+    }
+}
+
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $settingsPath = Join-Path $repositoryRoot 'PSScriptAnalyzerSettings.psd1'
 
@@ -39,12 +91,12 @@ $findings = [System.Collections.Generic.List[object]]::new()
 
 foreach ($targetFile in $targetFiles) {
     try {
-        foreach ($finding in @(Invoke-ScriptAnalyzer -Path $targetFile.FullName -Settings $settingsPath -ErrorAction Stop)) {
+        foreach ($finding in @(Invoke-NetCleanTargetAnalysis -TargetPath $targetFile.FullName -SettingsPath $settingsPath)) {
             $findings.Add($finding)
         }
     }
     catch {
-        throw "PSScriptAnalyzer failed for '$($targetFile.FullName)': $($_.Exception.Message)"
+        throw "PSScriptAnalyzer failed for '$($targetFile.FullName)' [$($_.Exception.GetType().FullName)]: $($_.Exception.Message)"
     }
 }
 

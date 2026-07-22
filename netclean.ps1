@@ -235,10 +235,12 @@ function Show-NetCleanMenu {
     Write-Information '3. Advanced repair' -InformationAction Continue
     Write-Information '   Includes deeper network reset actions. May affect installed software.' -InformationAction Continue
     Write-Information '' -InformationAction Continue
-    Write-Information '4. Performance tuning' -InformationAction Continue
-    Write-Information '   Apply conservative network performance tuning.' -InformationAction Continue
-    Write-Information '' -InformationAction Continue
-    Write-Information '5. Exit' -InformationAction Continue
+    # PerformanceTune remains available to direct callers but is intentionally
+    # omitted from the interactive menu while network-optimization work is tabled.
+    # Write-Information '4. Performance tuning' -InformationAction Continue
+    # Write-Information '   Apply conservative network performance tuning.' -InformationAction Continue
+    # Write-Information '' -InformationAction Continue
+    Write-Information '4. Exit' -InformationAction Continue
     Write-Information '' -InformationAction Continue
 }
 
@@ -261,17 +263,17 @@ function Read-NetCleanMenuSelection {
 
     while ($true) {
         Show-NetCleanMenu
-        $choice = Read-Host 'Select an option (1-5)'
+        $choice = Read-Host 'Select an option (1-4)'
 
         switch ($choice) {
             '1' { return 'Preview' }
             '2' { return 'SafeConferencePrep' }
             '3' { return 'AdvancedRepair' }
-            '4' { return 'PerformanceTune' }
-            '5' { return 'Exit' }
+            # '4' { return 'PerformanceTune' } # Tabled for interactive use.
+            '4' { return 'Exit' }
             default {
                 Write-Information '' -InformationAction Continue
-                Write-Information 'Invalid selection. Please choose 1 through 5.' -InformationAction Continue
+                Write-Information 'Invalid selection. Please choose 1 through 4.' -InformationAction Continue
                 Write-Information '' -InformationAction Continue
             }
         }
