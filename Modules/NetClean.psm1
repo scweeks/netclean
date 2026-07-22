@@ -124,6 +124,14 @@ function Invoke-InParallel {
 
 Set-StrictMode -Version Latest
 $script:NetCleanModuleVersion = '1.0.0'
+$script:RegistryHiveMap = [ordered]@{
+    HKLM = 'HKEY_LOCAL_MACHINE'
+    HKCU = 'HKEY_CURRENT_USER'
+    HKCR = 'HKEY_CLASSES_ROOT'
+    HKU  = 'HKEY_USERS'
+    HKCC = 'HKEY_CURRENT_CONFIG'
+}
+$script:RegistryRootMap = $null
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -456,6 +464,128 @@ function Convert-RegKeyPath {
 
 <#
 .SYNOPSIS
+Parses a normalized registry path into its root and suffix.
+.DESCRIPTION
+Returns the short logical root, native root name, suffix, and normalized input
+for a path accepted by Convert-RegKeyPath.
+#>
+function Get-NetCleanRegistryPathInfo {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RegistryPath
+    )
+
+    $normalized = Convert-RegKeyPath -Path $RegistryPath
+    foreach ($entry in $script:RegistryHiveMap.GetEnumerator()) {
+        $pattern = '^(?:{0}|{1})(?:\\(?<Suffix>.*))?$' -f
+            [regex]::Escape($entry.Key),
+            [regex]::Escape($entry.Value)
+        $match = [regex]::Match($normalized, $pattern, [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        if ($match.Success) {
+            return [pscustomobject]@{
+                Root       = $entry.Key
+                NativeRoot = $entry.Value
+                Suffix     = $match.Groups['Suffix'].Value
+                Normalized = $normalized
+            }
+        }
+    }
+
+    throw "Unsupported registry root in path '$RegistryPath'"
+}
+
+function Get-NetCleanRegistryProviderPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RegistryPath
+    )
+
+    $info = Get-NetCleanRegistryPathInfo -RegistryPath $RegistryPath
+    if ([string]::IsNullOrWhiteSpace($info.Suffix)) {
+        return "Registry::$($info.NativeRoot)"
+    }
+
+    return "Registry::$($info.NativeRoot)\$($info.Suffix)"
+}
+
+<#
+.SYNOPSIS
+Sets private logical registry-root mappings for an isolated registry tree.
+.DESCRIPTION
+Validates all target roots as existing Registry-provider keys, then atomically
+replaces the private map. This helper is intentionally not exported.
+#>
+function Set-NetCleanRegistryRootMap {
+    [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Low')]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateNotNull()]
+        [hashtable]$RootMap
+    )
+
+    if ($RootMap.Count -eq 0) {
+        throw 'Registry root map must contain at least one mapping.'
+    }
+
+    $validated = @{}
+    foreach ($entry in $RootMap.GetEnumerator()) {
+        $logical = Get-NetCleanRegistryPathInfo -RegistryPath ([string]$entry.Key)
+        if (-not [string]::IsNullOrWhiteSpace($logical.Suffix)) {
+            throw "Registry root map key must be a hive root: '$($entry.Key)'"
+        }
+        if ($validated.ContainsKey($logical.Root)) {
+            throw "Registry root map contains a duplicate logical root: '$($logical.Root)'"
+        }
+
+        $target = Convert-RegKeyPath -Path ([string]$entry.Value)
+        $targetProviderPath = Get-NetCleanRegistryProviderPath -RegistryPath $target
+        $targetItem = Get-Item -LiteralPath $targetProviderPath -ErrorAction Stop
+        if ($targetItem.PSProvider.Name -ne 'Registry') {
+            throw "Registry root map target is not a Registry-provider key: '$($entry.Value)'"
+        }
+
+        $validated[$logical.Root] = $target
+    }
+
+    if ($PSCmdlet.ShouldProcess('private registry-root map', 'Replace registry-root mappings')) {
+        $script:RegistryRootMap = $validated
+    }
+}
+
+function Clear-NetCleanRegistryRootMap {
+    [CmdletBinding()]
+    param()
+
+    $script:RegistryRootMap = $null
+}
+
+function Resolve-NetCleanRegistryPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RegistryPath
+    )
+
+    $info = Get-NetCleanRegistryPathInfo -RegistryPath $RegistryPath
+    if ($null -eq $script:RegistryRootMap -or -not $script:RegistryRootMap.ContainsKey($info.Root)) {
+        return $info.Normalized
+    }
+
+    $mappedRoot = $script:RegistryRootMap[$info.Root]
+    if ([string]::IsNullOrWhiteSpace($info.Suffix)) {
+        return $mappedRoot
+    }
+
+    return "$mappedRoot\$($info.Suffix)"
+}
+
+<#
+.SYNOPSIS
 Validates and normalizes a GUID string.
 .DESCRIPTION
 Parses a GUID string and returns the canonical lowercase GUID form. Returns `$null` for empty input.
@@ -509,21 +639,8 @@ function Convert-RegToProviderPath {
 
     if ([string]::IsNullOrWhiteSpace($RegistryPath)) { return $null }
 
-    $p = Convert-RegKeyPath -Path $RegistryPath
-
-    switch -Regex ($p) {
-        '^HKLM\\' { return ('Registry::HKEY_LOCAL_MACHINE\' + $p.Substring(5)) }
-        '^HKEY_LOCAL_MACHINE\\' { return ('Registry::' + $p) }
-        '^HKCU\\' { return ('Registry::HKEY_CURRENT_USER\' + $p.Substring(5)) }
-        '^HKEY_CURRENT_USER\\' { return ('Registry::' + $p) }
-        '^HKCR\\' { return ('Registry::HKEY_CLASSES_ROOT\' + $p.Substring(5)) }
-        '^HKEY_CLASSES_ROOT\\' { return ('Registry::' + $p) }
-        '^HKU\\' { return ('Registry::HKEY_USERS\' + $p.Substring(4)) }
-        '^HKEY_USERS\\' { return ('Registry::' + $p) }
-        '^HKCC\\' { return ('Registry::HKEY_CURRENT_CONFIG\' + $p.Substring(5)) }
-        '^HKEY_CURRENT_CONFIG\\' { return ('Registry::' + $p) }
-        default { throw "Unsupported registry root in path '$RegistryPath'" }
-    }
+    $resolvedPath = Resolve-NetCleanRegistryPath -RegistryPath $RegistryPath
+    return Get-NetCleanRegistryProviderPath -RegistryPath $resolvedPath
 }
 
 <#
@@ -1559,11 +1676,16 @@ function Invoke-RegExport {
         [switch]$DryRun
     )
 
-    $regArgs = @('export', $Key, $FilePath, '/y')
-
     if ($DryRun) {
         return $FilePath
     }
+
+    $resolvedKey = Resolve-NetCleanRegistryPath -RegistryPath $Key
+    if ($resolvedKey.Contains('"') -or $FilePath.Contains('"')) {
+        throw 'Registry export key and output path must not contain double-quote characters.'
+    }
+    $quote = [char]34
+    $regArgs = @('export', "$quote$resolvedKey$quote", "$quote$FilePath$quote", '/y')
 
     $proc = Start-Process -FilePath 'reg.exe' -ArgumentList $regArgs -NoNewWindow -Wait -PassThru
     if ($null -eq $proc) {

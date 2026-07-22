@@ -5,7 +5,7 @@ param(
     [version]$PesterVersion = [version]'6.0.1',
     [string[]]$CoveragePath,
     [ValidateRange(0, 100)]
-    [double]$MinimumCoverage = 68.0,
+    [double]$MinimumCoverage = 69.0,
     [switch]$PassThru
 )
 
@@ -84,10 +84,11 @@ $testFiles = @(
     Get-ChildItem -Path (Join-Path $testsPath 'Unit') -Filter '*.Tests.ps1' -File -ErrorAction SilentlyContinue
     Get-ChildItem -Path (Join-Path $testsPath 'Functional') -Filter '*.Tests.ps1' -File -ErrorAction SilentlyContinue
     Get-ChildItem -Path (Join-Path $testsPath 'Integration') -Filter '*.Tests.ps1' -File -ErrorAction SilentlyContinue
+    Get-ChildItem -Path (Join-Path $testsPath 'System') -Filter '*.Tests.ps1' -File -ErrorAction SilentlyContinue
 ) | Sort-Object FullName
 
 if (-not $testFiles -or $testFiles.Count -eq 0) {
-    throw "No test files found under tests\Unit, tests\Functional, or tests\Integration."
+    throw "No test files found under tests\Unit, tests\Functional, tests\Integration, or tests\System."
 }
 
 $coverageXml = Join-Path $OutputPath 'coverage.xml'

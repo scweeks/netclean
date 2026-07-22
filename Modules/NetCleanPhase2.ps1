@@ -72,14 +72,14 @@ function Get-NetworkListProfileName {
     [CmdletBinding()]
     param()
 
-    $root = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles'
+    $root = Convert-RegToProviderPath -RegistryPath 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles'
     $names = New-Object System.Collections.Generic.List[string]
     try {
         if (Test-Path -LiteralPath $root) {
-            $children = Get-ChildItem -Path $root -ErrorAction SilentlyContinue
+            $children = Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue
             foreach ($c in $children) {
                 try {
-                    $pn = Get-ItemProperty -Path $c.PSPath -Name 'ProfileName' -ErrorAction SilentlyContinue
+                    $pn = Get-ItemProperty -LiteralPath $c.PSPath -Name 'ProfileName' -ErrorAction SilentlyContinue
                     if ($pn -and $pn.ProfileName) { [void]$names.Add($pn.ProfileName) }
                 }
                 catch { Write-Verbose "Get-NetworkListProfileName child: $($_.Exception.Message)" }
