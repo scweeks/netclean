@@ -1,6 +1,11 @@
 # Ignore common AI/chat artifacts and local assistant data
 # Adjust these patterns to match your editor/assistant storage locations
 
+# Ignore common AI/chat artifacts and local assistant data
+# Adjust these patterns to match your editor/assistant storage locations
+.ai/
+**/.ai/
+
 # Copilot / assistant caches
 .copilot/
 .copilot/*
