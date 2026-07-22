@@ -68,27 +68,60 @@ function Export-ProtectedRegistryKey {
 }
 
 ## Read human-friendly network profile names directly from the registry.
-function Get-NetworkListProfileName {
+function Get-NetworkListProfileSnapshot {
     [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
     $root = Convert-RegToProviderPath -RegistryPath 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles'
-    $names = New-Object System.Collections.Generic.List[string]
+    $profiles = [System.Collections.Generic.List[object]]::new()
     try {
         if (Test-Path -LiteralPath $root) {
             $children = Get-ChildItem -LiteralPath $root -ErrorAction SilentlyContinue
             foreach ($c in $children) {
                 try {
-                    $pn = Get-ItemProperty -LiteralPath $c.PSPath -Name 'ProfileName' -ErrorAction SilentlyContinue
-                    if ($pn -and $pn.ProfileName) { [void]$names.Add($pn.ProfileName) }
+                    $properties = Get-ItemProperty -LiteralPath $c.PSPath -ErrorAction SilentlyContinue
+                    if ($properties -and $properties.ProfileName) {
+                        $profiles.Add([pscustomobject]@{
+                                Name         = [string]$properties.ProfileName
+                                ProfileGuid  = [string]$c.PSChildName
+                                Category     = if ($properties.PSObject.Properties.Name -contains 'Category') { $properties.Category } else { $null }
+                                Description  = if ($properties.PSObject.Properties.Name -contains 'Description') { $properties.Description } else { $null }
+                                Managed      = if ($properties.PSObject.Properties.Name -contains 'Managed') { $properties.Managed } else { $null }
+                                RegistryPath = "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles\$($c.PSChildName)"
+                            })
+                    }
                 }
-                catch { Write-Verbose "Get-NetworkListProfileName child: $($_.Exception.Message)" }
+                catch { Write-Verbose "Get-NetworkListProfileSnapshot child: $($_.Exception.Message)" }
             }
         }
     }
-    catch { Write-Verbose "Get-NetworkListProfileName: $($_.Exception.Message)" }
+    catch { Write-Verbose "Get-NetworkListProfileSnapshot: $($_.Exception.Message)" }
 
-    return $names.ToArray() | Sort-Object -Unique
+    return @($profiles.ToArray() | Sort-Object Name, ProfileGuid)
+}
+
+function Get-NetworkListProfileName {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [object[]]$Snapshot
+    )
+
+    if (-not $PSBoundParameters.ContainsKey('Snapshot') -or $null -eq $Snapshot) {
+        $Snapshot = @(Get-NetworkListProfileSnapshot)
+    }
+
+    $names = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($networkProfileRecord in $Snapshot) {
+        if ($networkProfileRecord.Name) {
+            [void]$names.Add([string]$networkProfileRecord.Name)
+        }
+    }
+
+    return [string[]]@($names | Sort-Object)
 }
 
 <#
@@ -132,9 +165,9 @@ Parses `netsh wlan show profiles` output to extract profile names; returns an em
 .OUTPUTS
 Array of Wi-Fi profile name strings.
 #>
-function Get-WiFiProfileName {
+function Get-WiFiProfileSnapshot {
     [CmdletBinding()]
-    [OutputType([string[]])]
+    [OutputType([System.Object[]])]
     param()
 
     $originalOutputEncoding = [Console]::OutputEncoding
@@ -152,10 +185,12 @@ function Get-WiFiProfileName {
 
     if (-not $result.Succeeded -or -not $result.Output -or $result.Output.Count -eq 0) {
         Write-NetCleanLog -Level DEBUG -Message 'No Wi-Fi profiles returned by netsh.'
-        return [string[]]@()
+        return @()
     }
 
-    $profiles = [System.Collections.Generic.List[string]]::new()
+    $profiles = [System.Collections.Generic.List[object]]::new()
+    $profileKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    $currentSource = 'Unknown'
 
     foreach ($line in $result.Output) {
         if ($null -eq $line) {
@@ -164,11 +199,13 @@ function Get-WiFiProfileName {
 
         $text = [string]$line
 
-        if ($text -match '^\s*All User Profile\s*:\s*(.+?)\s*$') {
-            $name = $matches[1].Trim()
-            if (-not [string]::IsNullOrWhiteSpace($name)) {
-                [void]$profiles.Add($name)
-            }
+        if ($text -match '^\s*Group policy profiles') {
+            $currentSource = 'GroupPolicy'
+            continue
+        }
+
+        if ($text -match '^\s*User profiles') {
+            $currentSource = 'User'
             continue
         }
 
@@ -177,16 +214,57 @@ function Get-WiFiProfileName {
             $name = $matches[1].Trim()
 
             if ($label -match 'Profile' -and -not [string]::IsNullOrWhiteSpace($name)) {
-                [void]$profiles.Add($name)
+                $isPolicyManaged = $currentSource -eq 'GroupPolicy' -or $label -match 'Group Policy'
+                $source = if ($isPolicyManaged) { 'GroupPolicy' } else { 'User' }
+                $profileKey = "$source`0$name"
+
+                if ($profileKeys.Add($profileKey)) {
+                    $profiles.Add([pscustomobject]@{
+                            Name            = $name
+                            Source          = $source
+                            IsPolicyManaged = $isPolicyManaged
+                        })
+                }
             }
         }
     }
 
-    [string[]]$finalProfiles = @($profiles | Sort-Object -Unique)
+    $finalProfiles = @($profiles.ToArray() | Sort-Object Name, Source)
 
-    Write-NetCleanLog -Level DEBUG -Message ("Detected Wi-Fi profiles: {0}" -f ($finalProfiles -join ', '))
+    Write-NetCleanLog -Level DEBUG -Message ("Detected Wi-Fi profiles: {0}" -f (($finalProfiles | ForEach-Object Name) -join ', '))
 
-    return [string[]]$finalProfiles
+    return $finalProfiles
+}
+
+<#
+.SYNOPSIS
+Returns exact Wi-Fi profile names from a supplied or newly collected snapshot.
+.DESCRIPTION
+Projects Wi-Fi profile names while preserving names that differ only by case.
+.OUTPUTS
+System.String[]
+#>
+function Get-WiFiProfileName {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [object[]]$Snapshot
+    )
+
+    if (-not $PSBoundParameters.ContainsKey('Snapshot') -or $null -eq $Snapshot) {
+        $Snapshot = @(Get-WiFiProfileSnapshot)
+    }
+
+    $names = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+    foreach ($wifiProfileRecord in $Snapshot) {
+        if ($wifiProfileRecord.Name) {
+            [void]$names.Add([string]$wifiProfileRecord.Name)
+        }
+    }
+
+    return [string[]]@($names | Sort-Object)
 }
 
 <#
@@ -217,6 +295,10 @@ function Export-WiFiProfile {
         [Parameter(Mandatory = $true)]
         [string]$Dest,
 
+        [Parameter()]
+        [AllowEmptyCollection()]
+        [string[]]$Profiles,
+
         [switch]$DryRun
     )
 
@@ -224,7 +306,12 @@ function Export-WiFiProfile {
     $exported = [System.Collections.Generic.List[string]]::new()
 
     $listFile = Join-Path $Dest ("WiFiProfiles_{0}.txt" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-    $profiles = @(Get-WiFiProfileName)
+    if ($PSBoundParameters.ContainsKey('Profiles')) {
+        $profiles = @($Profiles)
+    }
+    else {
+        $profiles = @(Get-WiFiProfileName)
+    }
 
     if ($profiles.Count -eq 0) {
         if ($canLog) {
@@ -837,7 +924,16 @@ function Invoke-NetCleanPhase2Protect {
         }
     }
 
-    $manifest.WiFiExports = @(Export-WiFiProfile -Dest $BackupPath -DryRun:$DryRun)
+    $wifiExportParameters = @{
+        Dest   = $BackupPath
+        DryRun = [bool]$DryRun
+    }
+    if ($Context.PSObject.Properties.Name -contains 'CollectionSnapshot' -and
+        $Context.CollectionSnapshot.PSObject.Properties.Name -contains 'WiFiProfiles') {
+        $wifiExportParameters.Profiles = @($Context.CollectionSnapshot.WiFiProfiles | ForEach-Object Name)
+    }
+
+    $manifest.WiFiExports = @(Export-WiFiProfile @wifiExportParameters)
 
     if (-not $SkipFirewallBackup) {
         try {

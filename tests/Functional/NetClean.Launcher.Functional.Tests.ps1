@@ -417,6 +417,23 @@ Describe 'NetClean launcher functional tests' {
                     [pscustomobject]@{ RegistryPath = 'HKLM\SOFTWARE\History' }
                     [pscustomobject]@{ RegistryPath = $null }
                 )
+                CandidateArtifacts = @(
+                    [pscustomobject]@{
+                        ArtifactType    = 'TcpipInterface'
+                        RegistryPath    = 'HKLM\SYSTEM\Tcpip\Interfaces\{GUID}'
+                        Decision        = 'Preserve'
+                        Reason          = 'Protected interface used by CrowdStrike'
+                        ProtectionSource = 'CrowdStrike'
+                    }
+                )
+                NetworkProfileDecisions = @(
+                    [pscustomobject]@{
+                        NetworkType = 'Wi-Fi'
+                        Name        = 'Home'
+                        Decision    = 'Remove'
+                        Reason      = 'Saved user Wi-Fi profile'
+                    }
+                )
                 Timings = [pscustomobject]@{
                     Detect = [pscustomobject]@{ Duration = [timespan]::FromSeconds(1) }
                 }
@@ -429,6 +446,8 @@ Describe 'NetClean launcher functional tests' {
             $script:messages | Should -Contain '  - Home'
             $script:messages | Should -Contain '  - Office'
             $script:messages | Should -Contain '  - HKLM\SOFTWARE\History'
+            $script:messages | Should -Contain '  - Remove [Wi-Fi] Home | Saved user Wi-Fi profile'
+            $script:messages | Should -Contain '  - Preserve [TcpipInterface] HKLM\SYSTEM\Tcpip\Interfaces\{GUID} | Protected interface used by CrowdStrike'
             $script:messages | Should -Contain 'Network list backup: C:\backup\NetworkList.reg'
             $script:messages | Should -Contain 'Log File: C:\ProgramData\NetClean\Logs\netclean.log'
             $script:messages | Should -Contain 'Phase runtimes'
@@ -680,6 +699,28 @@ Describe 'NetClean launcher functional tests' {
             })
 
             $script:messages | Should -Contain 'Device registration: WorkplaceRegistered'
+            $script:messages | Should -Contain 'A work or school account is registered for SSO and will be preserved; no organization management was detected.'
+            $script:messages | Should -Not -Contain 'Organization-managed network configuration will be preserved.'
+        }
+
+        It 'does not report management for inconsistent Workplace-only evidence' {
+            $script:messages = [System.Collections.Generic.List[string]]::new()
+            Mock Write-Information {
+                if ($null -ne $MessageData) {
+                    [void]$script:messages.Add([string]$MessageData)
+                }
+            }
+
+            Show-NetCleanManagementStatus -ManagementState ([pscustomobject]@{
+                IsManaged        = $true
+                JoinType         = 'WorkplaceRegistered'
+                WorkplaceJoined  = $true
+                DomainJoined     = $false
+                EntraJoined      = $false
+                EnterpriseJoined = $false
+                MdmEnrolled      = $false
+            })
+
             $script:messages | Should -Contain 'A work or school account is registered for SSO and will be preserved; no organization management was detected.'
             $script:messages | Should -Not -Contain 'Organization-managed network configuration will be preserved.'
         }

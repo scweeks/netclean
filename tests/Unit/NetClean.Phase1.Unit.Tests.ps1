@@ -159,6 +159,34 @@ Describe 'NetClean Phase 1 unit tests' {
                 $result.Count | Should -Be 1
                 $result[0].DisplayName | Should -Be 'PacketFilter'
             }
+
+            It 'uses a supplied service snapshot without rereading registry values' {
+                Mock Get-RegistryChildKeyNamesSafe { throw 'registry should not be queried' }
+                Mock Get-RegistryValuesSafe { throw 'registry should not be queried' }
+                $snapshot = @(
+                    [pscustomobject]@{
+                        Name          = 'ContosoFilter'
+                        RegistryPath  = 'HKLM\SYSTEM\CurrentControlSet\Services\ContosoFilter'
+                        Values        = [pscustomobject]@{
+                            DisplayName = 'Contoso Network Filter'
+                            Group       = 'NDIS'
+                            ImagePath   = 'C:\Contoso\filter.sys'
+                        }
+                        LinkageValues = [pscustomobject]@{
+                            Bind   = @('\Device\ContosoFilter')
+                            Export = @()
+                            Route  = @()
+                        }
+                    }
+                )
+
+                $result = @(Get-NdisServiceBindingEvidence -ServiceRegistrySnapshot $snapshot)
+
+                $result.Count | Should -Be 1
+                $result[0].Name | Should -Be 'ContosoFilter'
+                Should -Invoke Get-RegistryChildKeyNamesSafe -Times 0 -Exactly
+                Should -Invoke Get-RegistryValuesSafe -Times 0 -Exactly
+            }
         }
 
         Context 'Get-MsiRegistryEvidence' {
@@ -267,6 +295,24 @@ Describe 'NetClean Phase 1 unit tests' {
             }
         }
 
+        Context 'Get-SupplementalProtectionEvidence' {
+
+            It 'uses one bounded parallel invocation for balanced read-only collector groups' {
+                Mock Invoke-InParallel {
+                    foreach ($inputItem in $InputObjects) {
+                        [pscustomobject]@{ Source = $inputItem.Collector; Name = $inputItem.Collector }
+                    }
+                }
+
+                $result = @(Get-SupplementalProtectionEvidence -ThrottleLimit 2)
+
+                $result.Count | Should -Be 2
+                Should -Invoke Invoke-InParallel -Times 1 -Exactly -ParameterFilter {
+                    @($InputObjects).Count -eq 2 -and $ThrottleLimit -eq 2
+                }
+            }
+        }
+
         Context 'Get-ProtectionEvidence' {
 
             BeforeEach {
@@ -295,6 +341,49 @@ Describe 'NetClean Phase 1 unit tests' {
 
                 $result = @(Get-ProtectionEvidence)
                 $result.Count | Should -Be 7
+            }
+
+            It 'uses the parallel supplemental collector only when requested' {
+                Mock Get-SupplementalProtectionEvidence {
+                    @([pscustomobject]@{ Source = 'WFP'; Name = 'ParallelEvidence' })
+                }
+
+                $result = @(
+                    Get-ProtectionEvidence `
+                        -ServiceRegistrySnapshot @() `
+                        -ParallelSupplementalEvidence
+                )
+
+                $result.Count | Should -Be 1
+                $result[0].Name | Should -Be 'ParallelEvidence'
+                Should -Invoke Get-SupplementalProtectionEvidence -Times 1 -Exactly
+                Should -Invoke Get-WfpStateEvidence -Times 0 -Exactly
+                Should -Invoke Get-MsiRegistryEvidence -Times 0 -Exactly
+            }
+
+            It 'falls back to sequential supplemental evidence collection when the parallel collector fails' {
+                Mock Get-SupplementalProtectionEvidence { throw 'runspace pool unavailable' }
+                Mock Get-WfpStateEvidence { @([pscustomobject]@{ Source = 'WFP'; Name = 'SequentialWfp' }) }
+                Mock Get-NdisFilterClassEvidence { @([pscustomobject]@{ Source = 'NdisFilterClass'; Name = 'SequentialNdis' }) }
+                Mock Get-MsiRegistryEvidence { @([pscustomobject]@{ Source = 'MsiRegistry'; Name = 'SequentialMsi' }) }
+                Mock Get-InfFileEvidence { @([pscustomobject]@{ Source = 'InfFile'; Name = 'SequentialInf' }) }
+                Mock Get-ScheduledTaskEvidence { @([pscustomobject]@{ Source = 'ScheduledTask'; Name = 'SequentialTask' }) }
+                Mock Get-AppxPackageEvidence { @([pscustomobject]@{ Source = 'AppxPackage'; Name = 'SequentialAppx' }) }
+
+                $result = @(
+                    Get-ProtectionEvidence `
+                        -ServiceRegistrySnapshot @() `
+                        -ParallelSupplementalEvidence
+                )
+
+                @($result | ForEach-Object Name) | Should -Contain 'SequentialWfp'
+                @($result | ForEach-Object Name) | Should -Contain 'SequentialNdis'
+                @($result | ForEach-Object Name) | Should -Contain 'SequentialMsi'
+                @($result | ForEach-Object Name) | Should -Contain 'SequentialInf'
+                @($result | ForEach-Object Name) | Should -Contain 'SequentialTask'
+                @($result | ForEach-Object Name) | Should -Contain 'SequentialAppx'
+                Should -Invoke Get-SupplementalProtectionEvidence -Times 1 -Exactly
+                Should -Invoke Get-WfpStateEvidence -Times 1 -Exactly
             }
 
             It 'returns empty when no evidence sources produce results' {
@@ -558,6 +647,45 @@ Describe 'NetClean Phase 1 unit tests' {
                 $result[0].Start | Should -Be 2
             }
 
+            It 'inspects a service binary only once across CIM and registry evidence' {
+                Mock Get-CimInstance {
+                    [pscustomobject]@{
+                        Name        = 'ContosoService'
+                        DisplayName = 'Contoso Service'
+                        PathName    = 'C:\Program Files\Contoso\agent.exe'
+                        State       = 'Running'
+                        StartMode   = 'Auto'
+                        ServiceType = 'Own Process'
+                    }
+                } -ParameterFilter { $ClassName -eq 'Win32_Service' }
+                Mock Get-RegistryChildKeyNamesSafe { @('ContosoService') }
+                Mock Get-RegistryValuesSafe {
+                    [pscustomobject]@{
+                        ImagePath   = '"C:\Program Files\Contoso\agent.exe" --service'
+                        DisplayName = 'Contoso Service'
+                        Start       = 2
+                        Type        = 16
+                        Group       = $null
+                    }
+                }
+                Mock Get-NormalizedFilePathFromCommandLine { 'C:\Program Files\Contoso\agent.exe' }
+                Mock Get-FileMetadatum {
+                    [pscustomobject]@{
+                        Path            = 'C:\Program Files\Contoso\agent.exe'
+                        CompanyName     = 'Contoso'
+                        FileDescription = 'Contoso Agent'
+                        ProductName     = 'Contoso Endpoint'
+                        SignerSubject   = 'CN=Contoso'
+                        InferredVendor  = 'Contoso'
+                    }
+                }
+
+                $result = @(Get-ProtectionEvidence)
+
+                @($result | Where-Object Source -In @('Service', 'ServiceRegistry')).Count | Should -Be 2
+                Should -Invoke Get-FileMetadatum -Times 1 -Exactly
+            }
+
             It 'isolates unavailable native evidence sources and retains supplemental evidence' {
                 Mock Get-CimInstance { throw 'cim-failure' }
                 Mock Get-ItemProperty { throw 'registry-failure' }
@@ -585,7 +713,31 @@ Describe 'NetClean Phase 1 unit tests' {
                     }
                 }
                 Mock Get-ServiceRegistryMap { @{} }
+                Mock Get-ServiceRegistrySnapshot { @() }
                 Mock Get-AdapterRegistryCorrelation { @() }
+            }
+
+            It 'collects the service registry once and shares that snapshot' {
+                $script:serviceSnapshot = @(
+                    [pscustomobject]@{
+                        Name         = 'ContosoFilter'
+                        RegistryPath = 'HKLM\SYSTEM\CurrentControlSet\Services\ContosoFilter'
+                    }
+                )
+                Mock Get-ServiceRegistrySnapshot { $script:serviceSnapshot }
+                Mock Get-ProtectionEvidence { @() }
+
+                [void](Get-ProtectionInventory)
+
+                Should -Invoke Get-ServiceRegistrySnapshot -Times 1 -Exactly
+                Should -Invoke Get-ProtectionEvidence -Times 1 -Exactly -ParameterFilter {
+                    @($ServiceRegistrySnapshot).Count -eq 1 -and
+                    $ServiceRegistrySnapshot[0].Name -eq 'ContosoFilter'
+                }
+                Should -Invoke Get-ServiceRegistryMap -Times 1 -Exactly -ParameterFilter {
+                    @($Snapshot).Count -eq 1 -and
+                    $Snapshot[0].Name -eq 'ContosoFilter'
+                }
             }
 
             It 'builds vendor inventory from evidence' {
@@ -817,6 +969,30 @@ Describe 'NetClean Phase 1 unit tests' {
 
                 $result = @(Get-NetworkPrivacyArtifactCandidate -Inventory @())
                 $result.Count | Should -BeGreaterThan 0
+                @($result | Where-Object { $_.Decision -notin @('Remove', 'Preserve') }).Count | Should -Be 0
+                @($result | Where-Object { [string]::IsNullOrWhiteSpace($_.Reason) }).Count | Should -Be 0
+            }
+
+            It 'identifies the vendor protecting each correlated interface path' {
+                $guid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+                Mock Test-RegistryPathExist { $true }
+                Mock Get-RegistryChildKeyNamesSafe { @($guid) }
+                $inventory = @(
+                    [pscustomobject]@{
+                        Vendor                  = 'CrowdStrike'
+                        ProtectedInterfaceGuids = @($guid)
+                    }
+                )
+
+                $result = @(
+                    Get-NetworkPrivacyArtifactCandidate -Inventory $inventory |
+                        Where-Object { $_.InterfaceGuid -eq $guid }
+                )
+
+                $result.Count | Should -BeGreaterThan 0
+                @($result | Where-Object Decision -NE 'Preserve').Count | Should -Be 0
+                @($result | Where-Object { $_.ProtectionSource -notmatch 'CrowdStrike' }).Count | Should -Be 0
+                @($result | Where-Object { $_.Reason -notmatch 'CrowdStrike' }).Count | Should -Be 0
             }
 
             It 'returns empty when candidate paths do not exist' {
@@ -824,6 +1000,93 @@ Describe 'NetClean Phase 1 unit tests' {
                 Mock Get-RegistryChildKeyNamesSafe { @() }
 
                 $result = @(Get-NetworkPrivacyArtifactCandidate -Inventory @())
+                $result.Count | Should -Be 0
+            }
+        }
+
+        Context 'Get-NetworkProfileDecision' {
+
+            It 'marks a user Wi-Fi profile as removable with no protection source' {
+                $result = @(
+                    Get-NetworkProfileDecision -WiFiProfiles @(
+                        [pscustomobject]@{ Name = 'HomeSSID'; IsPolicyManaged = $false }
+                    )
+                )
+
+                $result.Count | Should -Be 1
+                $result[0].ArtifactType | Should -Be 'WiFiProfile'
+                $result[0].NetworkType | Should -Be 'Wi-Fi'
+                $result[0].Decision | Should -Be 'Remove'
+                $result[0].IsProtected | Should -BeFalse
+                $result[0].CanSanitize | Should -BeTrue
+                $result[0].ProtectionSource | Should -BeNullOrEmpty
+                $result[0].Reason | Should -Match 'Saved user Wi-Fi profile'
+            }
+
+            It 'marks a Group Policy Wi-Fi profile as preserved with a protection source' {
+                $result = @(
+                    Get-NetworkProfileDecision -WiFiProfiles @(
+                        [pscustomobject]@{ Name = 'CorpSSID'; IsPolicyManaged = $true }
+                    )
+                )
+
+                $result.Count | Should -Be 1
+                $result[0].Decision | Should -Be 'Preserve'
+                $result[0].IsProtected | Should -BeTrue
+                $result[0].CanSanitize | Should -BeFalse
+                $result[0].ProtectionSource | Should -Be 'Windows Group Policy'
+                $result[0].Reason | Should -Match 'Group Policy'
+            }
+
+            It 'skips Wi-Fi profile records without a name' {
+                $result = @(
+                    Get-NetworkProfileDecision -WiFiProfiles @(
+                        [pscustomobject]@{ Name = $null; IsPolicyManaged = $false }
+                    )
+                )
+
+                $result.Count | Should -Be 0
+            }
+
+            It 'labels a NetworkList profile as Wi-Fi history when its name matches a discovered Wi-Fi profile' {
+                $result = @(
+                    Get-NetworkProfileDecision `
+                        -WiFiProfiles @([pscustomobject]@{ Name = 'HomeSSID'; IsPolicyManaged = $false }) `
+                        -NetworkListProfiles @([pscustomobject]@{ Name = 'HomeSSID'; RegistryPath = 'HKLM\...\Profiles\{GUID}'; ProfileGuid = '{GUID}' })
+                )
+
+                $networkListEntry = $result | Where-Object ArtifactType -EQ 'NetworkListProfile'
+                $networkListEntry.NetworkType | Should -Be 'Wi-Fi history'
+                $networkListEntry.Decision | Should -Be 'Remove'
+                $networkListEntry.IsProtected | Should -BeFalse
+                $networkListEntry.CanSanitize | Should -BeTrue
+                $networkListEntry.ProfileGuid | Should -Be '{GUID}'
+            }
+
+            It 'labels a NetworkList profile as LAN/other history when its name has no matching Wi-Fi profile' {
+                $result = @(
+                    Get-NetworkProfileDecision -NetworkListProfiles @(
+                        [pscustomobject]@{ Name = 'OfficeLAN'; RegistryPath = 'HKLM\...\Profiles\{GUID2}'; ProfileGuid = '{GUID2}' }
+                    )
+                )
+
+                $result.Count | Should -Be 1
+                $result[0].NetworkType | Should -Be 'LAN/other history'
+                $result[0].Decision | Should -Be 'Remove'
+            }
+
+            It 'skips NetworkList profile records without a name' {
+                $result = @(
+                    Get-NetworkProfileDecision -NetworkListProfiles @(
+                        [pscustomobject]@{ Name = ''; RegistryPath = 'HKLM\...\Profiles\{GUID3}' }
+                    )
+                )
+
+                $result.Count | Should -Be 0
+            }
+
+            It 'returns an empty array when no profiles are supplied' {
+                $result = @(Get-NetworkProfileDecision)
                 $result.Count | Should -Be 0
             }
         }
@@ -946,6 +1209,16 @@ Describe 'NetClean Phase 1 unit tests' {
                         WorkplaceJoined = $false
                     }
                 }
+                Mock Get-ServiceRegistrySnapshot { @([pscustomobject]@{ Name = 'CSFalconService' }) }
+                Mock Get-WiFiProfileSnapshot {
+                    @([pscustomobject]@{ Name = 'ConferenceSSID'; IsPolicyManaged = $false })
+                }
+                Mock Get-NetworkListProfileSnapshot {
+                    @([pscustomobject]@{ Name = 'ConferenceSSID'; ProfileGuid = '{PROFILE}' })
+                }
+                Mock Get-NetworkProfileDecision {
+                    @([pscustomobject]@{ Name = 'ConferenceSSID'; Decision = 'Remove'; Reason = 'Saved user Wi-Fi profile' })
+                }
             }
 
             It 'returns a detect context with populated summary fields' {
@@ -958,6 +1231,11 @@ Describe 'NetClean Phase 1 unit tests' {
                 $ctx.Summary.SanitizableArtifactCount | Should -Be 1
                 $ctx.ManagementState.IsManaged | Should -BeTrue
                 $ctx.Summary.ManagedDevice | Should -BeTrue
+                $ctx.CollectionSnapshot.WiFiProfiles[0].Name | Should -Be 'ConferenceSSID'
+                $ctx.CollectionSnapshot.NetworkListProfiles[0].ProfileGuid | Should -Be '{PROFILE}'
+                $ctx.NetworkProfileDecisions[0].Decision | Should -Be 'Remove'
+                Should -Invoke Get-WiFiProfileSnapshot -Times 1 -Exactly
+                Should -Invoke Get-NetworkListProfileSnapshot -Times 1 -Exactly
             }
 
             It 'returns zero counts when no inventory or artifacts are found' {

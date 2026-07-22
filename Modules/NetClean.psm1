@@ -1560,12 +1560,41 @@ function Get-FileMetadatum {
     }
 }
 
-function Get-ServiceRegistryMap {
+function Get-CachedFileMetadatum {
     [CmdletBinding()]
-    [OutputType([System.Collections.Hashtable])]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$Path,
+
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Cache
+    )
+
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        return $null
+    }
+
+    $cacheKey = Get-NormalizedFilePathFromCommandLine -CommandLine $Path
+    if ([string]::IsNullOrWhiteSpace($cacheKey)) {
+        return $null
+    }
+
+    if (-not $Cache.ContainsKey($cacheKey)) {
+        $Cache[$cacheKey] = Get-FileMetadatum -Path $Path
+    }
+
+    return $Cache[$cacheKey]
+}
+
+function Get-ServiceRegistrySnapshot {
+    [CmdletBinding()]
+    [OutputType([System.Object[]])]
     param()
 
-    $map = @{}
+    $snapshot = [System.Collections.Generic.List[object]]::new()
     $servicesRoot = 'HKLM\SYSTEM\CurrentControlSet\Services'
 
     foreach ($svcName in @(Get-RegistryChildKeyNamesSafe -RegistryPath $servicesRoot)) {
@@ -1596,21 +1625,49 @@ function Get-ServiceRegistryMap {
             }
         }
 
-        $entry = [ordered]@{
+        $enumPath = if (Test-RegistryPathExist -RegistryPath "$svcPath\Enum") { "$svcPath\Enum" } else { $null }
+        $linkagePath = if (Test-RegistryPathExist -RegistryPath "$svcPath\Linkage") { "$svcPath\Linkage" } else { $null }
+        $paramsPath = if (Test-RegistryPathExist -RegistryPath "$svcPath\Parameters") { "$svcPath\Parameters" } else { $null }
+        $instancesPath = if (Test-RegistryPathExist -RegistryPath "$svcPath\Instances") { "$svcPath\Instances" } else { $null }
+        $linkageValues = Get-RegistryValuesSafe -RegistryPath "$svcPath\Linkage"
+
+        $snapshot.Add([pscustomobject][ordered]@{
             Name          = $svcName
             RegistryPath  = $svcPath
+            Values        = $props
+            LinkageValues = $linkageValues
             ImagePath     = $imagePath
             DisplayName   = $displayName
             Type          = $type
             Start         = $start
             Group         = $group
-            EnumPath      = if (Test-RegistryPathExist -RegistryPath "$svcPath\Enum") { "$svcPath\Enum" } else { $null }
-            LinkagePath   = if (Test-RegistryPathExist -RegistryPath "$svcPath\Linkage") { "$svcPath\Linkage" } else { $null }
-            ParamsPath    = if (Test-RegistryPathExist -RegistryPath "$svcPath\Parameters") { "$svcPath\Parameters" } else { $null }
-            InstancesPath = if (Test-RegistryPathExist -RegistryPath "$svcPath\Instances") { "$svcPath\Instances" } else { $null }
-        }
+            EnumPath      = $enumPath
+            LinkagePath   = $linkagePath
+            ParamsPath    = $paramsPath
+            InstancesPath = $instancesPath
+        })
+    }
 
-        $map[$svcName.ToLowerInvariant()] = [pscustomobject]$entry
+    return $snapshot.ToArray()
+}
+
+function Get-ServiceRegistryMap {
+    [CmdletBinding()]
+    [OutputType([System.Collections.Hashtable])]
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [object[]]$Snapshot
+    )
+
+    if (-not $PSBoundParameters.ContainsKey('Snapshot') -or $null -eq $Snapshot) {
+        $Snapshot = @(Get-ServiceRegistrySnapshot)
+    }
+
+    $map = @{}
+
+    foreach ($entry in $Snapshot) {
+        $map[$entry.Name.ToLowerInvariant()] = $entry
     }
 
     return $map
@@ -1905,8 +1962,14 @@ function Invoke-NetCleanWorkflow {
         if ($ctx.PSObject.Properties.Name -contains 'Protect' -and $ctx.Protect.PSObject.Properties.Name -contains 'Manifest') {
             $manifest = $ctx.Protect.Manifest
             $wifiFound = @()
+            $netProfiles = @()
+            $hasCollectionSnapshot = $ctx.PSObject.Properties.Name -contains 'CollectionSnapshot'
 
-            if ($manifest -and $manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {
+            if ($hasCollectionSnapshot) {
+                $wifiFound = @($ctx.CollectionSnapshot.WiFiProfiles | ForEach-Object Name)
+                $netProfiles = @($ctx.CollectionSnapshot.NetworkListProfiles | ForEach-Object Name)
+            }
+            elseif ($manifest -and $manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {
                 foreach ($e in $manifest.WiFiExports) {
                     if ($e -is [string] -and $e -like 'PROFILE:*') {
                         $wifiFound += ($e -replace '^PROFILE:', '')
@@ -1918,14 +1981,16 @@ function Invoke-NetCleanWorkflow {
                 }
             }
 
-            if ($wifiFound.Count -eq 0) {
+            if (-not $hasCollectionSnapshot -and $wifiFound.Count -eq 0) {
                 $wifiFound = @(Get-WiFiProfileName)
             }
 
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName WiFiProfilesFound -NotePropertyValue @($wifiFound) -Force
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName WiFiProfilesFoundCount -NotePropertyValue $wifiFound.Count -Force
 
-            $netProfiles = @(Get-NetworkListProfileName)
+            if (-not $hasCollectionSnapshot) {
+                $netProfiles = @(Get-NetworkListProfileName)
+            }
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName NetworkProfilesFound -NotePropertyValue @($netProfiles) -Force
             Add-Member -InputObject $ctx.Protect.Summary -NotePropertyName NetworkProfilesFoundCount -NotePropertyValue $netProfiles.Count -Force
         }

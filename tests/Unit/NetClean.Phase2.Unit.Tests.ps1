@@ -64,6 +64,52 @@ Describe 'NetClean Phase 2 unit tests' {
                 @($result | Where-Object { $_ -eq 'HomeSSID' }).Count | Should -Be 1
             }
 
+            It 'preserves profile names that differ only by case' {
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Name      = 'List Wi-Fi profiles'
+                        ExitCode  = 0
+                        Succeeded = $true
+                        Output    = @(
+                            '    All User Profile     : x-meh'
+                            '    All User Profile     : X-meh'
+                            '    All User Profile     : x-meh'
+                        )
+                        Error     = $null
+                    }
+                }
+
+                $result = @(Get-WiFiProfileName)
+
+                $result.Count | Should -Be 2
+                $result | Should -Contain 'x-meh'
+                $result | Should -Contain 'X-meh'
+            }
+
+            It 'classifies policy and user profiles in one native capture' {
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Name      = 'List Wi-Fi profiles'
+                        ExitCode  = 0
+                        Succeeded = $true
+                        Output    = @(
+                            'Group policy profiles (read only)'
+                            '    Group Policy Profile : SchoolSSID'
+                            'User profiles'
+                            '    All User Profile     : ConferenceSSID'
+                        )
+                        Error     = $null
+                    }
+                }
+
+                $result = @(Get-WiFiProfileSnapshot)
+
+                $result.Count | Should -Be 2
+                ($result | Where-Object Name -EQ 'SchoolSSID').IsPolicyManaged | Should -BeTrue
+                ($result | Where-Object Name -EQ 'ConferenceSSID').IsPolicyManaged | Should -BeFalse
+                Should -Invoke Invoke-NetCleanNativeCapture -Times 1 -Exactly
+            }
+
             It 'captures netsh profile names as UTF-8 and restores the host encoding' {
                 $originalEncoding = [Console]::OutputEncoding
                 $testHostEncoding = [System.Text.Encoding]::GetEncoding(437)
@@ -167,6 +213,15 @@ Describe 'NetClean Phase 2 unit tests' {
                 $result | Should -Contain 'PROFILE:HomeSSID'
                 $result | Should -Contain 'PROFILE:OfficeSSID'
                 Should -Invoke New-DirectoryIfNotExist -Times 0
+            }
+
+            It 'uses supplied profile names without collecting them again' {
+                Mock Get-WiFiProfileName { throw 'profiles should come from Phase 1' }
+
+                $result = @(Export-WiFiProfile -Dest 'C:\backup' -Profiles @('HomeSSID') -DryRun)
+
+                $result | Should -Contain 'PROFILE:HomeSSID'
+                Should -Invoke Get-WiFiProfileName -Times 0 -Exactly
             }
 
             It 'writes the list file and records exported XMLs when bulk export succeeds' {

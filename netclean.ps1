@@ -414,7 +414,19 @@ function Show-NetCleanManagementStatus {
         Write-Information "Device management: $($ManagementState.JoinType)" -InformationAction Continue
     }
 
-    if ($ManagementState.IsManaged) {
+    $isWorkplaceOnly = $ManagementState.JoinType -eq 'WorkplaceRegistered'
+    if ($isWorkplaceOnly) {
+        foreach ($propertyName in @('DomainJoined', 'EntraJoined', 'EnterpriseJoined', 'MdmEnrolled')) {
+            if ($ManagementState.PSObject.Properties.Name -contains $propertyName -and $ManagementState.$propertyName) {
+                $isWorkplaceOnly = $false
+                break
+            }
+        }
+    }
+
+    $isOrganizationManaged = [bool]$ManagementState.IsManaged -and -not $isWorkplaceOnly
+
+    if ($isOrganizationManaged) {
         Write-Information 'Organization-managed network configuration will be preserved.' -InformationAction Continue
     }
     elseif ($ManagementState.JoinType -eq 'WorkplaceRegistered') {
@@ -651,6 +663,25 @@ function Show-PreviewSummary {
                 Write-Information '' -InformationAction Continue
                 Write-Information "Network list backup: $($manifest.NetworkListBackup)" -InformationAction Continue
             }
+        }
+    }
+
+    if ($Result.PSObject.Properties.Name -contains 'NetworkProfileDecisions' -and
+        @($Result.NetworkProfileDecisions).Count -gt 0) {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Wi-Fi and LAN/history decisions' -InformationAction Continue
+        foreach ($decision in @($Result.NetworkProfileDecisions)) {
+            Write-Information ("  - {0} [{1}] {2} | {3}" -f $decision.Decision, $decision.NetworkType, $decision.Name, $decision.Reason) -InformationAction Continue
+        }
+    }
+
+    if ($Result.PSObject.Properties.Name -contains 'CandidateArtifacts' -and
+        @($Result.CandidateArtifacts).Count -gt 0) {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Registry and adapter-path decisions' -InformationAction Continue
+        foreach ($artifact in @($Result.CandidateArtifacts)) {
+            $target = if ($artifact.RegistryPath) { $artifact.RegistryPath } elseif ($artifact.Name) { $artifact.Name } else { '(unnamed)' }
+            Write-Information ("  - {0} [{1}] {2} | {3}" -f $artifact.Decision, $artifact.ArtifactType, $target, $artifact.Reason) -InformationAction Continue
         }
     }
 

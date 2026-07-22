@@ -918,7 +918,68 @@ Describe 'NetClean core/shared helper unit tests' {
             }
         }
 
+        Context 'Get-CachedFileMetadatum' {
+
+            BeforeEach {
+                Mock Get-NormalizedFilePathFromCommandLine { 'C:\Tools\agent.exe' }
+            }
+
+            It 'reuses metadata for command lines that resolve to the same file' {
+                Mock Get-FileMetadatum {
+                    [pscustomobject]@{ Path = 'C:\Tools\agent.exe'; Exists = $true }
+                }
+                $cache = @{}
+
+                $first = Get-CachedFileMetadatum -Path '"C:\Tools\agent.exe" --service' -Cache $cache
+                $second = Get-CachedFileMetadatum -Path 'C:\Tools\agent.exe' -Cache $cache
+
+                $first.Path | Should -Be 'C:\Tools\agent.exe'
+                $second.Path | Should -Be 'C:\Tools\agent.exe'
+                Should -Invoke Get-FileMetadatum -Times 1 -Exactly
+            }
+
+            It 'caches an unsuccessful metadata lookup' {
+                Mock Get-FileMetadatum { $null }
+                $cache = @{}
+
+                Get-CachedFileMetadatum -Path 'C:\Tools\agent.exe' -Cache $cache | Should -BeNullOrEmpty
+                Get-CachedFileMetadatum -Path 'C:\Tools\agent.exe' -Cache $cache | Should -BeNullOrEmpty
+
+                Should -Invoke Get-FileMetadatum -Times 1 -Exactly
+            }
+        }
+
         Context 'Get-ServiceRegistryMap' {
+
+            It 'builds a reusable service snapshot with values, linkage, and child paths' {
+                Mock Get-RegistryChildKeyNamesSafe { @('ContosoFilter') }
+                Mock Get-RegistryValuesSafe {
+                    if ($RegistryPath -like '*\Linkage') {
+                        return [pscustomobject]@{ Bind = @('\Device\ContosoFilter') }
+                    }
+
+                    [pscustomobject]@{
+                        ImagePath   = 'C:\Contoso\filter.sys'
+                        DisplayName = 'Contoso Filter'
+                        Type        = 1
+                        Start       = 2
+                        Group       = 'NDIS'
+                    }
+                }
+                Mock Test-RegistryPathExist { $RegistryPath -match '\\(Linkage|Parameters)$' }
+
+                $result = @(Get-ServiceRegistrySnapshot)
+
+                $result.Count | Should -Be 1
+                $result[0].Name | Should -Be 'ContosoFilter'
+                $result[0].Values.ImagePath | Should -Be 'C:\Contoso\filter.sys'
+                $result[0].LinkageValues.Bind | Should -Contain '\Device\ContosoFilter'
+                $result[0].LinkagePath | Should -Match '\\Linkage$'
+                $result[0].ParamsPath | Should -Match '\\Parameters$'
+                Should -Invoke Get-RegistryChildKeyNamesSafe -Times 1 -Exactly
+                Should -Invoke Get-RegistryValuesSafe -Times 2 -Exactly
+                Should -Invoke Test-RegistryPathExist -Times 4 -Exactly
+            }
 
             It 'maps service values and existing child registry paths by normalized service name' {
                 Mock Get-RegistryChildKeyNamesSafe { @('CSFalconService', 'MinimalService') }
@@ -946,6 +1007,30 @@ Describe 'NetClean core/shared helper unit tests' {
                 $result.csfalconservice.LinkagePath | Should -BeNullOrEmpty
                 $result.minimalservice.ImagePath | Should -BeNullOrEmpty
                 Should -Invoke Test-RegistryPathExist -Times 8
+            }
+
+            It 'maps a supplied snapshot without reading the registry again' {
+                Mock Get-RegistryChildKeyNamesSafe { throw 'registry should not be queried' }
+                $snapshot = @(
+                    [pscustomobject]@{
+                        Name          = 'ContosoFilter'
+                        RegistryPath  = 'HKLM\SYSTEM\CurrentControlSet\Services\ContosoFilter'
+                        ImagePath     = 'C:\Contoso\filter.sys'
+                        DisplayName   = 'Contoso Filter'
+                        Type          = 1
+                        Start         = 2
+                        Group         = 'NDIS'
+                        EnumPath      = $null
+                        LinkagePath   = 'HKLM\SYSTEM\CurrentControlSet\Services\ContosoFilter\Linkage'
+                        ParamsPath    = $null
+                        InstancesPath = $null
+                    }
+                )
+
+                $result = Get-ServiceRegistryMap -Snapshot $snapshot
+
+                $result.contosofilter.ImagePath | Should -Be 'C:\Contoso\filter.sys'
+                Should -Invoke Get-RegistryChildKeyNamesSafe -Times 0 -Exactly
             }
 
             It 'returns an empty map when the services root has no children' {

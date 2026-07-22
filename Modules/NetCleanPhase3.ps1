@@ -1695,12 +1695,40 @@ function Invoke-NetCleanPhase3Clean {
     }
     else {
         $profilesToRemove = @()
-        if ($Context -and $Context.PSObject.Properties.Name -contains 'Protect' -and $Context.Protect.PSObject.Properties.Name -contains 'Summary' -and $Context.Protect.Summary.PSObject.Properties.Name -contains 'WiFiProfilesFound') {
+        $hasFreshSnapshot = $false
+
+        if ($Context.PSObject.Properties.Name -contains 'NetworkProfileDecisions') {
+            $profilesToRemove += @(
+                $Context.NetworkProfileDecisions |
+                    Where-Object { $_.ArtifactType -eq 'WiFiProfile' -and $_.Decision -eq 'Remove' } |
+                    ForEach-Object Name
+            )
+            $hasFreshSnapshot = $true
+        }
+        elseif ($Context.PSObject.Properties.Name -contains 'CollectionSnapshot') {
+            $profilesToRemove += @(
+                $Context.CollectionSnapshot.WiFiProfiles |
+                    Where-Object { -not $_.IsPolicyManaged } |
+                    ForEach-Object Name
+            )
+            $hasFreshSnapshot = $true
+        }
+
+        if ($Context.PSObject.Properties.Name -contains 'Protect' -and $Context.Protect.PSObject.Properties.Name -contains 'Summary' -and $Context.Protect.Summary.PSObject.Properties.Name -contains 'WiFiProfilesFound') {
             $profilesToRemove += @($Context.Protect.Summary.WiFiProfilesFound)
         }
 
-        $profilesToRemove += @(Get-WiFiProfileName)
-        $profilesToRemove = @(Get-UniqueNonEmptyString -InputObject $profilesToRemove)
+        if (-not $hasFreshSnapshot) {
+            $profilesToRemove += @(Get-WiFiProfileName)
+        }
+
+        $uniqueProfiles = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
+        foreach ($profileName in $profilesToRemove) {
+            if (-not [string]::IsNullOrWhiteSpace($profileName)) {
+                [void]$uniqueProfiles.Add($profileName.Trim())
+            }
+        }
+        $profilesToRemove = @($uniqueProfiles | Sort-Object)
         $wifiResult = Remove-WiFiProfilesSafe -DryRun:$DryRun -WifiProfiles $profilesToRemove
     }
 

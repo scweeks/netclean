@@ -182,15 +182,34 @@ System.Object[] - A collection of custom objects representing NDIS service bindi
 function Get-NdisServiceBindingEvidence {
     [CmdletBinding()]
     [OutputType([System.Object[]])]
-    param()
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [object[]]$ServiceRegistrySnapshot
+    )
 
     $results = New-Object System.Collections.Generic.List[object]
     $servicesRoot = 'HKLM\SYSTEM\CurrentControlSet\Services'
 
-    foreach ($svcName in @(Get-RegistryChildKeyNamesSafe -RegistryPath $servicesRoot)) {
-        $svcPath = "$servicesRoot\$svcName"
-        $linkage = Get-RegistryValuesSafe -RegistryPath "$svcPath\Linkage"
-        $props = Get-RegistryValuesSafe -RegistryPath $svcPath
+    if (-not $PSBoundParameters.ContainsKey('ServiceRegistrySnapshot') -or $null -eq $ServiceRegistrySnapshot) {
+        $ServiceRegistrySnapshot = @(
+            foreach ($serviceName in @(Get-RegistryChildKeyNamesSafe -RegistryPath $servicesRoot)) {
+                $servicePath = "$servicesRoot\$serviceName"
+                [pscustomobject]@{
+                    Name          = $serviceName
+                    RegistryPath  = $servicePath
+                    Values        = Get-RegistryValuesSafe -RegistryPath $servicePath
+                    LinkageValues = Get-RegistryValuesSafe -RegistryPath "$servicePath\Linkage"
+                }
+            }
+        )
+    }
+
+    foreach ($serviceEntry in $ServiceRegistrySnapshot) {
+        $svcName = $serviceEntry.Name
+        $svcPath = $serviceEntry.RegistryPath
+        $linkage = $serviceEntry.LinkageValues
+        $props = $serviceEntry.Values
 
         $tokens = New-Object System.Collections.Generic.List[string]
         $tokens.Add([string]$svcName)
@@ -591,6 +610,55 @@ function Get-AppxPackageEvidence {
     return $results.ToArray()
 }
 
+function Get-SupplementalProtectionEvidence {
+    [CmdletBinding()]
+    [OutputType([System.Object[]])]
+    param(
+        [ValidateRange(1, 2)]
+        [int]$ThrottleLimit = 2
+    )
+
+    $manifestPath = [System.IO.Path]::GetFullPath((Join-Path $script:ModuleRoot '..\NetClean.psd1'))
+    $workItems = @(
+        'MsiRegistry',
+        'OtherReadOnly'
+    ) | ForEach-Object {
+        [pscustomobject]@{
+            Collector    = $_
+            ManifestPath = $manifestPath
+        }
+    }
+
+    return @(
+        Invoke-InParallel `
+            -InputObjects $workItems `
+            -ThrottleLimit $ThrottleLimit `
+            -ScriptBlock {
+                param($workItem)
+
+                Import-Module -Name $workItem.ManifestPath -Force -ErrorAction Stop
+                $module = Get-Module -Name NetClean | Select-Object -First 1
+
+                & $module {
+                    param($collectorName)
+
+                    switch ($collectorName) {
+                        'MsiRegistry' { Get-MsiRegistryEvidence; break }
+                        'OtherReadOnly' {
+                            Get-WfpStateEvidence
+                            Get-NdisFilterClassEvidence
+                            Get-InfFileEvidence
+                            Get-ScheduledTaskEvidence
+                            Get-AppxPackageEvidence
+                            break
+                        }
+                        default { throw "Unsupported supplemental collector: $collectorName" }
+                    }
+                } $workItem.Collector
+            }
+    )
+}
+
 <#
 .SYNOPSIS
 Retrieves evidence of antivirus and firewall products from the Security Center WMI namespace.
@@ -606,14 +674,23 @@ System.Object[] - A collection of custom objects representing antivirus and fire
 function Get-ProtectionEvidence {
     [CmdletBinding()]
     [OutputType([System.Object[]])]
-    param()
+    param(
+        [Parameter()]
+        [hashtable]$FileMetadataCache = @{},
+
+        [Parameter()]
+        [AllowNull()]
+        [object[]]$ServiceRegistrySnapshot,
+
+        [switch]$ParallelSupplementalEvidence
+    )
 
     $evidence = New-Object System.Collections.Generic.List[object]
 
     try {
         $avProducts = Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName 'AntivirusProduct' -ErrorAction Stop
         foreach ($item in $avProducts) {
-            $meta = Get-FileMetadatum -Path $item.pathToSignedProductExe
+            $meta = Get-CachedFileMetadatum -Path $item.pathToSignedProductExe -Cache $FileMetadataCache
             $evidence.Add([pscustomobject]@{
                     Source               = 'SecurityCenter2'
                     ProductClass         = 'AntivirusProduct'
@@ -640,7 +717,7 @@ function Get-ProtectionEvidence {
     try {
         $fwProducts = Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName 'FirewallProduct' -ErrorAction Stop
         foreach ($item in $fwProducts) {
-            $meta = Get-FileMetadatum -Path $item.pathToSignedProductExe
+            $meta = Get-CachedFileMetadatum -Path $item.pathToSignedProductExe -Cache $FileMetadataCache
             $evidence.Add([pscustomobject]@{
                     Source               = 'SecurityCenter2'
                     ProductClass         = 'FirewallProduct'
@@ -667,7 +744,7 @@ function Get-ProtectionEvidence {
     try {
         $services = Get-CimInstance Win32_Service -ErrorAction Stop
         foreach ($svc in $services) {
-            $meta = Get-FileMetadatum -Path $svc.PathName
+            $meta = Get-CachedFileMetadatum -Path $svc.PathName -Cache $FileMetadataCache
             $evidence.Add([pscustomobject]@{
                     Source               = 'Service'
                     ProductClass         = 'Service'
@@ -697,7 +774,7 @@ function Get-ProtectionEvidence {
     try {
         $drivers = Get-CimInstance Win32_SystemDriver -ErrorAction Stop
         foreach ($drv in $drivers) {
-            $meta = Get-FileMetadatum -Path $drv.PathName
+            $meta = Get-CachedFileMetadatum -Path $drv.PathName -Cache $FileMetadataCache
             $evidence.Add([pscustomobject]@{
                     Source               = 'Driver'
                     ProductClass         = 'Driver'
@@ -733,7 +810,7 @@ function Get-ProtectionEvidence {
                 if ($_.DisplayName) {
                     $meta = $null
                     if ($_.DisplayIcon) {
-                        $meta = Get-FileMetadatum -Path $_.DisplayIcon
+                        $meta = Get-CachedFileMetadatum -Path $_.DisplayIcon -Cache $FileMetadataCache
                     }
 
                     $evidence.Add([pscustomobject]@{
@@ -848,14 +925,28 @@ function Get-ProtectionEvidence {
 
     $servicesRoot = 'HKLM\SYSTEM\CurrentControlSet\Services'
     try {
-        foreach ($svcName in @(Get-RegistryChildKeyNamesSafe -RegistryPath $servicesRoot)) {
-            $svcRegPath = "$servicesRoot\$svcName"
-            $svcProps = Get-RegistryValuesSafe -RegistryPath $svcRegPath
+        if (-not $PSBoundParameters.ContainsKey('ServiceRegistrySnapshot') -or $null -eq $ServiceRegistrySnapshot) {
+            $ServiceRegistrySnapshot = @(
+                foreach ($serviceName in @(Get-RegistryChildKeyNamesSafe -RegistryPath $servicesRoot)) {
+                    $servicePath = "$servicesRoot\$serviceName"
+                    [pscustomobject]@{
+                        Name         = $serviceName
+                        RegistryPath = $servicePath
+                        Values       = Get-RegistryValuesSafe -RegistryPath $servicePath
+                    }
+                }
+            )
+        }
+
+        foreach ($serviceEntry in $ServiceRegistrySnapshot) {
+            $svcName = $serviceEntry.Name
+            $svcRegPath = $serviceEntry.RegistryPath
+            $svcProps = $serviceEntry.Values
             if ($null -eq $svcProps) { continue }
 
             $imagePath = $svcProps.ImagePath
             $displayName = $svcProps.DisplayName
-            $meta = Get-FileMetadatum -Path $imagePath
+            $meta = Get-CachedFileMetadatum -Path $imagePath -Cache $FileMetadataCache
 
             $evidence.Add([pscustomobject]@{
                     Source               = 'ServiceRegistry'
@@ -884,13 +975,28 @@ function Get-ProtectionEvidence {
         Write-Verbose "Ignored error: $_"
     }
 
-    foreach ($item in @(Get-WfpStateEvidence)) { $evidence.Add($item) }
-    foreach ($item in @(Get-NdisFilterClassEvidence)) { $evidence.Add($item) }
-    foreach ($item in @(Get-NdisServiceBindingEvidence)) { $evidence.Add($item) }
-    foreach ($item in @(Get-MsiRegistryEvidence)) { $evidence.Add($item) }
-    foreach ($item in @(Get-InfFileEvidence)) { $evidence.Add($item) }
-    foreach ($item in @(Get-ScheduledTaskEvidence)) { $evidence.Add($item) }
-    foreach ($item in @(Get-AppxPackageEvidence)) { $evidence.Add($item) }
+    $useSequentialSupplementalCollection = -not $ParallelSupplementalEvidence
+
+    if ($ParallelSupplementalEvidence) {
+        try {
+            foreach ($item in @(Get-SupplementalProtectionEvidence)) { $evidence.Add($item) }
+        }
+        catch {
+            Write-Verbose "Parallel supplemental evidence collection failed, falling back to sequential collection: $($_.Exception.Message)"
+            $useSequentialSupplementalCollection = $true
+        }
+    }
+
+    if ($useSequentialSupplementalCollection) {
+        foreach ($item in @(Get-WfpStateEvidence)) { $evidence.Add($item) }
+        foreach ($item in @(Get-NdisFilterClassEvidence)) { $evidence.Add($item) }
+        foreach ($item in @(Get-MsiRegistryEvidence)) { $evidence.Add($item) }
+        foreach ($item in @(Get-InfFileEvidence)) { $evidence.Add($item) }
+        foreach ($item in @(Get-ScheduledTaskEvidence)) { $evidence.Add($item) }
+        foreach ($item in @(Get-AppxPackageEvidence)) { $evidence.Add($item) }
+    }
+
+    foreach ($item in @(Get-NdisServiceBindingEvidence -ServiceRegistrySnapshot $ServiceRegistrySnapshot)) { $evidence.Add($item) }
 
     return $evidence.ToArray()
 }
@@ -910,11 +1016,26 @@ System.Object[]
 function Get-ProtectionInventory {
     [CmdletBinding()]
     [OutputType([System.Object[]])]
-    param()
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [object[]]$ServiceRegistrySnapshot,
 
-    $evidence = @(Get-ProtectionEvidence)
+        [switch]$ParallelSupplementalEvidence
+    )
+
+    $fileMetadataCache = @{}
+    if (-not $PSBoundParameters.ContainsKey('ServiceRegistrySnapshot') -or $null -eq $ServiceRegistrySnapshot) {
+        $ServiceRegistrySnapshot = @(Get-ServiceRegistrySnapshot)
+    }
+    $evidence = @(
+        Get-ProtectionEvidence `
+            -FileMetadataCache $fileMetadataCache `
+            -ServiceRegistrySnapshot $ServiceRegistrySnapshot `
+            -ParallelSupplementalEvidence:$ParallelSupplementalEvidence
+    )
     $signatures = Get-VendorSignature
-    $serviceMap = Get-ServiceRegistryMap
+    $serviceMap = Get-ServiceRegistryMap -Snapshot $ServiceRegistrySnapshot
     $adapterCorrelation = @(Get-AdapterRegistryCorrelation)
     $inventory = New-Object System.Collections.Generic.List[object]
 
@@ -1005,7 +1126,7 @@ function Get-ProtectionInventory {
                     }
                 }
 
-                $imgMeta = Get-FileMetadatum -Path $svcInfo.ImagePath
+                $imgMeta = Get-CachedFileMetadatum -Path $svcInfo.ImagePath -Cache $fileMetadataCache
                 if ($imgMeta -and $imgMeta.Path) {
                     [void]$evidenceStrings.Add("ServiceBinary: $($imgMeta.Path)")
                 }
@@ -1292,6 +1413,22 @@ function Get-NetworkPrivacyArtifactCandidate {
     $protectedGuids = @(Get-ProtectedInterfaceGuidSet -Inventory $Inventory)
     $protectedGuidSet = New-Object System.Collections.Generic.HashSet[string]
     Add-HashSetValue -Set $protectedGuidSet -Values $protectedGuids
+    $protectedByGuid = @{}
+
+    foreach ($inventoryEntry in @($Inventory)) {
+        foreach ($protectedGuid in @($inventoryEntry.ProtectedInterfaceGuids)) {
+            if ([string]::IsNullOrWhiteSpace($protectedGuid)) { continue }
+
+            $normalizedGuid = $protectedGuid.Trim('{}').ToLowerInvariant()
+            if (-not $protectedByGuid.ContainsKey($normalizedGuid)) {
+                $protectedByGuid[$normalizedGuid] = [System.Collections.Generic.HashSet[string]]::new()
+            }
+
+            if ($inventoryEntry.Vendor) {
+                [void]$protectedByGuid[$normalizedGuid].Add([string]$inventoryEntry.Vendor)
+            }
+        }
+    }
 
     $candidates = New-Object System.Collections.Generic.List[object]
 
@@ -1308,7 +1445,9 @@ function Get-NetworkPrivacyArtifactCandidate {
                     InterfaceGuid = $null
                     IsProtected   = $false
                     CanSanitize   = $true
+                    Decision      = 'Remove'
                     Reason        = 'Network profile/signature history'
+                    ProtectionSource = $null
                 })
         }
     }
@@ -1331,6 +1470,8 @@ function Get-NetworkPrivacyArtifactCandidate {
 
         $path = "$tcpipRoot\{$guid}"
         $isProtected = $protectedGuidSet.Contains($guid)
+        $protectingVendors = @(if ($protectedByGuid.ContainsKey($guid)) { $protectedByGuid[$guid] | Sort-Object })
+        $protectionSource = if (@($protectingVendors).Count -gt 0) { $protectingVendors -join ', ' } else { 'Adapter safety boundary' }
 
         $candidates.Add([pscustomobject]@{
             ArtifactType  = 'TcpipInterface'
@@ -1338,7 +1479,9 @@ function Get-NetworkPrivacyArtifactCandidate {
             InterfaceGuid = $guid
             IsProtected   = $isProtected
             CanSanitize   = $false
-            Reason        = if ($isProtected) { 'Protected by inventory correlation' } else { 'Preserved adapter configuration; not safe for recursive deletion' }
+            Decision      = 'Preserve'
+            Reason        = if ($isProtected) { "Protected interface used by $protectionSource" } else { 'Preserved adapter configuration; recursive deletion could impair networking' }
+            ProtectionSource = $protectionSource
             })
     }
 
@@ -1364,19 +1507,80 @@ function Get-NetworkPrivacyArtifactCandidate {
             )) {
             if (Test-RegistryPathExist -RegistryPath $path) {
                 $isProtected = $protectedGuidSet.Contains($guid)
+                $protectingVendors = @(if ($protectedByGuid.ContainsKey($guid)) { $protectedByGuid[$guid] | Sort-Object })
+                $protectionSource = if (@($protectingVendors).Count -gt 0) { $protectingVendors -join ', ' } else { 'Adapter safety boundary' }
                 $candidates.Add([pscustomobject]@{
                         ArtifactType  = 'NetworkControl'
                         RegistryPath  = $path
                         InterfaceGuid = $guid
                         IsProtected   = $isProtected
                         CanSanitize   = $false
-                        Reason        = if ($isProtected) { 'Protected by inventory correlation' } else { 'Preserved adapter configuration; not safe for recursive deletion' }
+                        Decision      = 'Preserve'
+                        Reason        = if ($isProtected) { "Protected interface used by $protectionSource" } else { 'Preserved adapter configuration; recursive deletion could impair networking' }
+                        ProtectionSource = $protectionSource
                     })
             }
         }
     }
 
     return $candidates.ToArray()
+}
+
+function Get-NetworkProfileDecision {
+    [CmdletBinding()]
+    [OutputType([System.Object[]])]
+    param(
+        [Parameter()]
+        [AllowNull()]
+        [object[]]$WiFiProfiles,
+
+        [Parameter()]
+        [AllowNull()]
+        [object[]]$NetworkListProfiles
+    )
+
+    $decisions = [System.Collections.Generic.List[object]]::new()
+    $wifiNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $wifiProfileRecords = if ($null -eq $WiFiProfiles) { @() } else { @($WiFiProfiles) }
+    $networkListProfileRecords = if ($null -eq $NetworkListProfiles) { @() } else { @($NetworkListProfiles) }
+
+    foreach ($wifiProfileRecord in $wifiProfileRecords) {
+        if (-not $wifiProfileRecord.Name) { continue }
+
+        [void]$wifiNames.Add([string]$wifiProfileRecord.Name)
+        $isPolicyManaged = [bool]$wifiProfileRecord.IsPolicyManaged
+        $decisions.Add([pscustomobject]@{
+                ArtifactType    = 'WiFiProfile'
+                NetworkType     = 'Wi-Fi'
+                Name            = [string]$wifiProfileRecord.Name
+                RegistryPath    = $null
+                Decision        = if ($isPolicyManaged) { 'Preserve' } else { 'Remove' }
+                IsProtected     = $isPolicyManaged
+                CanSanitize     = -not $isPolicyManaged
+                Reason          = if ($isPolicyManaged) { 'Read-only Wi-Fi profile delivered by Windows Group Policy' } else { 'Saved user Wi-Fi profile; removal prevents disclosure of connection history' }
+                ProtectionSource = if ($isPolicyManaged) { 'Windows Group Policy' } else { $null }
+            })
+    }
+
+    foreach ($networkProfileRecord in $networkListProfileRecords) {
+        if (-not $networkProfileRecord.Name) { continue }
+
+        $networkType = if ($wifiNames.Contains([string]$networkProfileRecord.Name)) { 'Wi-Fi history' } else { 'LAN/other history' }
+        $decisions.Add([pscustomobject]@{
+                ArtifactType    = 'NetworkListProfile'
+                NetworkType     = $networkType
+                Name            = [string]$networkProfileRecord.Name
+                RegistryPath    = $networkProfileRecord.RegistryPath
+                ProfileGuid     = $networkProfileRecord.ProfileGuid
+                Decision        = 'Remove'
+                IsProtected     = $false
+                CanSanitize     = $true
+                Reason          = 'Windows NetworkList history; removal does not alter adapters, drivers, or network policy'
+                ProtectionSource = $null
+            })
+    }
+
+    return $decisions.ToArray()
 }
 
 <#
@@ -1428,10 +1632,22 @@ function Invoke-NetCleanPhase1Detect {
     }
 
     $managementState = Get-NetCleanDeviceManagementState
-    $inventory = @(Get-ProtectionInventory)
+    $serviceRegistrySnapshot = @(Get-ServiceRegistrySnapshot)
+    $wifiProfiles = @(Get-WiFiProfileSnapshot)
+    $networkListProfiles = @(Get-NetworkListProfileSnapshot)
+    $inventory = @(
+        Get-ProtectionInventory `
+            -ServiceRegistrySnapshot $serviceRegistrySnapshot `
+            -ParallelSupplementalEvidence
+    )
     $protectionMap = @(Get-ProtectionRegistryMap -Inventory $inventory)
     $protectedGuids = @(Get-ProtectedInterfaceGuidSet -Inventory $inventory)
     $candidateArtifacts = @(Get-NetworkPrivacyArtifactCandidate -Inventory $inventory)
+    $networkProfileDecisions = @(
+        Get-NetworkProfileDecision `
+            -WiFiProfiles $wifiProfiles `
+            -NetworkListProfiles $networkListProfiles
+    )
     $sanitizableArtifacts = @(
         $candidateArtifacts |
             Where-Object {
@@ -1452,17 +1668,27 @@ function Invoke-NetCleanPhase1Detect {
         Phase                   = 'Detect'
         DetectedAt              = Get-Date
         ManagementState         = $managementState
+        CollectionSnapshot      = [pscustomobject]@{
+            CollectedAt             = Get-Date
+            ServiceRegistry         = $serviceRegistrySnapshot
+            WiFiProfiles            = $wifiProfiles
+            NetworkListProfiles     = $networkListProfiles
+        }
         Inventory               = $inventory
         ProtectionRegistryMap   = $protectionMap
         ProtectedInterfaceGuids = $protectedGuids
         CandidateArtifacts      = $candidateArtifacts
         SanitizableArtifacts    = $sanitizableArtifacts
+        NetworkProfileDecisions = $networkProfileDecisions
         ProtectedRegistryPaths  = $protectedRegistryPaths
         Summary                 = [pscustomobject]@{
             ProtectedVendorsCount       = @($inventory).Count
             ProtectedInterfaceGuidCount = @($protectedGuids).Count
             CandidateArtifactCount      = @($candidateArtifacts).Count
             SanitizableArtifactCount    = @($sanitizableArtifacts).Count
+            NetworkProfileDecisionCount = @($networkProfileDecisions).Count
+            RemovableNetworkProfileCount = @($networkProfileDecisions | Where-Object Decision -EQ 'Remove').Count
+            ProtectedNetworkProfileCount = @($networkProfileDecisions | Where-Object Decision -EQ 'Preserve').Count
             ManagedDevice               = [bool]$managementState.IsManaged
         }
     }
