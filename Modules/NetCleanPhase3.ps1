@@ -972,6 +972,8 @@ function Clear-NetworkEventLogsSafe {
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     $logs = @(
+        # Deliberately narrow allowlist: identity, account, token, and
+        # user-device-registration event logs are outside cleanup scope.
         'Microsoft-Windows-WLAN-AutoConfig/Operational',
         'Microsoft-Windows-NetworkProfile/Operational',
         'Microsoft-Windows-DHCP-Client/Operational'
@@ -1077,7 +1079,10 @@ function Clear-NetworkEventLogsSafe {
 .SYNOPSIS
 Safely clears user network artifacts from the registry.
 .DESCRIPTION
-Removes user-specific network artifacts such as mapped network drive MRU and terminal server client history from the registry. Honors `-DryRun`, `-WhatIf` and `-Confirm` to allow safe simulation of actions.
+Removes only the explicitly allowed Explorer history keys below. Workplace
+registration, Web Account Manager, BrokerPlugin, token, credential, Windows
+Hello, and other identity stores are outside cleanup scope. Honors `-DryRun`,
+`-WhatIf`, and `-Confirm` to allow safe simulation of actions.
 .PARAMETER DryRun
 If specified, all operations are simulated and no actual changes are made to the system. Results will indicate what would have been done.
 .EXAMPLE
@@ -1097,6 +1102,8 @@ function Clear-UserNetworkArtifactsSafe {
     $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     $paths = @(
+        # Deliberately narrow allowlist. Do not add identity, SSO, token,
+        # credential, or Workplace registration locations.
         'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU',
         'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths',
         'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs'

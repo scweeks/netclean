@@ -72,6 +72,8 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\NetClean.ps1 -Mode Saf
 
 Protection detection is best-effort and cannot guarantee recognition of every security or virtual-network product. Review the preview and inventory before cleanup.
 
+Microsoft Entra Workplace registration indicates that a work or school account is registered for user-level access and SSO; it does not, by itself, mean the computer is organization-managed. NetClean preserves that registration and its identity, token, credential, and BrokerPlugin stores. Whole-device adapter preservation is enabled only by domain, Microsoft Entra, enterprise, or detected MDM enrollment; protected security, VPN, and virtual adapters retain their separate per-adapter boundary.
+
 ### Backup confidentiality
 
 Wi-Fi export uses Windows `netsh` with `key=clear`, so exported XML files can contain plaintext Wi-Fi credentials. NetClean restricts both default and custom backup/log directories to administrators, SYSTEM, and the initiating user, but those principals can still read the files. Avoid syncing backups to untrusted services and securely remove them when they are no longer needed.
@@ -119,6 +121,6 @@ Invoke-Pester -Path .\tests
 .\tests\Run-NetClean-Coverage.ps1
 ```
 
-CI is defined in `.github/workflows/ci.yml`. The authoritative PowerShell 7 job validates the module manifest, treats analyzer warnings/errors as failures, and runs Pester 6.0.1 with coverage. An independent Windows PowerShell 5.1 job runs the complete test suite and manifest validation in parallel. Tests execute to exercise production behavior, but the coverage runner rejects source paths beneath `tests/`, so test code cannot inflate the result. Pester 6's profiler-based collector measures the current suite at 95.09% command coverage; the overall gate is ratcheted at 94% to retain regression margin, while pull-request reporting retains a 95% changed-file target. The suite now exceeds the 95% long-term overall target, and the enforced ratchet should only move upward as focused tests add durable margin. Generated output is written under `tests/TestResults` and is ignored by Git.
+CI is defined in `.github/workflows/ci.yml`. The authoritative PowerShell 7 job validates the module manifest, treats analyzer warnings/errors as failures, and runs Pester 6.0.1 with coverage. An independent Windows PowerShell 5.1 job runs the complete test suite and manifest validation in parallel. Tests execute to exercise production behavior, but the coverage runner rejects source paths beneath `tests/`, so test code cannot inflate the result. Pester 6's profiler-based collector measures the current suite at 95.13% command coverage; the overall gate is ratcheted at 94% to retain regression margin, while pull-request reporting retains a 95% changed-file target. The suite now exceeds the 95% long-term overall target, and the enforced ratchet should only move upward as focused tests add durable margin. Generated output is written under `tests/TestResults` and is ignored by Git.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations and [LICENSE](LICENSE) for GPLv3 terms.

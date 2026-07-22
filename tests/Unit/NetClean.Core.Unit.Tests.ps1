@@ -271,6 +271,29 @@ Describe 'NetClean core/shared helper unit tests' {
                 $result.MdmEnrolled | Should -BeFalse
             }
 
+            It 'does not treat Workplace registration alone as device management' {
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Succeeded = $true
+                        Output    = @(
+                            ' AzureAdJoined : NO',
+                            ' DomainJoined : NO',
+                            ' EnterpriseJoined : NO',
+                            ' WorkplaceJoined : YES'
+                        )
+                        Error     = $null
+                    }
+                }
+                Mock Get-ScheduledTask { @() }
+
+                $result = Get-NetCleanDeviceManagementState
+
+                $result.IsManaged | Should -BeFalse
+                $result.JoinType | Should -Be 'WorkplaceRegistered'
+                $result.WorkplaceJoined | Should -BeTrue
+                $result.MdmEnrolled | Should -BeFalse
+            }
+
             It 'treats EnterpriseMgmt task evidence as managed conservatively' {
                 Mock Invoke-NetCleanNativeCapture {
                     [pscustomobject]@{

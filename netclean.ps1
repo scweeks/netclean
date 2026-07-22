@@ -396,6 +396,37 @@ function Read-NetCleanOption {
 
 <#
 .SYNOPSIS
+Displays device registration and organization-management status.
+.PARAMETER ManagementState
+The management-state result returned by Get-NetCleanDeviceManagementState.
+#>
+function Show-NetCleanManagementStatus {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$ManagementState
+    )
+
+    if ($ManagementState.JoinType -eq 'WorkplaceRegistered') {
+        Write-Information "Device registration: $($ManagementState.JoinType)" -InformationAction Continue
+    }
+    else {
+        Write-Information "Device management: $($ManagementState.JoinType)" -InformationAction Continue
+    }
+
+    if ($ManagementState.IsManaged) {
+        Write-Information 'Organization-managed network configuration will be preserved.' -InformationAction Continue
+    }
+    elseif ($ManagementState.JoinType -eq 'WorkplaceRegistered') {
+        Write-Information 'A work or school account is registered for SSO and will be preserved; no organization management was detected.' -InformationAction Continue
+    }
+    else {
+        Write-Information 'No organization management was detected.' -InformationAction Continue
+    }
+}
+
+<#
+.SYNOPSIS
     Shows the summary for the NetClean process.
 .DESCRIPTION
     This function displays a summary of the actions that will be taken by the NetClean process.
@@ -422,13 +453,7 @@ function Show-NetCleanSummary {
     Write-Information "Mode: $SelectedMode" -InformationAction Continue
 
     if ($Result.PSObject.Properties.Name -contains 'ManagementState') {
-        Write-Information "Device management: $($Result.ManagementState.JoinType)" -InformationAction Continue
-        if ($Result.ManagementState.IsManaged) {
-            Write-Information 'Organization-managed network configuration will be preserved.' -InformationAction Continue
-        }
-        else {
-            Write-Information 'No organization management was detected.' -InformationAction Continue
-        }
+        Show-NetCleanManagementStatus -ManagementState $Result.ManagementState
     }
 
     if ($Result.PSObject.Properties.Name -contains 'Summary') {
@@ -596,13 +621,7 @@ function Show-PreviewSummary {
     Write-Information '---------------' -InformationAction Continue
 
     if ($Result.PSObject.Properties.Name -contains 'ManagementState') {
-        Write-Information "Device management: $($Result.ManagementState.JoinType)" -InformationAction Continue
-        if ($Result.ManagementState.IsManaged) {
-            Write-Information 'Organization-managed network configuration will be preserved.' -InformationAction Continue
-        }
-        else {
-            Write-Information 'No organization management was detected.' -InformationAction Continue
-        }
+        Show-NetCleanManagementStatus -ManagementState $Result.ManagementState
     }
 
     Write-Information "Protected vendors detected: $($Result.Summary.ProtectedVendorsCount)" -InformationAction Continue

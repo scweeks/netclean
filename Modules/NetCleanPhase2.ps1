@@ -137,11 +137,18 @@ function Get-WiFiProfileName {
     [OutputType([string[]])]
     param()
 
-    $result = Invoke-NetCleanNativeCapture `
-        -FilePath 'netsh.exe' `
-        -ArgumentList @('wlan', 'show', 'profiles') `
-        -Name 'List Wi-Fi profiles' `
-        -IgnoreExitCode
+    $originalOutputEncoding = [Console]::OutputEncoding
+    try {
+        [Console]::OutputEncoding = $script:Utf8NoBom
+        $result = Invoke-NetCleanNativeCapture `
+            -FilePath 'netsh.exe' `
+            -ArgumentList @('wlan', 'show', 'profiles') `
+            -Name 'List Wi-Fi profiles' `
+            -IgnoreExitCode
+    }
+    finally {
+        [Console]::OutputEncoding = $originalOutputEncoding
+    }
 
     if (-not $result.Succeeded -or -not $result.Output -or $result.Output.Count -eq 0) {
         Write-NetCleanLog -Level DEBUG -Message 'No Wi-Fi profiles returned by netsh.'

@@ -27,6 +27,9 @@ All notable changes to this project should be documented in this file.
 - Retry a PSScriptAnalyzer target once only when version 1.25.0 raises its intermittent `NullReferenceException`; all repeated null references, other exceptions, and analyzer findings remain fatal.
 - Temporarily omit performance tuning from the interactive menu while retaining explicit `-Mode PerformanceTune` compatibility.
 - Add a parallel Windows PowerShell 5.1 compatibility job and update workflow actions to immutable Node.js 24 release commits.
+- Treat Workplace registration as preserved user-level SSO rather than organization management unless independent domain, Entra join, enterprise join, or MDM evidence exists.
+- Preserve identity, account, token, credential, and BrokerPlugin stores through explicit narrow cleanup allowlists and regression tests.
+- Capture `netsh` Wi-Fi profile output as UTF-8 while restoring the caller's console encoding so non-ASCII SSID names render correctly.
 
 - Refactor: Make repository PSScriptAnalyzer-clean across all scripts and module functions.
 	- Replace `Write-Host` with structured logging and proper streams.

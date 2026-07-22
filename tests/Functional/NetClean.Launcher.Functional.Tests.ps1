@@ -655,6 +655,35 @@ Describe 'NetClean launcher functional tests' {
             $script:messages | Should -Contain 'Organization-managed network configuration will be preserved.'
         }
 
+        It 'distinguishes Workplace registration from organization management' {
+            $script:messages = [System.Collections.Generic.List[string]]::new()
+            Mock Write-Information {
+                if ($null -ne $MessageData) {
+                    [void]$script:messages.Add([string]$MessageData)
+                }
+            }
+            Mock Get-NetCleanLogFile { $null }
+
+            Show-PreviewSummary -Result ([pscustomobject]@{
+                ManagementState = [pscustomobject]@{
+                    IsManaged       = $false
+                    JoinType        = 'WorkplaceRegistered'
+                    WorkplaceJoined = $true
+                }
+                Summary = [pscustomobject]@{
+                    ProtectedVendorsCount       = 0
+                    ProtectedInterfaceGuidCount = 0
+                    CandidateArtifactCount      = 0
+                    SanitizableArtifactCount    = 0
+                }
+                BackupPath = 'C:\backup'
+            })
+
+            $script:messages | Should -Contain 'Device registration: WorkplaceRegistered'
+            $script:messages | Should -Contain 'A work or school account is registered for SSO and will be preserved; no organization management was detected.'
+            $script:messages | Should -Not -Contain 'Organization-managed network configuration will be preserved.'
+        }
+
         It 'explains adapter reset, Quad9 DNS, and IPv4 preference results' {
             $script:messages = [System.Collections.Generic.List[string]]::new()
             Mock Write-Information {

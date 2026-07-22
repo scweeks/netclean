@@ -146,10 +146,10 @@ $script:Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
 Detects whether Windows is connected to organization management.
 .DESCRIPTION
 Uses dsregcmd /status for Active Directory, Microsoft Entra, enterprise, and
-workplace join state. It also treats EnterpriseMgmt scheduled-task evidence as
-MDM enrollment evidence. If dsregcmd is unavailable, domain join state falls
-back to Win32_ComputerSystem. No tenant or domain identifier is returned or
-logged.
+workplace registration state. Workplace registration alone is not treated as
+device management. EnterpriseMgmt scheduled-task evidence is treated as MDM
+enrollment evidence. If dsregcmd is unavailable, domain join state falls back
+to Win32_ComputerSystem. No tenant or domain identifier is returned or logged.
 .OUTPUTS
 A PSCustomObject describing the management state and detection warnings.
 #>
@@ -211,7 +211,6 @@ function Get-NetCleanDeviceManagementState {
         $state.EntraJoined -or
         $state.EnterpriseJoined -or
         $state.DomainJoined -or
-        $state.WorkplaceJoined -or
         $mdmEnrolled
     )
 

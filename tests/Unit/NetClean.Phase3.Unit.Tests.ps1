@@ -715,6 +715,17 @@ Describe 'NetClean Phase 3 unit tests' {
                 @($result | Where-Object { $_.Reason -eq 'DryRun' }).Count | Should -Be $result.Count
             }
 
+            It 'limits event cleanup to network logs and excludes identity logs' {
+                $result = @(Clear-NetworkEventLogsSafe -DryRun)
+
+                @($result.LogName) | Should -Be @(
+                    'Microsoft-Windows-WLAN-AutoConfig/Operational'
+                    'Microsoft-Windows-NetworkProfile/Operational'
+                    'Microsoft-Windows-DHCP-Client/Operational'
+                )
+                @($result.LogName) | Should -Not -Match 'AAD|CloudAP|Identity|Token|User Device Registration|WebAuth'
+            }
+
             It 'returns skipped result objects when WhatIf is used' {
                 $result = @(Clear-NetworkEventLogsSafe -WhatIf)
 
@@ -776,6 +787,17 @@ Describe 'NetClean Phase 3 unit tests' {
 
                 $result.Count | Should -BeGreaterThan 0
                 @($result | Where-Object { $_.Reason -eq 'DryRun' }).Count | Should -Be $result.Count
+            }
+
+            It 'limits user cleanup to Explorer history and excludes SSO stores' {
+                $result = @(Clear-UserNetworkArtifactsSafe -DryRun)
+
+                @($result.Path) | Should -Be @(
+                    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RunMRU'
+                    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\TypedPaths'
+                    'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\RecentDocs'
+                )
+                @($result.Path) | Should -Not -Match 'AAD|BrokerPlugin|CloudAP|Credential|Identity|Ngc|Token|Vault|Workplace'
             }
 
             It 'returns not-found entries when paths do not exist' {

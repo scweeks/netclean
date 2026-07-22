@@ -64,6 +64,37 @@ Describe 'NetClean Phase 2 unit tests' {
                 @($result | Where-Object { $_ -eq 'HomeSSID' }).Count | Should -Be 1
             }
 
+            It 'captures netsh profile names as UTF-8 and restores the host encoding' {
+                $originalEncoding = [Console]::OutputEncoding
+                $testHostEncoding = [System.Text.Encoding]::GetEncoding(437)
+                $profileName = 'Edward{0}s iPhone' -f [char]0x2019
+                $script:captureEncoding = $null
+
+                try {
+                    [Console]::OutputEncoding = $testHostEncoding
+                    Mock Invoke-NetCleanNativeCapture {
+                        $script:captureEncoding = [Console]::OutputEncoding.WebName
+                        [pscustomobject]@{
+                            Name      = 'List Wi-Fi profiles'
+                            ExitCode  = 0
+                            Succeeded = $true
+                            Output    = @("    All User Profile     : $profileName")
+                            Error     = $null
+                        }
+                    }
+
+                    $result = @(Get-WiFiProfileName)
+                    $restoredEncoding = [Console]::OutputEncoding.WebName
+                }
+                finally {
+                    [Console]::OutputEncoding = $originalEncoding
+                }
+
+                $script:captureEncoding | Should -Be 'utf-8'
+                $restoredEncoding | Should -Be $testHostEncoding.WebName
+                $result | Should -Be @($profileName)
+            }
+
             It 'returns an empty collection when netsh returns no output' {
                 Mock Invoke-NetCleanNativeCapture {
                     [pscustomobject]@{
