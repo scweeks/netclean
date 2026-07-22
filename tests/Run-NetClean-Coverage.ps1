@@ -2,23 +2,15 @@
 param(
     [string]$RepoRoot = (Split-Path -Parent $PSScriptRoot),
     [string]$OutputPath = (Join-Path $PSScriptRoot 'TestResults'),
-    [version]$PesterVersion = [version]'5.9.0',
+    [version]$PesterVersion = [version]'6.0.1',
+    [string[]]$CoveragePath,
     [ValidateRange(0, 100)]
-    [double]$MinimumCoverage = 69.0,
+    [double]$MinimumCoverage = 68.0,
     [switch]$PassThru
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-
-$pesterModule = Get-Module -ListAvailable Pester |
-    Where-Object Version -EQ $PesterVersion |
-    Sort-Object Version -Descending |
-    Select-Object -First 1
-if ($null -eq $pesterModule) {
-    throw "Run-NetClean-Coverage.ps1 requires Pester $PesterVersion."
-}
-Import-Module $pesterModule.Path -Force -ErrorAction Stop
 
 $manifestPath = Join-Path $RepoRoot 'NetClean.psd1'
 $scriptPath   = Join-Path $RepoRoot 'NetClean.ps1'
@@ -40,14 +32,53 @@ if (-not (Test-Path -LiteralPath $OutputPath)) {
     New-Item -Path $OutputPath -ItemType Directory -Force | Out-Null
 }
 
-$coverageFiles = @(
-    (Join-Path $RepoRoot 'NetClean.ps1'),
-    (Join-Path $RepoRoot 'Modules\NetClean.psm1'),
-    (Join-Path $RepoRoot 'Modules\NetCleanPhase1.ps1'),
-    (Join-Path $RepoRoot 'Modules\NetCleanPhase2.ps1'),
-    (Join-Path $RepoRoot 'Modules\NetCleanPhase3.ps1'),
-    (Join-Path $RepoRoot 'Modules\NetCleanPhase4.ps1')
-) | Where-Object { Test-Path -LiteralPath $_ }
+if ($PSBoundParameters.ContainsKey('CoveragePath')) {
+    $coverageFiles = @(
+        $CoveragePath |
+            ForEach-Object {
+                if ([System.IO.Path]::IsPathRooted($_)) {
+                    $_
+                }
+                else {
+                    Join-Path $RepoRoot $_
+                }
+            } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+    )
+}
+else {
+    $coverageFiles = @(
+        (Join-Path $RepoRoot 'NetClean.ps1'),
+        (Join-Path $RepoRoot 'Modules\NetClean.psm1'),
+        (Join-Path $RepoRoot 'Modules\NetCleanPhase1.ps1'),
+        (Join-Path $RepoRoot 'Modules\NetCleanPhase2.ps1'),
+        (Join-Path $RepoRoot 'Modules\NetCleanPhase3.ps1'),
+        (Join-Path $RepoRoot 'Modules\NetCleanPhase4.ps1')
+    ) | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf }
+}
+
+$testsRoot = [System.IO.Path]::GetFullPath($testsPath).TrimEnd('\', '/') + '\'
+$testCoverageFiles = @(
+    $coverageFiles |
+        Where-Object {
+            [System.IO.Path]::GetFullPath($_).StartsWith(
+                $testsRoot,
+                [System.StringComparison]::OrdinalIgnoreCase
+            )
+        }
+)
+if ($testCoverageFiles.Count -gt 0) {
+    throw 'CoveragePath must not include files under tests.'
+}
+
+$pesterModule = Get-Module -ListAvailable Pester |
+    Where-Object Version -EQ $PesterVersion |
+    Sort-Object Version -Descending |
+    Select-Object -First 1
+if ($null -eq $pesterModule) {
+    throw "Run-NetClean-Coverage.ps1 requires Pester $PesterVersion."
+}
+Import-Module $pesterModule.Path -Force -ErrorAction Stop
 
 $testFiles = @(
     Get-ChildItem -Path (Join-Path $testsPath 'Unit') -Filter '*.Tests.ps1' -File -ErrorAction SilentlyContinue
@@ -67,8 +98,9 @@ $config = New-PesterConfiguration
 $config.Run.Path = $testFiles.FullName
 $config.Run.PassThru = $true
 $config.Run.Exit = $false
+$config.Run.Throw = $true
 
-$config.Output.Verbosity = 'Detailed'
+$config.Output.Verbosity = 'Normal'
 
 $config.TestResult.Enabled = $true
 $config.TestResult.OutputFormat = 'JUnitXml'
@@ -76,6 +108,7 @@ $config.TestResult.OutputPath = $testXml
 
 $config.CodeCoverage.Enabled = $true
 $config.CodeCoverage.Path = $coverageFiles
+$config.CodeCoverage.ExcludeTests = $true
 $config.CodeCoverage.OutputFormat = 'JaCoCo'
 $config.CodeCoverage.OutputPath = $coverageXml
 

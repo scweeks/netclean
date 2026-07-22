@@ -4,16 +4,16 @@ Contributions should be small, focused, and based on the latest `main` branch un
 
 ## Engineering expectations
 
-- Use red-green-refactor: add or correct a focused Pester v5 test, observe the intended failure, apply the smallest production change, then refactor with the suite green.
+- Use red-green-refactor: add or correct a focused Pester 6 test, observe the intended failure, apply the smallest production change, then refactor with the suite green.
 - Preserve dry-run, `ShouldProcess`, protected-artifact, and backup behavior for state-changing operations.
 - Keep functions compact and single-purpose; isolate native commands and filesystem/registry access behind testable helpers.
-- Do not weaken security checks, analyzer rules, test assertions, the 69% overall coverage ratchet, or the 95% changed-file target to make CI pass. Raise the overall ratchet as tests move the project toward 95% total coverage.
+- Do not weaken security checks, analyzer rules, test assertions, the 68% overall coverage ratchet, or the 95% changed-file target to make CI pass. Raise the overall ratchet as tests move the project toward 95% total coverage.
 - Update public help, README, and CHANGELOG entries when behavior or interfaces change.
 
 ## Local validation
 
 ```powershell
-Install-Module Pester -Scope CurrentUser -RequiredVersion 5.9.0 -Force -SkipPublisherCheck
+Install-Module Pester -Scope CurrentUser -RequiredVersion 6.0.1 -Force -SkipPublisherCheck
 Install-Module PSScriptAnalyzer -Scope CurrentUser -RequiredVersion 1.25.0 -Force
 
 .\tests\Invoke-NetCleanAnalyzer.ps1
@@ -27,7 +27,7 @@ Run state-changing manual tests only on a disposable Windows system you control.
 ## Pull request checklist
 
 - [ ] A focused test demonstrated the defect or missing behavior before the implementation change.
-- [ ] Pester v5 tests pass locally.
+- [ ] Pester 6.0.1 tests pass locally.
 - [ ] PSScriptAnalyzer reports no warnings or errors.
 - [ ] Documentation and change notes match the implementation.
 - [ ] No generated output, secrets, credentials, or host-specific inventory is included.

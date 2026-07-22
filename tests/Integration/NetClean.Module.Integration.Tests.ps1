@@ -1,23 +1,25 @@
-Describe 'NetClean module integration tests' {
+$repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
+$script:moduleManifestPath = Join-Path $repoRoot 'NetClean.psd1'
 
+if (-not (Test-Path -LiteralPath $script:moduleManifestPath)) {
+    throw "NetClean.psd1 not found at path: $script:moduleManifestPath"
+}
+
+Remove-Module NetClean -ErrorAction SilentlyContinue
+Import-Module $script:moduleManifestPath -Force
+
+Describe 'NetClean module integration tests' {
     BeforeAll {
         $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
-        $manifestPath = Join-Path $repoRoot 'NetClean.psd1'
-
-        if (-not (Test-Path -LiteralPath $manifestPath)) {
-            throw "NetClean.psd1 not found at path: $manifestPath"
-        }
-
-        Remove-Module NetClean -ErrorAction SilentlyContinue
-        Import-Module $manifestPath -Force
+        $script:moduleManifestPath = Join-Path $repoRoot 'NetClean.psd1'
     }
 
     It 'validates the module manifest' {
-        { Test-ModuleManifest $manifestPath } | Should -Not -Throw
+        { Test-ModuleManifest $script:moduleManifestPath } | Should -Not -Throw
     }
 
     It 'imports the module manifest without throwing' {
-        { Import-Module $manifestPath -Force } | Should -Not -Throw
+        { Import-Module $script:moduleManifestPath -Force } | Should -Not -Throw
     }
 
     It 'exports the expected primary phase functions' {

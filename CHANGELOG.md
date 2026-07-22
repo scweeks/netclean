@@ -6,7 +6,9 @@ All notable changes to this project should be documented in this file.
 
 - Add conference-preparation adapter reset and verification: IPv4 DHCP, Quad9 IPv4/IPv6 DNS, DNS over HTTPS without plaintext fallback where supported, IPv6 retained with IPv4 preferred, protected/managed-adapter boundaries, private adapter backups, and a machine-readable verification ledger.
 - Add conditional post-cleanup evidence for Wi-Fi disconnection and DNS/ARP caches; cache state is evaluated only when no physical wired LAN is connected.
-- Ratchet CI at the measured 69% overall command-coverage baseline while retaining the 95% changed-file and long-term overall targets.
+- Upgrade the test toolchain to Pester 6.0.1, make test files discovery-isolated, and fail coverage runs on discovery or container errors.
+- Rebaseline the overall command-coverage ratchet at 68% against Pester 6's measured 68.43% profiler result while retaining the 95% changed-file and long-term overall targets.
+- Reject test-directory files as coverage sources so test code cannot inflate reported production coverage.
 
 - Refactor: Make repository PSScriptAnalyzer-clean across all scripts and module functions.
 	- Replace `Write-Host` with structured logging and proper streams.

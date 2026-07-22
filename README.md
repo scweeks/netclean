@@ -104,15 +104,17 @@ The `examples` directory contains reusable launcher, Wi-Fi restore, and schedule
 
 ## Development and CI
 
-The project uses Pester v5 and PSScriptAnalyzer. Changes should follow red-green-refactor and add focused regression coverage before production edits.
+The project uses Pester 6.0.1 and PSScriptAnalyzer. Changes should follow red-green-refactor and add focused regression coverage before production edits. Pester 6 requires Windows PowerShell 5.1 or PowerShell 7.4 and later.
+
+The authoritative coverage run is intentionally sequential. Pester 6 file-level parallel execution remains experimental, and Pester always collects coverage on its sequential path, so CI does not enable parallel execution or use a custom parallel harness.
 
 ```powershell
-Install-Module Pester -Scope CurrentUser -RequiredVersion 5.9.0 -Force -SkipPublisherCheck
+Install-Module Pester -Scope CurrentUser -RequiredVersion 6.0.1 -Force -SkipPublisherCheck
 Install-Module PSScriptAnalyzer -Scope CurrentUser -RequiredVersion 1.25.0 -Force
 Invoke-Pester -Path .\tests
 .\tests\Run-NetClean-Coverage.ps1
 ```
 
-CI is defined in `.github/workflows/ci.yml`. It validates the module manifest, treats analyzer warnings/errors as failures, and runs Pester v5. Overall command coverage is ratcheted at 69%, just below the current measured 69.07% baseline; pull-request reporting retains a 95% changed-file target. The long-term overall target remains 95%, and the ratchet should only move upward as focused tests cover existing gaps. Generated output is written under `tests/TestResults` and is ignored by Git.
+CI is defined in `.github/workflows/ci.yml`. It validates the module manifest, treats analyzer warnings/errors as failures, and runs Pester 6.0.1. Tests execute to exercise production behavior, but the coverage runner rejects source paths beneath `tests/`, so test code cannot inflate the result. Pester 6's profiler-based collector measures the current suite at 68.43% command coverage; the overall gate is ratcheted at 68%, while pull-request reporting retains a 95% changed-file target. The long-term overall target remains 95%, and the ratchet should only move upward as focused tests cover existing gaps. Generated output is written under `tests/TestResults` and is ignored by Git.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations and [LICENSE](LICENSE) for GPLv3 terms.
