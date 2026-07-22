@@ -5,7 +5,7 @@ param(
     [version]$PesterVersion = [version]'6.0.1',
     [string[]]$CoveragePath,
     [ValidateRange(0, 100)]
-    [double]$MinimumCoverage = 69.0,
+    [double]$MinimumCoverage = 71.0,
     [switch]$PassThru
 )
 
@@ -110,6 +110,7 @@ $config.TestResult.OutputPath = $testXml
 $config.CodeCoverage.Enabled = $true
 $config.CodeCoverage.Path = $coverageFiles
 $config.CodeCoverage.ExcludeTests = $true
+$config.CodeCoverage.CoveragePercentTarget = $MinimumCoverage
 $config.CodeCoverage.OutputFormat = 'JaCoCo'
 $config.CodeCoverage.OutputPath = $coverageXml
 

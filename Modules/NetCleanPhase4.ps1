@@ -367,7 +367,7 @@ function Test-NetCleanCleanupPostState {
 
             if ($shouldBeAbsent) {
                 try {
-                    $exists = Test-RegistryPathExist -RegistryPath $target
+                    $exists = Test-RegistryPathExist -RegistryPath $target -ThrowOnError
                     $checks.Add([pscustomobject]@{
                             Category         = 'RegistryArtifact'
                             Target           = $target
@@ -707,7 +707,10 @@ function Test-NetCleanCleanupPostState {
                     try {
                         $physicalInterfaceIndexes = @(
                             $physicalAdapters |
-                                Where-Object { $null -ne $_.InterfaceIndex } |
+                                Where-Object {
+                                    $_.PSObject.Properties.Name -contains 'InterfaceIndex' -and
+                                    $null -ne $_.InterfaceIndex
+                                } |
                                 Select-Object -ExpandProperty InterfaceIndex -Unique
                         )
                         $dynamicNeighbors = if ($physicalInterfaceIndexes.Count -eq 0) {

@@ -311,6 +311,14 @@ Describe 'NetClean core/shared helper unit tests' {
 
                 Test-RegistryPathExist -Path 'Registry::HKEY_LOCAL_MACHINE\SOFTWARE\Test' | Should -BeFalse
             }
+
+            It 'rethrows provider failures for verification callers' {
+                Mock Convert-RegToProviderPath { throw 'registry provider unavailable' }
+
+                {
+                    Test-RegistryPathExist -RegistryPath 'HKLM\SOFTWARE\Test' -ThrowOnError
+                } | Should -Throw '*registry provider unavailable*'
+            }
         }
 
         Context 'Get-RegistryValuesSafe' {

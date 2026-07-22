@@ -650,6 +650,8 @@ function Convert-RegToProviderPath {
     This function checks if a specified registry path exists.
 .PARAMETER RegistryPath
     The registry path to test.
+.PARAMETER ThrowOnError
+    Rethrows provider errors so verification callers can fail closed. Discovery callers remain fail-soft by default.
 .EXAMPLE
     Test-RegistryPathExist -RegistryPath "HKLM:\SOFTWARE\MyKey"
 .OUTPUTS
@@ -663,7 +665,9 @@ function Test-RegistryPathExist {
     param(
         [Parameter(Mandatory = $true)]
         [Alias('Path')]
-        [string]$RegistryPath
+        [string]$RegistryPath,
+
+        [switch]$ThrowOnError
     )
 
     try {
@@ -671,6 +675,9 @@ function Test-RegistryPathExist {
         return (Test-Path -LiteralPath $providerPath)
     }
     catch {
+        if ($ThrowOnError) {
+            throw
+        }
         return $false
     }
 }

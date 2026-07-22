@@ -10,6 +10,9 @@ All notable changes to this project should be documented in this file.
 - Add isolated registry System tests that exercise real Registry-provider detection, native backup, protected-boundary cleanup, and independent verification against synthetic Pester `TestRegistry:` data.
 - Fix native registry export argument quoting for keys and output paths containing spaces.
 - Raise the overall command-coverage ratchet from 68% to 69% after the isolated System tests increased Pester 6's measured production coverage from 68.43% to 69.42%; retain the 95% changed-file and long-term overall targets.
+- Expand fail-closed cleanup verification coverage for registry and user artifacts, event logs, DNS and ARP caches, and physical-adapter discovery; preserve fail-soft registry discovery while allowing verification callers to surface query failures.
+- Treat physical adapters without an interface index as having no queryable ARP entries instead of failing under strict mode.
+- Raise the overall command-coverage ratchet from 69% to 71% after the verification failure matrix increased measured production coverage from 69.42% to 71.29%, and align Pester's displayed target with the enforced runner and pull-request gates.
 - Reject test-directory files as coverage sources so test code cannot inflate reported production coverage.
 
 - Refactor: Make repository PSScriptAnalyzer-clean across all scripts and module functions.

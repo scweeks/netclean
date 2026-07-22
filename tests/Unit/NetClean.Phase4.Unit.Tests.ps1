@@ -362,6 +362,74 @@ Describe 'NetClean Phase 4 unit tests' {
                 }).Count | Should -Be 1
             }
 
+            It 'fails closed when registry post-state cannot be read' {
+                Mock Test-RegistryPathExist { throw 'registry provider unavailable' }
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'RegistryArtifact' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeFalse
+                $check.VerificationType | Should -Be 'IndependentState'
+                $check.Actual | Should -Be 'Unknown'
+                $check.Error | Should -Be 'registry provider unavailable'
+                Should -Invoke Test-RegistryPathExist -Times 1 -ParameterFilter {
+                    $RegistryPath -eq 'HKLM\SOFTWARE\Microsoft\TestArtifact' -and
+                    $ThrowOnError
+                }
+            }
+
+            It 'reports a failed registry cleanup ledger' {
+                $operation = @($script:context.Clean.RegistryArtifacts.Results)[0]
+                $operation.Removed = $false
+                $operation.Succeeded = $false
+                $operation.Reason = 'AccessDenied'
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'RegistryArtifact' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeFalse
+                $check.VerificationType | Should -Be 'CommandResult'
+                $check.Actual | Should -Be 'AccessDenied'
+                $check.Error | Should -Be 'AccessDenied'
+                Should -Invoke Test-RegistryPathExist -Times 0
+            }
+
+            It 'fails closed when user-artifact post-state cannot be read' {
+                Mock Test-Path { throw 'user registry provider unavailable' }
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'UserArtifact' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeFalse
+                $check.VerificationType | Should -Be 'IndependentState'
+                $check.Actual | Should -Be 'Unknown'
+                $check.Error | Should -Be 'user registry provider unavailable'
+            }
+
+            It 'reports a failed user-artifact cleanup ledger' {
+                $operation = @($script:context.Clean.UserArtifacts)[0]
+                $operation.Removed = $false
+                $operation.Succeeded = $false
+                $operation.Reason = 'AccessDenied'
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'UserArtifact' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeFalse
+                $check.VerificationType | Should -Be 'CommandResult'
+                $check.Actual | Should -Be 'AccessDenied'
+                $check.Error | Should -Be 'AccessDenied'
+                Should -Invoke Test-Path -Times 0
+            }
+
             It 'fails when an event from before the clear completion remains' {
                 Mock Get-WinEvent {
                     [pscustomobject]@{ Id = 10000; TimeCreated = [datetime]'2026-07-20T11:59:00' }
@@ -375,6 +443,87 @@ Describe 'NetClean Phase 4 unit tests' {
                 }).Count | Should -Be 1
             }
 
+            It 'treats a no-matching-events result as verified absence' {
+                Mock Get-WinEvent {
+                    $exception = [System.Exception]::new('No matching events were found.')
+                    $errorRecord = [System.Management.Automation.ErrorRecord]::new(
+                        $exception,
+                        'NoMatchingEventsFound',
+                        [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+                        $null
+                    )
+                    throw $errorRecord
+                }
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'EventLog' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeTrue
+                $check.Actual | Should -Be 'Absent'
+                $check.Passed | Should -BeTrue
+                $check.Error | Should -BeNullOrEmpty
+            }
+
+            It 'fails closed when event-log post-state cannot be read' {
+                Mock Get-WinEvent { throw 'event log unavailable' }
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'EventLog' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeFalse
+                $check.Actual | Should -Be 'Unknown'
+                $check.Passed | Should -BeFalse
+                $check.Error | Should -Be 'event log unavailable'
+            }
+
+            It 'reports an event-log cleanup failure' {
+                $operation = @($script:context.Clean.EventLogs)[0]
+                $operation.Succeeded = $false
+                $operation.Error = 'clear failed'
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'EventLog' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeFalse
+                $check.Actual | Should -Be 'Failed'
+                $check.Error | Should -Be 'clear failed'
+                Should -Invoke Get-WinEvent -Times 0
+            }
+
+            It 'reports an event log that was not cleared' {
+                $operation = @($script:context.Clean.EventLogs)[0]
+                $operation.Cleared = $false
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'EventLog' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeFalse
+                $check.Actual | Should -Be 'NotCleared'
+                Should -Invoke Get-WinEvent -Times 0
+            }
+
+            It 'reports an event-log cleanup without a completion timestamp' {
+                $operation = @($script:context.Clean.EventLogs)[0]
+                $operation.CompletedAt = $null
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'EventLog' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeFalse
+                $check.Actual | Should -Be 'MissingCompletionTime'
+                Should -Invoke Get-WinEvent -Times 0
+            }
+
             It 'fails when a cleanup command reported failure' {
                 $script:context.Clean.Dns.Succeeded = $false
                 $script:context.Clean.Dns | Add-Member -NotePropertyName Error -NotePropertyValue 'flush failed'
@@ -385,6 +534,69 @@ Describe 'NetClean Phase 4 unit tests' {
                 @($result.Checks | Where-Object {
                     $_.Target -eq 'Flush DNS cache' -and -not $_.Passed
                 }).Count | Should -Be 1
+            }
+
+            It 'fails closed when the DNS cache cannot be queried' {
+                Mock Get-DnsClientCache { throw 'DNS cache unavailable' }
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'DnsCache' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeFalse
+                $check.Actual | Should -Be 'Unknown'
+                $check.Error | Should -Be 'DNS cache unavailable'
+            }
+
+            It 'passes ARP verification when physical adapters have no interface indexes' {
+                Mock Get-NetAdapter {
+                    [pscustomobject]@{
+                        Name               = 'Wi-Fi'
+                        Status             = 'Disconnected'
+                        MediaType          = 'Native 802.11'
+                        PhysicalMediaType  = 'Native 802.11'
+                        NdisPhysicalMedium = 9
+                    }
+                }
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'ArpCache' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeTrue
+                $check.Actual.Count | Should -Be 0
+                $check.Passed | Should -BeTrue
+                Should -Invoke Get-NetNeighbor -Times 0
+            }
+
+            It 'fails closed when the ARP cache cannot be queried' {
+                Mock Get-NetNeighbor { throw 'ARP cache unavailable' }
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'ArpCache' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeFalse
+                $check.Actual | Should -Be 'Unknown'
+                $check.Error | Should -Be 'ARP cache unavailable'
+            }
+
+            It 'fails closed when physical adapter state cannot be queried' {
+                Mock Get-NetAdapter { throw 'adapter state unavailable' }
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+                $check = $result.Checks |
+                    Where-Object Category -EQ 'ConnectivityDetection' |
+                    Select-Object -First 1
+
+                $result.Passed | Should -BeFalse
+                $check.Actual | Should -Be 'Unknown'
+                $check.Error | Should -Be 'adapter state unavailable'
+                Should -Invoke Get-DnsClientCache -Times 0
+                Should -Invoke Get-NetNeighbor -Times 0
             }
 
             It 'marks cleanup post-state checks not applicable during a dry run' {
