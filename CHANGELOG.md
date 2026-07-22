@@ -13,6 +13,9 @@ All notable changes to this project should be documented in this file.
 - Expand fail-closed cleanup verification coverage for registry and user artifacts, event logs, DNS and ARP caches, and physical-adapter discovery; preserve fail-soft registry discovery while allowing verification callers to surface query failures.
 - Treat physical adapters without an interface index as having no queryable ARP entries instead of failing under strict mode.
 - Raise the overall command-coverage ratchet from 69% to 71% after the verification failure matrix increased measured production coverage from 69.42% to 71.29%, and align Pester's displayed target with the enforced runner and pull-request gates.
+- Add source-matrix and correlation tests for Security Center products, services, drivers, uninstall records, adapters, PnP devices, service registry data, file metadata/signatures, and protected service/adapter registry boundaries.
+- Allow empty metadata paths to reach the existing fail-soft guard instead of failing during parameter binding.
+- Raise the overall command-coverage ratchet from 71% to 80% after protection-discovery tests increased measured production coverage from 71.29% to 80.17%.
 - Reject test-directory files as coverage sources so test code cannot inflate reported production coverage.
 
 - Refactor: Make repository PSScriptAnalyzer-clean across all scripts and module functions.

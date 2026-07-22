@@ -1480,6 +1480,7 @@ function Get-FileMetadatum {
     param(
         [Parameter(Mandatory = $true)]
         [AllowNull()]
+        [AllowEmptyString()]
         [string]$Path
     )
 

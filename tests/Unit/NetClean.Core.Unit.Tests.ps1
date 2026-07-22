@@ -564,5 +564,191 @@ Describe 'NetClean core/shared helper unit tests' {
                 $r2.Succeeded | Should -BeTrue
             }
         }
+
+        Context 'Get-FileMetadatum' {
+
+            BeforeEach {
+                Mock Get-NormalizedFilePathFromCommandLine { $CommandLine }
+            }
+
+            It 'returns null for an empty or unresolvable path' {
+                Get-FileMetadatum -Path $null | Should -BeNullOrEmpty
+
+                Mock Get-NormalizedFilePathFromCommandLine { $null }
+                Get-FileMetadatum -Path 'unresolvable.exe' | Should -BeNullOrEmpty
+            }
+
+            It 'returns a structured absent-file result' {
+                Mock Test-Path { $false }
+
+                $result = Get-FileMetadatum -Path 'C:\missing\agent.exe'
+
+                $result.Path | Should -Be 'C:\missing\agent.exe'
+                $result.Exists | Should -BeFalse
+                $result.SignatureStatus | Should -BeNullOrEmpty
+            }
+
+            It 'returns null when the normalized path cannot be queried' {
+                Mock Test-Path { throw 'invalid path syntax' }
+
+                Get-FileMetadatum -Path 'C:\invalid\agent.exe' | Should -BeNullOrEmpty
+            }
+
+            It 'returns version, signature, and inferred-vendor metadata for an existing file' {
+                Mock Test-Path { $true }
+                Mock Get-Item {
+                    [pscustomobject]@{
+                        FullName    = 'C:\Program Files\CrowdStrike\sensor.exe'
+                        Name        = 'sensor.exe'
+                        VersionInfo = [pscustomobject]@{
+                            CompanyName      = 'CrowdStrike, Inc.'
+                            FileDescription  = 'Falcon Sensor'
+                            ProductName      = 'Falcon'
+                            OriginalFilename = 'sensor.exe'
+                            FileVersion      = '7.1.2.3'
+                        }
+                    }
+                }
+                Mock Get-AuthenticodeSignature {
+                    [pscustomobject]@{
+                        Status            = 'Valid'
+                        SignerCertificate = [pscustomobject]@{
+                            Subject    = 'CN=CrowdStrike'
+                            Issuer     = 'CN=Trusted Issuer'
+                            Thumbprint = 'ABC123'
+                        }
+                    }
+                }
+                Mock Resolve-VendorFromText { 'CrowdStrike' }
+
+                $result = Get-FileMetadatum -Path '"C:\Program Files\CrowdStrike\sensor.exe" --service'
+
+                $result.Exists | Should -BeTrue
+                $result.CompanyName | Should -Be 'CrowdStrike, Inc.'
+                $result.FileVersion | Should -Be '7.1.2.3'
+                $result.SignerSubject | Should -Be 'CN=CrowdStrike'
+                $result.SignatureStatus | Should -Be 'Valid'
+                $result.InferredVendor | Should -Be 'CrowdStrike'
+            }
+
+            It 'retains file metadata when Authenticode inspection fails' {
+                Mock Test-Path { $true }
+                Mock Get-Item {
+                    [pscustomobject]@{
+                        FullName    = 'C:\Tools\unsigned.exe'
+                        Name        = 'unsigned.exe'
+                        VersionInfo = $null
+                    }
+                }
+                Mock Get-AuthenticodeSignature { throw 'signature provider unavailable' }
+                Mock Resolve-VendorFromText { $null }
+
+                $result = Get-FileMetadatum -Path 'C:\Tools\unsigned.exe'
+
+                $result.Exists | Should -BeTrue
+                $result.CompanyName | Should -BeNullOrEmpty
+                $result.SignerSubject | Should -BeNullOrEmpty
+                $result.SignatureStatus | Should -BeNullOrEmpty
+            }
+
+            It 'returns null when an existing file cannot be read' {
+                Mock Test-Path { $true }
+                Mock Get-Item { throw 'access denied' }
+
+                Get-FileMetadatum -Path 'C:\protected\agent.exe' | Should -BeNullOrEmpty
+            }
+        }
+
+        Context 'Get-ServiceRegistryMap' {
+
+            It 'maps service values and existing child registry paths by normalized service name' {
+                Mock Get-RegistryChildKeyNamesSafe { @('CSFalconService', 'MinimalService') }
+                Mock Get-RegistryValuesSafe {
+                    if ($RegistryPath -like '*CSFalconService') {
+                        [pscustomobject]@{
+                            ImagePath   = 'C:\Program Files\CrowdStrike\sensor.exe'
+                            DisplayName = 'CrowdStrike Falcon Sensor'
+                            Type        = 16
+                            Start       = 2
+                            Group       = 'NetworkProvider'
+                        }
+                    }
+                }
+                Mock Test-RegistryPathExist {
+                    $RegistryPath -match '\\(Enum|Parameters)$'
+                }
+
+                $result = Get-ServiceRegistryMap
+
+                $result.Count | Should -Be 2
+                $result.ContainsKey('csfalconservice') | Should -BeTrue
+                $result.csfalconservice.DisplayName | Should -Be 'CrowdStrike Falcon Sensor'
+                $result.csfalconservice.EnumPath | Should -Match '\\Enum$'
+                $result.csfalconservice.LinkagePath | Should -BeNullOrEmpty
+                $result.minimalservice.ImagePath | Should -BeNullOrEmpty
+                Should -Invoke Test-RegistryPathExist -Times 8
+            }
+
+            It 'returns an empty map when the services root has no children' {
+                Mock Get-RegistryChildKeyNamesSafe { @() }
+
+                $result = Get-ServiceRegistryMap
+
+                $result | Should -BeOfType [hashtable]
+                $result.Count | Should -Be 0
+            }
+        }
+
+        Context 'Get-AdapterRegistryCorrelation' {
+
+            It 'correlates valid and fallback interface identifiers while skipping unusable class entries' {
+                Mock Get-RegistryChildKeyNamesSafe { @('Metadata', '0000', '0001', '0002', '0003') }
+                Mock Get-RegistryValuesSafe {
+                    switch -Wildcard ($RegistryPath) {
+                        '*\0000' { return $null }
+                        '*\0001' {
+                            return [pscustomobject]@{
+                                ComponentId     = 'crowdstrike_filter'
+                                DriverDesc      = 'CrowdStrike Network Filter'
+                                ProviderName    = 'CrowdStrike, Inc.'
+                                NetCfgInstanceId = '{11111111-2222-3333-4444-555555555555}'
+                            }
+                        }
+                        '*\0002' {
+                            return [pscustomobject]@{
+                                ComponentId     = 'contoso_filter'
+                                DriverDesc      = 'Contoso Filter'
+                                ProviderName    = 'Contoso'
+                                NetCfgInstanceId = '{NOT-A-GUID}'
+                            }
+                        }
+                        '*\0003' {
+                            return [pscustomobject]@{
+                                ComponentId     = 'no_interface'
+                                DriverDesc      = 'No Interface'
+                                ProviderName    = 'Contoso'
+                                NetCfgInstanceId = $null
+                            }
+                        }
+                    }
+                }
+                Mock Test-RegistryPathExist { $true }
+
+                $result = @(Get-AdapterRegistryCorrelation)
+
+                $result.Count | Should -Be 2
+                $result[0].InterfaceGuid | Should -Be '11111111-2222-3333-4444-555555555555'
+                $result[1].InterfaceGuid | Should -Be 'not-a-guid'
+                $result[0].ConnectionPath | Should -Match '\\Connection$'
+                $result[0].TcpipPath | Should -Match '\\Interfaces\\\{11111111-2222-3333-4444-555555555555\}$'
+                Should -Invoke Test-RegistryPathExist -Times 6
+            }
+
+            It 'returns empty when no adapter class entries are present' {
+                Mock Get-RegistryChildKeyNamesSafe { @() }
+
+                @(Get-AdapterRegistryCorrelation).Count | Should -Be 0
+            }
+        }
     }
 }
