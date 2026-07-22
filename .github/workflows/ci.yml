@@ -58,7 +58,7 @@ jobs:
       - name: Run Pester with coverage
         run: |
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
-          .\tests\Run-NetClean-Coverage.ps1 -MinimumCoverage 80
+          .\tests\Run-NetClean-Coverage.ps1 -MinimumCoverage 85
 
       - name: Upload test and coverage artifacts
         if: always()
@@ -95,7 +95,7 @@ jobs:
           paths: |
             ${{ github.workspace }}/tests/TestResults/coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
-          min-coverage-overall: 80
+          min-coverage-overall: 85
           min-coverage-changed-files: 95
           title: NetClean Coverage Report
           update-comment: true

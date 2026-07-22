@@ -99,6 +99,8 @@ function Show-TruncatedList {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [AllowEmptyCollection()]
         [object[]]$Items,
         [Parameter(Mandatory = $false)]
         [string]$Heading = 'Items',
@@ -184,7 +186,7 @@ function Read-YesNo {
         if ($answer -match '^[Yy]') { return $true }
         if ($answer -match '^[Nn]') { return $false }
 
-        Write-Verbose 'Please enter Y or N.' -ForegroundColor Yellow
+        Write-Verbose 'Please enter Y or N.'
     }
 }
 
@@ -666,7 +668,7 @@ function Read-PostRunAction {
     [OutputType([string])]
     param()
 
-    if ($RebootNow) {
+    if ($script:RebootNow) {
         return 'Restart'
     }
 
@@ -753,7 +755,7 @@ function Invoke-NetCleanLauncher {
 
     Test-NetCleanAdministrator
 
-    $selectedMode = $Mode
+    $selectedMode = $script:Mode
     if ($selectedMode -eq 'Menu') {
         $selectedMode = Read-NetCleanMenuSelection
         if ($selectedMode -eq 'Exit') {
@@ -776,12 +778,12 @@ function Invoke-NetCleanLauncher {
 
     $optionParameters = @{
         SelectedMode       = $selectedMode
-        DryRun             = [bool]$DryRun
-        SkipWifi           = [bool]$SkipWifi
-        SkipDnsFlush       = [bool]$SkipDnsFlush
-        SkipEventLogs      = [bool]$SkipEventLogs
-        SkipUserArtifacts  = [bool]$SkipUserArtifacts
-        SkipFirewallBackup = [bool]$SkipFirewallBackup
+        DryRun             = [bool]$script:DryRun
+        SkipWifi           = [bool]$script:SkipWifi
+        SkipDnsFlush       = [bool]$script:SkipDnsFlush
+        SkipEventLogs      = [bool]$script:SkipEventLogs
+        SkipUserArtifacts  = [bool]$script:SkipUserArtifacts
+        SkipFirewallBackup = [bool]$script:SkipFirewallBackup
     }
 
     if ($selectedMode -eq 'PerformanceTune') {
@@ -790,15 +792,15 @@ function Invoke-NetCleanLauncher {
 
     $options = Read-NetCleanOption @optionParameters
 
-    if (-not $Force) {
+    if (-not $script:Force) {
         if (-not (Read-YesNo -Prompt 'Proceed with the selected NetClean operation?' -DefaultNo $true)) {
             Write-Information 'Operation cancelled.' -InformationAction Continue
             return
         }
     }
 
-    if ($CreateLog -or $selectedMode -ne 'Menu') {
-        Start-NetCleanLog -Directory $LogPath
+    if ($script:CreateLog -or $selectedMode -ne 'Menu') {
+        Start-NetCleanLog -Directory $script:LogPath
     }
 
     if ($selectedMode -eq 'PerformanceTune' -and $selectedPerformanceProfile) {
@@ -808,15 +810,15 @@ function Invoke-NetCleanLauncher {
         Write-NetCleanLog -Level INFO -Message ("NetClean starting. Mode={0} DryRun={1}" -f $selectedMode, $options.DryRun)
     }
 
-    if (-not $options.DryRun -and -not (Test-Path -LiteralPath $BackupPath)) {
-        New-Item -Path $BackupPath -ItemType Directory -Force | Out-Null
+    if (-not $options.DryRun -and -not (Test-Path -LiteralPath $script:BackupPath)) {
+        New-Item -Path $script:BackupPath -ItemType Directory -Force | Out-Null
     }
 
     if ($selectedMode -eq 'Preview') {
         $ctx = Invoke-NetCleanPhase1Detect
         $ctx = Invoke-NetCleanPhase2Protect `
             -Context $ctx `
-            -BackupPath $BackupPath `
+            -BackupPath $script:BackupPath `
             -DryRun:$true `
             -SkipFirewallBackup:$options.SkipFirewallBackup
 
@@ -826,7 +828,7 @@ function Invoke-NetCleanLauncher {
 
     $workflowParameters = @{
         Mode               = $selectedMode
-        BackupPath         = $BackupPath
+        BackupPath         = $script:BackupPath
         DryRun             = [bool]$options.DryRun
         SkipWifi           = [bool]$options.SkipWifi
         SkipDnsFlush       = [bool]$options.SkipDnsFlush
