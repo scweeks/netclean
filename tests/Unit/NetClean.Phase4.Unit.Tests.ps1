@@ -112,6 +112,78 @@ Describe 'NetClean Phase 4 unit tests' {
                 @($result.Checks | Where-Object { -not $_.Passed }).Count | Should -Be 0
             }
 
+            It 'is not applicable when no adapter configuration was recorded' {
+                $result = Test-NetCleanAdapterPostState -Context ([pscustomobject]@{})
+
+                $result.Applicable | Should -BeFalse
+                $result.Passed | Should -BeTrue
+                $result.Reason | Should -Be 'NoAdapterChanges'
+            }
+
+            It 'ignores skipped adapter operations and disabled optional verification' {
+                $configuration = $script:context.Clean.AdapterConfiguration
+                $configuration.Operations[0].Skipped = $true
+                $configuration.PreferIPv4 = $false
+                $configuration.DnsOverHttps.Supported = $false
+
+                $result = Test-NetCleanAdapterPostState -Context $script:context
+
+                $result.Passed | Should -BeTrue
+                $result.Checks.Count | Should -Be 0
+                Should -Invoke Get-NetIPInterface -Times 0
+                Should -Invoke Get-DnsClientServerAddress -Times 0
+                Should -Invoke Get-ItemProperty -Times 0
+                Should -Invoke Get-DnsClientDohServerAddress -Times 0
+            }
+
+            It 'reports a failed adapter command without querying adapter state' {
+                $operation = $script:context.Clean.AdapterConfiguration.Operations[0]
+                $operation.Succeeded = $false
+                $operation | Add-Member -NotePropertyName Reason -NotePropertyValue 'DhcpConfigurationFailed'
+                $operation | Add-Member -NotePropertyName Error -NotePropertyValue 'access denied'
+
+                $result = Test-NetCleanAdapterPostState -Context $script:context
+                $check = $result.Checks | Where-Object Category -EQ 'AdapterCommand'
+
+                $result.Passed | Should -BeFalse
+                $check.Actual | Should -Be 'DhcpConfigurationFailed'
+                $check.Error | Should -Be 'access denied'
+                Should -Invoke Get-NetIPInterface -Times 0
+                Should -Invoke Get-DnsClientServerAddress -Times 0
+            }
+
+            It 'fails when IPv4 DHCP is disabled or absent' -ForEach @(
+                @{ States = @([pscustomobject]@{ Dhcp = 'Disabled' }) }
+                @{ States = @() }
+            ) {
+                Mock Get-NetIPInterface { $States }
+
+                $result = Test-NetCleanAdapterPostState -Context $script:context
+                $check = $result.Checks | Where-Object Category -EQ 'IPv4Dhcp'
+
+                $result.Passed | Should -BeFalse
+                $check.Passed | Should -BeFalse
+            }
+
+            It 'fails closed when DHCP or DNS state cannot be queried' -ForEach @(
+                @{ Command = 'Dhcp'; ErrorText = 'IP interface unavailable'; Category = 'IPv4Dhcp' }
+                @{ Command = 'Dns'; ErrorText = 'DNS state unavailable'; Category = 'DnsServers' }
+            ) {
+                if ($Command -eq 'Dhcp') {
+                    Mock Get-NetIPInterface { throw $ErrorText }
+                }
+                else {
+                    Mock Get-DnsClientServerAddress { throw $ErrorText }
+                }
+
+                $result = Test-NetCleanAdapterPostState -Context $script:context
+                $check = $result.Checks | Where-Object Category -EQ $Category
+
+                $result.Passed | Should -BeFalse
+                $check.Passed | Should -BeFalse
+                $check.Error | Should -Be $ErrorText
+            }
+
             It 'fails when an adapter is missing any configured Quad9 resolver' {
                 Mock Get-DnsClientServerAddress {
                     [pscustomobject]@{
@@ -132,6 +204,17 @@ Describe 'NetClean Phase 4 unit tests' {
                 (Test-NetCleanAdapterPostState -Context $script:context).Passed | Should -BeFalse
             }
 
+            It 'fails closed when the IPv4 preference cannot be read' {
+                Mock Get-ItemProperty { throw 'registry unavailable' }
+
+                $result = Test-NetCleanAdapterPostState -Context $script:context
+                $check = $result.Checks | Where-Object Category -EQ 'IPv4Preference'
+
+                $result.Passed | Should -BeFalse
+                $check.Passed | Should -BeFalse
+                $check.Error | Should -Be 'registry unavailable'
+            }
+
             It 'fails when encrypted DNS permits plaintext fallback' {
                 Mock Get-DnsClientDohServerAddress {
                     [pscustomobject]@{
@@ -143,6 +226,26 @@ Describe 'NetClean Phase 4 unit tests' {
                 }
 
                 (Test-NetCleanAdapterPostState -Context $script:context).Passed | Should -BeFalse
+            }
+
+            It 'fails when an expected encrypted DNS server entry is missing' {
+                Mock Get-DnsClientDohServerAddress { @() }
+
+                $result = Test-NetCleanAdapterPostState -Context $script:context
+                $checks = @($result.Checks | Where-Object Category -EQ 'DnsOverHttps')
+
+                $result.Passed | Should -BeFalse
+                @($checks | Where-Object Actual -EQ 'Missing').Count | Should -Be 4
+            }
+
+            It 'fails closed when encrypted DNS state cannot be queried' {
+                Mock Get-DnsClientDohServerAddress { throw 'DoH state unavailable' }
+
+                $result = Test-NetCleanAdapterPostState -Context $script:context
+                $checks = @($result.Checks | Where-Object Category -EQ 'DnsOverHttps')
+
+                $result.Passed | Should -BeFalse
+                @($checks | Where-Object Error -EQ 'DoH state unavailable').Count | Should -Be 4
             }
 
             It 'marks adapter post-state checks not applicable during a dry run' {
@@ -248,6 +351,15 @@ Describe 'NetClean Phase 4 unit tests' {
                         State          = 'Permanent'
                     }
                 }
+            }
+
+            It 'is not applicable when no cleanup results were recorded' {
+                $result = Test-NetCleanCleanupPostState -Context ([pscustomobject]@{})
+
+                $result.Applicable | Should -BeFalse
+                $result.Passed | Should -BeTrue
+                $result.Reason | Should -Be 'NoCleanupResults'
+                $result.Checks.Count | Should -Be 0
             }
 
             It 'passes when persistent artifacts remain absent and volatile actions succeeded' {
@@ -873,6 +985,91 @@ Describe 'NetClean Phase 4 unit tests' {
 
                 $result.Verify.Passed | Should -BeFalse
                 $result.Verify.Summary.CleanupCheckFailureCount | Should -Be 1
+            }
+
+            It 'does not export a report when the context has no backup path' {
+                $contextWithoutBackup = [pscustomobject]@{}
+                foreach ($property in $script:context.PSObject.Properties) {
+                    if ($property.Name -ne 'BackupPath') {
+                        $contextWithoutBackup | Add-Member -NotePropertyName $property.Name -NotePropertyValue $property.Value
+                    }
+                }
+
+                $result = Invoke-NetCleanPhase4Verify -Context $contextWithoutBackup
+
+                $result.Verify.VerificationReport | Should -BeNullOrEmpty
+                Should -Invoke Export-NetCleanVerificationReport -Times 0
+            }
+
+            It 'exports a planned verification report in dry-run mode' {
+                Mock Test-NetCleanPostState {
+                    [pscustomobject]@{
+                        Passed                   = $true
+                        VerificationMode         = 'Planned'
+                        VendorComparison         = [pscustomobject]@{ Missing = @() }
+                        GuidComparison           = [pscustomobject]@{ Missing = @() }
+                        ServiceComparison        = [pscustomobject]@{ Missing = @() }
+                        RemainingWiFiProfiles    = @()
+                        RemainingNetworkProfiles = @()
+                        AdapterVerification      = [pscustomobject]@{ Passed = $true; Checks = @() }
+                        CleanupVerification      = [pscustomobject]@{ Passed = $true; Checks = @() }
+                    }
+                }
+
+                $null = Invoke-NetCleanPhase4Verify -Context $script:context
+
+                Should -Invoke Export-NetCleanVerificationReport -Times 1 -ParameterFilter { $DryRun }
+            }
+
+            It 'logs missing privacy and protection evidence plus failed adapter and cleanup checks' {
+                Mock Test-NetCleanPostState {
+                    [pscustomobject]@{
+                        Passed                    = $false
+                        VerificationMode          = 'Observed'
+                        VendorComparison          = [pscustomobject]@{ Missing = @('Contoso Security') }
+                        GuidComparison            = [pscustomobject]@{ Missing = @('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee') }
+                        ServiceComparison         = [pscustomobject]@{ Missing = @('ContosoAgent') }
+                        RemainingWiFiProfiles     = @('ConferenceWiFi')
+                        RemainingNetworkProfiles  = @('Home network')
+                        AdapterVerification       = [pscustomobject]@{
+                            Passed = $false
+                            Checks = @(
+                                [pscustomobject]@{
+                                    Category = 'DnsServers'
+                                    Target   = 'Wi-Fi'
+                                    Expected = @('9.9.9.9')
+                                    Actual   = @('192.0.2.53')
+                                    Passed   = $false
+                                    Error    = 'mismatch'
+                                }
+                            )
+                        }
+                        CleanupVerification = [pscustomobject]@{
+                            Passed = $false
+                            Checks = @(
+                                [pscustomobject]@{
+                                    Category   = 'DnsCache'
+                                    Target     = 'DNS client cache'
+                                    Applicable = $true
+                                    Expected   = 'Empty'
+                                    Actual     = 'Present'
+                                    Passed     = $false
+                                    Error      = 'entry remained'
+                                }
+                            )
+                        }
+                    }
+                }
+
+                $result = Invoke-NetCleanPhase4Verify -Context $script:context
+
+                $result.Verify.Passed | Should -BeFalse
+                $result.Verify.Summary.AdapterCheckFailureCount | Should -Be 1
+                $result.Verify.Summary.CleanupCheckFailureCount | Should -Be 1
+                Should -Invoke Write-NetCleanLog -ParameterFilter { $Level -eq 'WARN' -and $Message -match 'Missing vendors: Contoso Security' }
+                Should -Invoke Write-NetCleanLog -ParameterFilter { $Level -eq 'WARN' -and $Message -match 'Remaining Wi-Fi profiles: ConferenceWiFi' }
+                Should -Invoke Write-NetCleanLog -ParameterFilter { $Level -eq 'WARN' -and $Message -match 'DnsServers.*Error=mismatch' }
+                Should -Invoke Write-NetCleanLog -ParameterFilter { $Level -eq 'WARN' -and $Message -match 'DnsCache.*Error=entry remained' }
             }
         }
     }

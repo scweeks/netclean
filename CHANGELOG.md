@@ -19,6 +19,7 @@ All notable changes to this project should be documented in this file.
 - Add functional contracts for menus, confirmation, summaries, previews, safe Preview routing, live backup-directory creation, and mocked dry/live restart or shutdown actions.
 - Make launcher-owned settings explicitly script-scoped, allow empty lists to reach their existing summary output, and correct invalid-input feedback that passed an unsupported parameter to `Write-Verbose`.
 - Raise the overall command-coverage ratchet from 80% to 85% after launcher and user-facing tests increased measured production coverage from 80.17% to 85.56%.
+- Raise the overall command-coverage ratchet from 85% to 90% after failure-path, strict-mode, and active-helper tests increased measured production coverage to 92.05%.
 - Reject test-directory files as coverage sources so test code cannot inflate reported production coverage.
 
 - Refactor: Make repository PSScriptAnalyzer-clean across all scripts and module functions.

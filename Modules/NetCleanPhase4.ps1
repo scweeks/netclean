@@ -25,9 +25,9 @@ function Test-NetCleanAdapterPostState {
     )
 
     if (
-        $Context.PSObject.Properties.Name -notcontains 'Clean' -or
+        $null -eq $Context.PSObject.Properties['Clean'] -or
         -not $Context.Clean -or
-        $Context.Clean.PSObject.Properties.Name -notcontains 'AdapterConfiguration'
+        $null -eq $Context.Clean.PSObject.Properties['AdapterConfiguration']
     ) {
         return [pscustomobject]@{
             Applicable = $false
@@ -256,7 +256,7 @@ function Test-NetCleanCleanupPostState {
     )
 
     if (
-        $Context.PSObject.Properties.Name -notcontains 'Clean' -or
+        $null -eq $Context.PSObject.Properties['Clean'] -or
         -not $Context.Clean
     ) {
         return [pscustomobject]@{

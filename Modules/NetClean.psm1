@@ -962,6 +962,7 @@ function Get-NormalizedFilePathFromCommandLine {
     param(
         [Parameter(Mandatory = $true)]
         [AllowNull()]
+        [AllowEmptyString()]
         [string]$CommandLine
     )
 
@@ -1438,19 +1439,24 @@ function Test-VendorPatternMatch {
         }
     }
 
-    $haystackParts = @(
-        $Evidence.Name,
-        $Evidence.DisplayName,
-        $Evidence.Path,
-        $Evidence.Publisher,
-        $Evidence.InstallPath,
-        $Evidence.InterfaceDescription,
-        $Evidence.Manufacturer,
-        $Evidence.CompanyName,
-        $Evidence.FileDescription,
-        $Evidence.ProductName,
-        $Evidence.SignerSubject
-    )
+    $haystackParts = foreach ($propertyName in @(
+            'Name',
+            'DisplayName',
+            'Path',
+            'Publisher',
+            'InstallPath',
+            'InterfaceDescription',
+            'Manufacturer',
+            'CompanyName',
+            'FileDescription',
+            'ProductName',
+            'SignerSubject'
+        )) {
+        $property = $Evidence.PSObject.Properties[$propertyName]
+        if ($null -ne $property) {
+            $property.Value
+        }
+    }
 
     $haystack = ($haystackParts | Where-Object { $_ }) -join ' '
     $haystack = $haystack.ToLowerInvariant()
@@ -2078,150 +2084,14 @@ function Invoke-NetCleanWorkflow {
 }
 
 # ---------------------------------------------------------------------------
-# Compatibility wrappers
-# ---------------------------------------------------------------------------
-
-<#
-.SYNOPSIS
-Builds a list of installed AV vendors.
-.DESCRIPTION
-Aggregates the names of installed antivirus vendors from the protection inventory.
-.PARAMETER Inventory
-Optionally specify an inventory to build from; if not provided, the current inventory will be retrieved.
-.EXAMPLE
-Get-InstalledAV
-.OUTPUTS
-A list of unique, non-empty strings representing installed AV vendors.
-#>
-function Get-InstalledAV {
-    [CmdletBinding()]
-    [OutputType([System.String[]])]
-    param(
-        [Parameter(Mandatory = $false)]
-        [object[]]$Inventory
-    )
-
-    if ($PSBoundParameters.ContainsKey('Inventory')) { $inventory = @($Inventory) }
-    else { $inventory = @(Get-ProtectionInventory) }
-
-    if (@($inventory).Count -eq 0) { return [string[]]@() }
-
-    $securityCategories = @('AV', 'EDR', 'XDR', 'Firewall')
-
-    $results = foreach ($item in $inventory) {
-        if (@($item.Categories) | Where-Object { $_ -in $securityCategories }) {
-            $item.Vendor
-        }
-    }
-
-    [string[]]$out = @(Get-UniqueNonEmptyString -InputObject $results)
-    if (@($out).Count -eq 0) { return [string[]]@() }
-    return $out
-}
-
-
-<#
-.SYNOPSIS
-Builds a list of service patterns for the specified AV vendors.
-.DESCRIPTION
-Aggregates service patterns from the protection inventory for the specified AV vendors.
-.PARAMETER AvList
-List of AV vendor names (case-insensitive, supports partial matches) to derive service patterns for.
-.PARAMETER Inventory
-Optionally specify an inventory to derive from; if not provided, the current inventory will be retrieved.
-.EXAMPLE
-Get-AVServicePattern -AvList @('Defender', 'Symantec')
-.OUTPUTS
-A list of unique, non-empty service patterns associated with the specified AV vendors.
-#>
-function Get-AVServicePattern {
-    [CmdletBinding()]
-    [OutputType([System.String[]])]
-    param(
-        [Parameter(Mandatory = $true)]
-        [string[]]$AvList,
-
-        [Parameter(Mandatory = $false)]
-        [object[]]$Inventory
-    )
-
-    if ($PSBoundParameters.ContainsKey('Inventory')) { $inventory = @($Inventory) }
-    else { $inventory = @(Get-ProtectionInventory) }
-
-    $patterns = New-Object System.Collections.Generic.List[string]
-
-    foreach ($name in $AvList) {
-        $nameLower = $name.ToLowerInvariant()
-        foreach ($item in $inventory) {
-            $vendorName = if ($null -ne $item.Vendor) { [string]$item.Vendor } else { '' }
-            if ($vendorName -eq $name -or ($vendorName.ToLowerInvariant() -like "*$nameLower*")) {
-                foreach ($svc in @($item.Services)) {
-                    if ($svc) { [void]$patterns.Add($svc) }
-                }
-            }
-        }
-    }
-
-    return Get-UniqueNonEmptyString -InputObject $patterns
-}
-
-
-<#
-.SYNOPSIS
-Builds a comprehensive protection list from the inventory.
-.DESCRIPTION
-Aggregates services, drivers, adapters and registry keys from the protection inventory into a deduplicated hashtable of lists.
-.PARAMETER Inventory
-Optionally specify an inventory to build from; if not provided, the current inventory will be retrieved.
-.EXAMPLE
-Get-ProtectionList
-.OuTPUTS
-A hashtable with keys 'Services', 'Drivers', 'Adapters' and 'Registry', each containing a list of unique, non-empty strings representing items to protect.
-#>
-function Get-ProtectionList {
-    [CmdletBinding()]
-    [OutputType([System.Collections.Hashtable])]
-    param(
-        [Parameter(Mandatory = $false)]
-        [object[]]$Inventory
-    )
-
-    if ($PSBoundParameters.ContainsKey('Inventory')) { $inventory = @($Inventory) }
-    else { $inventory = @(Get-ProtectionInventory) }
-
-    $services = New-Object System.Collections.Generic.List[string]
-    $drivers = New-Object System.Collections.Generic.List[string]
-    $adapters = New-Object System.Collections.Generic.List[string]
-    $registryPaths = New-Object System.Collections.Generic.List[string]
-
-    foreach ($item in $inventory) {
-        foreach ($svc in @($item.Services)) { if ($svc) { [void]$services.Add($svc) } }
-        foreach ($drv in @($item.Drivers)) { if ($drv) { [void]$drivers.Add($drv) } }
-        foreach ($adp in @($item.Adapters)) { if ($adp) { [void]$adapters.Add($adp) } }
-        foreach ($reg in @($item.RegistryKeys)) { if ($reg) { [void]$registryPaths.Add($reg) } }
-    }
-
-    return @{
-        Services = @(Get-UniqueNonEmptyString -InputObject $services)
-        Drivers  = @(Get-UniqueNonEmptyString -InputObject $drivers)
-        Adapters = @(Get-UniqueNonEmptyString -InputObject $adapters)
-        Registry = @(Get-UniqueNonEmptyString -InputObject $registryPaths)
-    }
-}
-
-# ---------------------------------------------------------------------------
 # Aliases
 # ---------------------------------------------------------------------------
 
 Set-Alias -Name Convert-NormalizeGuid        -Value Convert-Guid -Force
 Set-Alias -Name Normalize-Guid               -Value Convert-Guid -Force
-Set-Alias -Name Derive-AVServicePatterns     -Value Get-AVServicePattern -Force
-Set-Alias -Name Build-ProtectionLists        -Value Get-ProtectionList -Force
 Set-Alias -Name Backup-ProtectedRegistryKeys -Value Export-ProtectedRegistryKey -Force
 Set-Alias -Name Backup-NetworkList           -Value Export-NetworkList -Force
 Set-Alias -Name Backup-WiFiProfiles          -Value Export-WiFiProfile -Force
-Set-Alias -Name Get-ProtectionLists          -Value Get-ProtectionList -Force
-Set-Alias -Name Get-AVServicePatterns        -Value Get-AVServicePattern -Force
 Set-Alias -Name Export-ProtectedRegistryKeys -Value Export-ProtectedRegistryKey -Force
 
 # ---------------------------------------------------------------------------

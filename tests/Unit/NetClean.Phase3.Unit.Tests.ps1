@@ -98,6 +98,106 @@ Describe 'NetClean Phase 3 unit tests' {
                 @($result.Operations).Count | Should -Be 1
                 $result.Operations[0].Succeeded | Should -BeTrue
             }
+
+            It 'records successful and failed native results returned by parallel processing' {
+                $script:ExitCodes = [System.Collections.Generic.Queue[int]]::new()
+                $script:ExitCodes.Enqueue(0)
+                $script:ExitCodes.Enqueue(1)
+                Mock netsh.exe { $global:LASTEXITCODE = $script:ExitCodes.Dequeue() }
+                Mock Invoke-InParallel {
+                    foreach ($inputObject in $InputObjects) {
+                        & $ScriptBlock $inputObject
+                    }
+                }
+                Mock Write-NetCleanLog {}
+
+                $result = Remove-WiFiProfilesSafe -WifiProfiles @('HomeSSID', 'OfficeSSID')
+
+                $result.Removed | Should -Be 1
+                @($result.Profiles) | Should -Be @('HomeSSID')
+                @($result.Operations).Count | Should -Be 2
+                ($result.Operations | Where-Object Name -EQ 'OfficeSSID').Reason | Should -Be 'Failed'
+                Should -Invoke Write-NetCleanLog -Times 1 -ParameterFilter {
+                    $Level -eq 'WARN' -and $Message -match "OfficeSSID.*Failed"
+                }
+            }
+
+            It 'records a failed sequential native removal after parallel processing throws' {
+                Mock Invoke-InParallel { throw 'parallel failure' }
+                Mock netsh.exe { $global:LASTEXITCODE = 1 }
+                Mock Write-NetCleanLog {}
+
+                $result = Remove-WiFiProfilesSafe -WifiProfiles @('HomeSSID')
+
+                $result.Removed | Should -Be 0
+                $result.Operations[0].Succeeded | Should -BeFalse
+                $result.Operations[0].Reason | Should -Be 'Failed'
+            }
+        }
+
+        Context 'Set-NetCleanQuad9Doh' {
+
+            It 'honors WhatIf without querying or changing the encrypted DNS table' {
+                Mock Get-DnsClientDohServerAddress {}
+                Mock Set-DnsClientDohServerAddress {}
+                Mock Add-DnsClientDohServerAddress {}
+
+                $result = Set-NetCleanQuad9Doh -ServerAddresses @('9.9.9.9') -WhatIf
+
+                $result.Reason | Should -Be 'WhatIf'
+                $result.ConfiguredCount | Should -Be 0
+                Should -Invoke Get-DnsClientDohServerAddress -Times 0
+                Should -Invoke Set-DnsClientDohServerAddress -Times 0
+                Should -Invoke Add-DnsClientDohServerAddress -Times 0
+            }
+
+            It 'reports encrypted DNS as unsupported when a required command is unavailable' {
+                Mock Get-Command { $null } -ParameterFilter { $Name -eq 'Get-DnsClientDohServerAddress' }
+
+                $result = Set-NetCleanQuad9Doh -ServerAddresses @('9.9.9.9') -Confirm:$false
+
+                $result.Supported | Should -BeFalse
+                $result.Reason | Should -Be 'UnsupportedWindowsVersion'
+                $result.ConfiguredCount | Should -Be 0
+            }
+
+            It 'records a failed encrypted DNS update without hiding the error' {
+                Mock Get-DnsClientDohServerAddress {
+                    [pscustomobject]@{ ServerAddress = $ServerAddress }
+                }
+                Mock Set-DnsClientDohServerAddress { throw 'DoH update denied' }
+                Mock Add-DnsClientDohServerAddress {}
+
+                $result = Set-NetCleanQuad9Doh -ServerAddresses @('9.9.9.9') -Confirm:$false
+
+                $result.ConfiguredCount | Should -Be 0
+                $result.FailedCount | Should -Be 1
+                $result.Operations[0].Action | Should -Be 'Failed'
+                $result.Operations[0].Error | Should -Be 'DoH update denied'
+            }
+        }
+
+        Context 'Set-NetCleanIPv4Preference' {
+
+            It 'honors WhatIf without writing the IP stack preference' {
+                Mock Set-ItemProperty {}
+
+                $result = Set-NetCleanIPv4Preference -WhatIf
+
+                $result.Skipped | Should -BeTrue
+                $result.Reason | Should -Be 'WhatIf'
+                Should -Invoke Set-ItemProperty -Times 0
+            }
+
+            It 'returns the registry error when the IP stack preference cannot be written' {
+                Mock Set-ItemProperty { throw 'registry write denied' }
+
+                $result = Set-NetCleanIPv4Preference -Confirm:$false
+
+                $result.Succeeded | Should -BeFalse
+                $result.Reason | Should -Be 'Failed'
+                $result.Error | Should -Be 'registry write denied'
+            }
         }
 
         Context 'Reset-NetCleanAdapterConfigurationSafe' {
@@ -289,6 +389,85 @@ Describe 'NetClean Phase 3 unit tests' {
                 Should -Invoke Add-DnsClientDohServerAddress -Times 0
                 Should -Invoke Set-ItemProperty -Times 0
             }
+
+            It 'discovers adapters when an explicit inventory is not supplied' {
+                Mock Get-NetAdapter { @($script:Adapters[0]) }
+
+                $result = Reset-NetCleanAdapterConfigurationSafe `
+                    -Context $script:AdapterContext `
+                    -DryRun
+
+                $result.ConfiguredCount | Should -Be 1
+                Should -Invoke Get-NetAdapter -Times 1
+            }
+
+            It 'does not configure encrypted DNS when every adapter is protected' {
+                Mock Set-NetCleanIPv4Preference {
+                    [pscustomobject]@{ Succeeded = $true; Reason = 'Configured'; Error = $null }
+                }
+                Mock Set-NetCleanQuad9Doh { throw 'Should not be called' }
+
+                $result = Reset-NetCleanAdapterConfigurationSafe `
+                    -Context $script:AdapterContext `
+                    -Adapters @($script:Adapters[1]) `
+                    -Confirm:$false
+
+                $result.DnsOverHttps.Reason | Should -Be 'NoEligibleAdapters'
+                $result.SkippedCount | Should -Be 1
+                Should -Invoke Set-NetCleanQuad9Doh -Times 0
+            }
+
+            It 'records a DNS assignment failure after a successful DHCP reset' {
+                Mock Invoke-ExternalCommandSafe {
+                    [pscustomobject]@{ Succeeded = $true; Error = $null }
+                }
+                Mock Set-DnsClientServerAddress { throw 'DNS assignment denied' }
+                Mock Set-NetCleanIPv4Preference {
+                    [pscustomobject]@{ Succeeded = $true; Reason = 'Configured'; Error = $null }
+                }
+                Mock Set-NetCleanQuad9Doh {
+                    [pscustomobject]@{
+                        Supported = $true; ConfiguredCount = 4; FailedCount = 0
+                        Reason = 'Configured'; Operations = @()
+                    }
+                }
+
+                $result = Reset-NetCleanAdapterConfigurationSafe `
+                    -Context $script:AdapterContext `
+                    -Adapters @($script:Adapters[0]) `
+                    -Confirm:$false
+
+                $result.Succeeded | Should -BeFalse
+                $result.FailedCount | Should -Be 1
+                $result.Operations[0].Reason | Should -Be 'DnsConfigurationFailed'
+                $result.Operations[0].Error | Should -Be 'DNS assignment denied'
+            }
+
+            It 'fails the aggregate result when the IP preference or encrypted DNS setup fails' {
+                Mock Invoke-ExternalCommandSafe {
+                    [pscustomobject]@{ Succeeded = $true; Error = $null }
+                }
+                Mock Set-DnsClientServerAddress {}
+                Mock Set-NetCleanIPv4Preference {
+                    [pscustomobject]@{ Succeeded = $false; Reason = 'Failed'; Error = 'registry denied' }
+                }
+                Mock Set-NetCleanQuad9Doh {
+                    [pscustomobject]@{
+                        Supported = $true; ConfiguredCount = 3; FailedCount = 1
+                        Reason = 'Configured'; Operations = @()
+                    }
+                }
+
+                $result = Reset-NetCleanAdapterConfigurationSafe `
+                    -Context $script:AdapterContext `
+                    -Adapters @($script:Adapters[0]) `
+                    -Confirm:$false
+
+                $result.ConfiguredCount | Should -Be 1
+                $result.Succeeded | Should -BeFalse
+                $result.IPv4Preference.Error | Should -Be 'registry denied'
+                $result.DnsOverHttps.FailedCount | Should -Be 1
+            }
         }
 
         Context 'Clear-DnsCacheSafe' {
@@ -323,6 +502,23 @@ Describe 'NetClean Phase 3 unit tests' {
                 $result.Succeeded | Should -BeTrue
                 $result.ExitCode  | Should -Be 0
             }
+
+            It 'returns and logs command failure details' {
+                Mock Invoke-ExternalCommandSafe {
+                    [pscustomobject]@{
+                        Name = 'Clear DNS cache'; ExitCode = 1; Succeeded = $false; Error = 'flush failed'
+                    }
+                }
+                Mock Write-NetCleanLog {}
+
+                $result = Clear-DnsCacheSafe
+
+                $result.Succeeded | Should -BeFalse
+                $result.Error | Should -Be 'flush failed'
+                Should -Invoke Write-NetCleanLog -Times 1 -ParameterFilter {
+                    $Level -eq 'WARN' -and $Message -match 'flush failed'
+                }
+            }
         }
 
         Context 'Clear-ArpCacheSafe' {
@@ -356,6 +552,23 @@ Describe 'NetClean Phase 3 unit tests' {
 
                 $result.Succeeded | Should -BeTrue
                 $result.ExitCode  | Should -Be 0
+            }
+
+            It 'returns and logs command failure details' {
+                Mock Invoke-ExternalCommandSafe {
+                    [pscustomobject]@{
+                        Name = 'Clear ARP cache'; ExitCode = 1; Succeeded = $false; Error = 'clear failed'
+                    }
+                }
+                Mock Write-NetCleanLog {}
+
+                $result = Clear-ArpCacheSafe
+
+                $result.Succeeded | Should -BeFalse
+                $result.Error | Should -Be 'clear failed'
+                Should -Invoke Write-NetCleanLog -Times 1 -ParameterFilter {
+                    $Level -eq 'WARN' -and $Message -match 'clear failed'
+                }
             }
         }
 
@@ -512,6 +725,34 @@ Describe 'NetClean Phase 3 unit tests' {
                 Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count
                 Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count -ParameterFilter { -not $IgnoreExitCode }
             }
+
+            It 'records command failures without claiming the log was cleared' {
+                Mock Invoke-ExternalCommandSafe {
+                    [pscustomobject]@{
+                        Name = $Name; ExitCode = 5; Succeeded = $false; Error = 'access denied'
+                    }
+                }
+                Mock Write-NetCleanLog {}
+
+                $result = @(Clear-NetworkEventLogsSafe)
+
+                @($result | Where-Object { -not $_.Succeeded -and -not $_.Cleared }).Count | Should -Be $result.Count
+                @($result | Where-Object Reason -EQ 'CommandFailed').Count | Should -Be $result.Count
+                @($result | Where-Object { $null -eq $_.CompletedAt }).Count | Should -Be $result.Count
+                Should -Invoke Write-NetCleanLog -Times $result.Count -ParameterFilter {
+                    $Level -eq 'WARN' -and $Message -match 'access denied'
+                }
+            }
+
+            It 'records exceptions from the event-log command helper' {
+                Mock Invoke-ExternalCommandSafe { throw 'event service unavailable' }
+
+                $result = @(Clear-NetworkEventLogsSafe)
+
+                @($result | Where-Object Reason -EQ 'Exception').Count | Should -Be $result.Count
+                @($result | Where-Object ExitCode -EQ -1).Count | Should -Be $result.Count
+                @($result | Where-Object Error -EQ 'event service unavailable').Count | Should -Be $result.Count
+            }
         }
 
         Context 'Clear-UserNetworkArtifactsSafe' {
@@ -550,6 +791,16 @@ Describe 'NetClean Phase 3 unit tests' {
                 $result.Count | Should -BeGreaterThan 0
                 @($result | Where-Object { $_.Removed }).Count | Should -Be $result.Count
                 Should -Invoke Remove-Item -Times $result.Count
+            }
+
+            It 'records removal errors for each user artifact path' {
+                Mock Test-Path { $true }
+                Mock Remove-Item { throw 'registry removal denied' }
+
+                $result = @(Clear-UserNetworkArtifactsSafe)
+
+                @($result | Where-Object { -not $_.Succeeded -and -not $_.Removed }).Count | Should -Be $result.Count
+                @($result | Where-Object Reason -EQ 'registry removal denied').Count | Should -Be $result.Count
             }
         }
 
@@ -841,6 +1092,71 @@ Describe 'NetClean Phase 3 unit tests' {
 
                 $script:logMessages | Should -Contain 'Event log operation: Clear test event log => OK'
                 $script:logMessages | Should -Not -Contain 'Event log operation: True => OK'
+            }
+
+            It 'audits live cleanup failures, skips, and defensive event-log fallbacks' {
+                Mock Get-WiFiProfileName { @() }
+                Mock Remove-WiFiProfilesSafe {
+                    [pscustomobject]@{ Removed = 0; Profiles = @(); Operations = @() }
+                }
+                Mock Remove-NetworkPrivacyArtifactsSafe {
+                    [pscustomobject]@{
+                        TotalCandidates = 2
+                        RemovedCount    = 0
+                        SkippedCount    = 1
+                        Results         = @(
+                            [pscustomobject]@{
+                                RegistryPath = 'HKLM:\Skipped'; Removed = $false
+                                Skipped = $true; Reason = 'Protected'
+                            }
+                            [pscustomobject]@{
+                                RegistryPath = 'HKLM:\Failed'; Removed = $false
+                                Skipped = $false; Reason = 'access denied'
+                            }
+                        )
+                    }
+                }
+                Mock Clear-NetworkEventLogsSafe {
+                    @(
+                        [pscustomobject]@{
+                            Command = 'wevtutil cl WLAN'; Succeeded = $false; Error = 'event denied'
+                        }
+                        [pscustomobject]@{ LogName = 'NetworkProfile' }
+                        $null
+                    )
+                }
+                Mock Clear-UserNetworkArtifactsSafe {
+                    @([pscustomobject]@{
+                        Removed = $false; Path = 'HKCU:\Failed'; Succeeded = $false; Reason = 'user denied'
+                    })
+                }
+                Mock Reset-NetCleanAdapterConfigurationSafe {
+                    [pscustomobject]@{
+                        Provider = 'Quad9 Secure'; PreferIPv4 = $true; RequiresRestart = $true
+                        ConfiguredCount = 1; SkippedCount = 1; FailedCount = 1; Succeeded = $false
+                        Operations = @(
+                            [pscustomobject]@{ Name = 'VPN'; Skipped = $true; Succeeded = $true; Reason = 'ProtectedAdapter'; Error = $null }
+                            [pscustomobject]@{ Name = 'Ethernet'; Skipped = $false; Succeeded = $true; Reason = 'Configured'; Error = $null }
+                            [pscustomobject]@{ Name = 'Wi-Fi'; Skipped = $false; Succeeded = $false; Reason = 'DnsConfigurationFailed'; Error = 'DNS denied' }
+                        )
+                    }
+                }
+                $script:logMessages = [System.Collections.Generic.List[string]]::new()
+                Mock Write-NetCleanLog { [void]$script:logMessages.Add($Message) }
+
+                $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep
+
+                $result.Clean.Summary.AdapterFailures | Should -Be 1
+                $script:logMessages | Should -Contain 'Registry artifact: HKLM:\Skipped => Skipped: Protected'
+                $script:logMessages | Should -Contain 'Registry artifact: HKLM:\Failed => Failed: access denied'
+                $script:logMessages | Should -Contain 'Event log operation: wevtutil cl WLAN => ERR: event denied'
+                $script:logMessages | Should -Contain 'Event log operation: NetworkProfile => (unknown)'
+                $script:logMessages | Should -Contain 'Event log operation: (unknown) => (unknown)'
+                $script:logMessages | Should -Contain 'User artifact: HKCU:\Failed => ERR: user denied'
+                $script:logMessages | Should -Contain 'Adapter configuration: VPN => Skipped: ProtectedAdapter'
+                $script:logMessages | Should -Contain 'Adapter configuration: Ethernet => IPv4 DHCP and Quad9 DNS configured'
+                $script:logMessages | Should -Contain 'Adapter configuration: Wi-Fi => Failed: DNS denied'
+                @($script:logMessages | Where-Object { $_ -match '^Phase 3 clean complete\.' }).Count | Should -Be 1
             }
         }
     }

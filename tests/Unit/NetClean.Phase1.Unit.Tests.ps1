@@ -14,15 +14,11 @@ Describe 'NetClean Phase 1 unit tests' {
         Context 'Resolve-VendorFromText' {
 
             It 'returns the matched vendor when known text is present' {
-                Mock Get-ProtectionList { @('CrowdStrike', 'Cisco', 'VMware') }
-
                 $result = Resolve-VendorFromText -Text 'CrowdStrike Falcon Sensor service'
                 $result | Should -Be 'CrowdStrike'
             }
 
             It 'returns null when no vendor text matches' {
-                Mock Get-ProtectionList { @('CrowdStrike', 'Cisco', 'VMware') }
-
                 $result = Resolve-VendorFromText -Text 'Some random text without a known vendor'
                 $result | Should -BeNullOrEmpty
             }

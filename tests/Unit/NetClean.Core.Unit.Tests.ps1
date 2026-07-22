@@ -103,6 +103,14 @@ Describe 'NetClean core/shared helper unit tests' {
             It 'returns an empty collection for null input' {
                 @((Get-UniqueNonEmptyString -InputObject $null)).Count | Should -Be 0
             }
+
+            It 'flattens one nested collection level and ignores empty inner values' {
+                $nested = [object[]]@(' beta ', $null, '', 'alpha')
+
+                $result = Get-UniqueNonEmptyString -InputObject @($nested, 'gamma', 'alpha')
+
+                @($result) | Should -Be @('alpha', 'beta', 'gamma')
+            }
         }
 
         Context 'Add-HashSetValue' {
@@ -130,6 +138,18 @@ Describe 'NetClean core/shared helper unit tests' {
                 Add-HashSetValue -Set $set -Values '   ' | Out-Null
 
                 $set.Count | Should -Be 0
+            }
+
+            It 'adds normalized values from a nested collection' {
+                $set = [System.Collections.Generic.HashSet[string]]::new()
+                $nested = [object[]]@(' beta ', $null, '', 'alpha')
+
+                Add-HashSetValue -Set $set -Values @($nested, 'gamma')
+
+                $set.Count | Should -Be 3
+                $set.Contains('alpha') | Should -BeTrue
+                $set.Contains('beta') | Should -BeTrue
+                $set.Contains('gamma') | Should -BeTrue
             }
         }
 
@@ -562,6 +582,118 @@ Describe 'NetClean core/shared helper unit tests' {
 
                 $r2 = Invoke-NetCleanNativeCapture -FilePath $bat -ArgumentList @() -IgnoreExitCode
                 $r2.Succeeded | Should -BeTrue
+            }
+        }
+
+        Context 'Get-NormalizedFilePathFromCommandLine' {
+
+            It 'returns null for null or whitespace input' -ForEach @(
+                @{ CommandLine = $null }
+                @{ CommandLine = '   ' }
+            ) {
+                Get-NormalizedFilePathFromCommandLine -CommandLine $CommandLine |
+                    Should -BeNullOrEmpty
+            }
+
+            It 'expands environment variables before extracting an executable path' {
+                $env:NETCLEAN_TEST_ROOT = 'C:\Tools'
+                try {
+                    Get-NormalizedFilePathFromCommandLine `
+                        -CommandLine '%NETCLEAN_TEST_ROOT%\agent.exe --service' |
+                        Should -Be 'C:\Tools\agent.exe'
+                }
+                finally {
+                    Remove-Item Env:\NETCLEAN_TEST_ROOT -ErrorAction SilentlyContinue
+                }
+            }
+
+            It 'normalizes a SystemRoot-prefixed driver path' {
+                $expected = Join-Path $env:windir 'System32\drivers\agent.sys'
+
+                Get-NormalizedFilePathFromCommandLine `
+                    -CommandLine '\SystemRoot\System32\drivers\agent.sys -k' |
+                    Should -Be $expected
+            }
+
+            It 'extracts quoted and unquoted executable paths' -ForEach @(
+                @{
+                    CommandLine = '"C:\Program Files\Contoso\agent.exe" --service'
+                    Expected    = 'C:\Program Files\Contoso\agent.exe'
+                }
+                @{
+                    CommandLine = 'C:\Tools\agent.com /quiet'
+                    Expected    = 'C:\Tools\agent.com'
+                }
+                @{
+                    CommandLine = 'C:\Program Files\Contoso\agent.exe --service'
+                    Expected    = 'C:\Program Files\Contoso\agent.exe'
+                }
+            ) {
+                Get-NormalizedFilePathFromCommandLine -CommandLine $CommandLine |
+                    Should -Be $Expected
+            }
+
+            It 'returns a trimmed fallback when no recognized binary extension is present' {
+                Get-NormalizedFilePathFromCommandLine -CommandLine ' "custom command" ' |
+                    Should -Be 'custom command'
+            }
+        }
+
+        Context 'Get-VendorRootsFromInstallPath' {
+
+            It 'returns no roots for an empty install path' {
+                @(Get-VendorRootsFromInstallPath -InstallPath $null).Count | Should -Be 0
+            }
+
+            It 'derives native and WOW6432Node roots from the leaf and its parent' {
+                $result = Get-VendorRootsFromInstallPath `
+                    -InstallPath '"C:\Program Files\CrowdStrike\Falcon Sensor"'
+
+                @($result) | Should -Be @(
+                    'HKLM\SOFTWARE\CrowdStrike'
+                    'HKLM\SOFTWARE\Falcon Sensor'
+                    'HKLM\SOFTWARE\WOW6432Node\CrowdStrike'
+                    'HKLM\SOFTWARE\WOW6432Node\Falcon Sensor'
+                )
+            }
+
+            It 'fails soft when the install path cannot be split' {
+                Mock Split-Path { throw 'invalid path' }
+
+                @(Get-VendorRootsFromInstallPath -InstallPath 'invalid').Count | Should -Be 0
+            }
+        }
+
+        Context 'Test-VendorPatternMatch' {
+
+            It 'trusts an exact inferred-vendor match' {
+                $evidence = [pscustomobject]@{ InferredVendor = 'CrowdStrike' }
+
+                Test-VendorPatternMatch `
+                    -Vendor 'CrowdStrike' `
+                    -Signature @{ Patterns = @('falcon') } `
+                    -Evidence $evidence |
+                    Should -BeTrue
+            }
+
+            It 'matches a pattern against the properties present on sparse evidence' {
+                $evidence = [pscustomobject]@{ Name = 'CrowdStrike Falcon Sensor' }
+
+                Test-VendorPatternMatch `
+                    -Vendor 'CrowdStrike' `
+                    -Signature @{ Patterns = @('falcon') } `
+                    -Evidence $evidence |
+                    Should -BeTrue
+            }
+
+            It 'returns false when sparse evidence has no vendor pattern' {
+                $evidence = [pscustomobject]@{ DisplayName = 'Unrelated network component' }
+
+                Test-VendorPatternMatch `
+                    -Vendor 'CrowdStrike' `
+                    -Signature @{ Patterns = @('crowdstrike', 'falcon') } `
+                    -Evidence $evidence |
+                    Should -BeFalse
             }
         }
 

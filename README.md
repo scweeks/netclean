@@ -117,6 +117,6 @@ Invoke-Pester -Path .\tests
 .\tests\Run-NetClean-Coverage.ps1
 ```
 
-CI is defined in `.github/workflows/ci.yml`. It validates the module manifest, treats analyzer warnings/errors as failures, and runs Pester 6.0.1. Tests execute to exercise production behavior, but the coverage runner rejects source paths beneath `tests/`, so test code cannot inflate the result. Pester 6's profiler-based collector measures the current suite at 85.56% command coverage; the overall gate is ratcheted at 85%, while pull-request reporting retains a 95% changed-file target. The long-term overall target remains 95%, and the ratchet should only move upward as focused tests cover existing gaps. Generated output is written under `tests/TestResults` and is ignored by Git.
+CI is defined in `.github/workflows/ci.yml`. It validates the module manifest, treats analyzer warnings/errors as failures, and runs Pester 6.0.1. Tests execute to exercise production behavior, but the coverage runner rejects source paths beneath `tests/`, so test code cannot inflate the result. Pester 6's profiler-based collector measures the current suite at 92.05% command coverage; the overall gate is ratcheted at 90%, while pull-request reporting retains a 95% changed-file target. The long-term overall target remains 95%, and the ratchet should only move upward as focused tests cover existing gaps. Generated output is written under `tests/TestResults` and is ignored by Git.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations and [LICENSE](LICENSE) for GPLv3 terms.
