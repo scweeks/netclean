@@ -385,6 +385,76 @@ Describe 'NetClean Phase 4 unit tests' {
                 }
             }
 
+            It 'handles sparse mixed cleanup ledgers without assuming optional properties' {
+                $script:context.Clean.Dns = $null
+                $script:context.Clean.Arp = [pscustomobject]@{
+                    Name = 'Clear ARP cache'; Succeeded = $false
+                    Skipped = $true; Reason = 'SkippedByOption'
+                }
+                $script:context.Clean.RegistryArtifacts.Results = @(
+                    $null
+                    [pscustomobject]@{
+                        RegistryPath = 'HKLM:\Protected'; Succeeded = $true
+                        Skipped = $true; Removed = $false; Reason = 'Protected'
+                    }
+                    [pscustomobject]@{
+                        RegistryPath = 'HKLM:\Absent'; Succeeded = $true
+                        Skipped = $false; Removed = $false; Reason = 'NotFound'
+                    }
+                    [pscustomobject]@{
+                        RegistryPath = 'HKLM:\Incomplete'; Succeeded = $true
+                        Skipped = $false; Removed = $false
+                    }
+                )
+                $script:context.Clean.UserArtifacts = @(
+                    $null
+                    [pscustomobject]@{
+                        Path = 'HKCU:\Absent'; Succeeded = $true
+                        Removed = $false; Reason = 'NotFound'
+                    }
+                    [pscustomobject]@{
+                        Path = 'HKCU:\Incomplete'; Succeeded = $true; Removed = $false
+                    }
+                )
+                $script:context.Clean.EventLogs = @(
+                    $null
+                    [pscustomobject]@{
+                        Name = 'Clear unnamed event log'; Succeeded = $false; Cleared = $false
+                    }
+                )
+                $script:context.Clean.AdvancedRepair = @(
+                    $null
+                    [pscustomobject]@{ Name = 'Reset Winsock'; Succeeded = $true }
+                )
+                $script:context.Clean.PerformanceTuning = @(
+                    [pscustomobject]@{ Name = 'Set autotuning'; Succeeded = $false; Error = 'command failed' }
+                )
+                Mock Get-NetAdapter {
+                    [pscustomobject]@{
+                        Name = 'Wi-Fi'; InterfaceIndex = 12; Status = 'Disconnected'
+                        MediaType = 'Native 802.11'; PhysicalMediaType = 'Native 802.11'
+                    }
+                }
+
+                $result = Test-NetCleanCleanupPostState -Context $script:context
+
+                $result.Passed | Should -BeFalse
+                ($result.Checks | Where-Object Target -EQ 'Clear ARP cache').Actual |
+                    Should -Be 'SkippedByOption'
+                ($result.Checks | Where-Object Target -EQ 'HKLM:\Protected').Passed |
+                    Should -BeTrue
+                ($result.Checks | Where-Object Target -EQ 'HKLM:\Incomplete').Actual |
+                    Should -Be 'Failed'
+                ($result.Checks | Where-Object Target -EQ 'HKCU:\Incomplete').Error |
+                    Should -BeNullOrEmpty
+                ($result.Checks | Where-Object Category -EQ 'EventLog').Target |
+                    Should -Be 'Clear unnamed event log'
+                ($result.Checks | Where-Object Category -EQ 'AdvancedRepairAction').Passed |
+                    Should -BeTrue
+                ($result.Checks | Where-Object Category -EQ 'PerformanceTuningAction').Error |
+                    Should -Be 'command failed'
+            }
+
             It 'does not use DNS or ARP contents as evidence while a wired LAN is connected' {
                 Mock Get-NetAdapter {
                     [pscustomobject]@{

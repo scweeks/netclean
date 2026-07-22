@@ -91,6 +91,25 @@ Describe 'NetClean Phase 2 unit tests' {
 
                 @((Get-WiFiProfileName)).Count | Should -Be 0
             }
+
+            It 'ignores null output and parses alternate profile labels' {
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Name      = 'List Wi-Fi profiles'
+                        ExitCode  = 0
+                        Succeeded = $true
+                        Output    = @(
+                            $null
+                            '    Current Profile      : ConferenceSSID'
+                        )
+                        Error     = $null
+                    }
+                }
+
+                $result = @(Get-WiFiProfileName)
+
+                $result | Should -Be @('ConferenceSSID')
+            }
         }
 
         Context 'Export-WiFiProfile' {
@@ -322,6 +341,17 @@ Describe 'NetClean Phase 2 unit tests' {
                     $Encoding.WebName -eq 'utf-8'
                 }
             }
+
+            It 'detects the current inventory when none is supplied' {
+                Mock Get-ProtectionInventory {
+                    @([pscustomobject]@{ Vendor = 'Microsoft Defender' })
+                }
+
+                $result = Export-ProtectionInventory -Dest 'C:\backup' -DryRun
+
+                $result | Should -Match 'ProtectionInventory'
+                Should -Invoke Get-ProtectionInventory -Times 1 -Exactly
+            }
         }
 
         Context 'Export-ProtectionRegistryMap' {
@@ -349,6 +379,7 @@ Describe 'NetClean Phase 2 unit tests' {
                     $Encoding.WebName -eq 'utf-8'
                 }
             }
+
         }
 
         Context 'Export-SanitizableNetworkArtifact' {

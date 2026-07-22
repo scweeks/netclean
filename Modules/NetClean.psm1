@@ -1913,7 +1913,8 @@ function Invoke-NetCleanWorkflow {
                         $wifiFound += ($e -replace '^PROFILE:', '')
                     }
                     elseif ($e -is [string] -and $e -like '*.xml') {
-                        $wifiFound += [System.IO.Path]::GetFileNameWithoutExtension($e)
+                        $profileName = [System.IO.Path]::GetFileNameWithoutExtension($e)
+                        $wifiFound += ($profileName -replace '^Wi-Fi-', '')
                     }
                 }
             }

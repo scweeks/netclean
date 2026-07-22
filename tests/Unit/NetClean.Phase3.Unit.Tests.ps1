@@ -625,6 +625,20 @@ Describe 'NetClean Phase 3 unit tests' {
                 $result.Removed | Should -BeFalse
                 $result.Reason | Should -Match 'remove failed'
             }
+
+            It 'rejects an invalid registry path without querying or removing it' {
+                Mock Convert-RegToProviderPath { throw 'invalid registry root' }
+                Mock Test-Path { throw 'Should not be called' }
+                Mock Remove-Item { throw 'Should not be called' }
+
+                $result = Remove-RegistryPathSafe -Path 'INVALID\Path'
+
+                $result.Succeeded | Should -BeFalse
+                $result.Skipped | Should -BeTrue
+                $result.Reason | Should -Be 'InvalidPath'
+                Should -Invoke Test-Path -Times 0
+                Should -Invoke Remove-Item -Times 0
+            }
         }
 
         Context 'Remove-NetworkPrivacyArtifactsSafe' {
@@ -836,6 +850,30 @@ Describe 'NetClean Phase 3 unit tests' {
                 @($result | Where-Object { $_.Succeeded }).Count | Should -Be $result.Count
                 Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count
                 Should -Invoke Invoke-ExternalCommandSafe -Times $result.Count -ParameterFilter { -not $IgnoreExitCode }
+            }
+
+            It 'records failed repair commands without treating them as applied' {
+                Mock Invoke-ExternalCommandSafe {
+                    [pscustomobject]@{
+                        Name = $Name; ExitCode = 5; Succeeded = $false; Error = 'repair denied'
+                    }
+                }
+
+                $result = @(Invoke-AdvancedNetworkRepair)
+
+                @($result | Where-Object Reason -EQ 'CommandFailed').Count | Should -Be $result.Count
+                @($result | Where-Object Applied).Count | Should -Be 0
+                @($result | Where-Object Error -EQ 'repair denied').Count | Should -Be $result.Count
+            }
+
+            It 'records exceptions from the repair command helper' {
+                Mock Invoke-ExternalCommandSafe { throw 'repair helper unavailable' }
+
+                $result = @(Invoke-AdvancedNetworkRepair)
+
+                @($result | Where-Object Reason -EQ 'Exception').Count | Should -Be $result.Count
+                @($result | Where-Object ExitCode -EQ -1).Count | Should -Be $result.Count
+                @($result | Where-Object Error -EQ 'repair helper unavailable').Count | Should -Be $result.Count
             }
         }
 

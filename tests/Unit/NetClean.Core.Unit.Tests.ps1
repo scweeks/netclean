@@ -63,6 +63,49 @@ Describe 'NetClean core/shared helper unit tests' {
             }
         }
 
+        Context 'Set-NetCleanRegistryRootMap' {
+
+            BeforeEach {
+                Clear-NetCleanRegistryRootMap
+                Mock Get-Item {
+                    [pscustomobject]@{ PSProvider = [pscustomobject]@{ Name = 'Registry' } }
+                }
+            }
+
+            AfterEach {
+                Clear-NetCleanRegistryRootMap
+            }
+
+            It 'rejects an empty root map' {
+                { Set-NetCleanRegistryRootMap -RootMap @{} } |
+                    Should -Throw '*at least one mapping*'
+            }
+
+            It 'rejects logical keys below a hive root' {
+                { Set-NetCleanRegistryRootMap -RootMap @{ 'HKLM\SOFTWARE' = 'HKCU\Software\Test' } } |
+                    Should -Throw '*must be a hive root*'
+                Should -Invoke Get-Item -Times 0
+            }
+
+            It 'rejects aliases that duplicate the same logical hive' {
+                {
+                    Set-NetCleanRegistryRootMap -RootMap @{
+                        HKLM               = 'HKCU\Software\First'
+                        HKEY_LOCAL_MACHINE = 'HKCU\Software\Second'
+                    }
+                } | Should -Throw '*duplicate logical root*'
+            }
+
+            It 'rejects targets outside the Registry provider' {
+                Mock Get-Item {
+                    [pscustomobject]@{ PSProvider = [pscustomobject]@{ Name = 'FileSystem' } }
+                }
+
+                { Set-NetCleanRegistryRootMap -RootMap @{ HKLM = 'HKCU\Software\Test' } } |
+                    Should -Throw '*not a Registry-provider key*'
+            }
+        }
+
         Context 'Convert-Guid' {
 
             It 'normalizes GUIDs with braces and uppercase characters' {
@@ -556,6 +599,67 @@ Describe 'NetClean core/shared helper unit tests' {
                 $r.Succeeded | Should -BeFalse
                 $r.ExitCode  | Should -Be -1
                 $r.Error      | Should -Match 'start-process-failed'
+            }
+        }
+
+        Context 'Invoke-RegExport' {
+
+            BeforeEach {
+                Mock Resolve-NetCleanRegistryPath { $RegistryPath }
+                Mock Start-Process { [pscustomobject]@{ ExitCode = 0 } }
+                Mock Test-Path { $true }
+            }
+
+            It 'returns the planned path without starting reg.exe during a dry run' {
+                Invoke-RegExport -Key 'HKLM\SOFTWARE\Test' -FilePath 'C:\backup\test.reg' -DryRun |
+                    Should -Be 'C:\backup\test.reg'
+                Should -Invoke Start-Process -Times 0
+            }
+
+            It 'rejects double quotes in the key or output path' -ForEach @(
+                @{ Key = 'HKLM\SOFTWARE\"Test'; FilePath = 'C:\backup\test.reg' }
+                @{ Key = 'HKLM\SOFTWARE\Test'; FilePath = 'C:\backup\"test.reg' }
+            ) {
+                { Invoke-RegExport -Key $Key -FilePath $FilePath } |
+                    Should -Throw '*must not contain double-quote*'
+                Should -Invoke Start-Process -Times 0
+            }
+
+            It 'fails when reg.exe cannot be started' {
+                Mock Start-Process { $null }
+
+                { Invoke-RegExport -Key 'HKLM\SOFTWARE\Test' -FilePath 'C:\backup\test.reg' } |
+                    Should -Throw '*Failed to start reg.exe*'
+            }
+
+            It 'fails when reg.exe returns a nonzero exit code' {
+                Mock Start-Process { [pscustomobject]@{ ExitCode = 5 } }
+
+                { Invoke-RegExport -Key 'HKLM\SOFTWARE\Test' -FilePath 'C:\backup\test.reg' } |
+                    Should -Throw '*exit code 5*'
+            }
+
+            It 'fails when reg.exe reports success without creating the output file' {
+                Mock Test-Path { $false }
+
+                { Invoke-RegExport -Key 'HKLM\SOFTWARE\Test' -FilePath 'C:\backup\test.reg' } |
+                    Should -Throw '*output file was not created*'
+            }
+
+            It 'quotes the normalized key and output path for a successful export' {
+                $result = Invoke-RegExport `
+                    -Key 'HKLM\SOFTWARE\Test' `
+                    -FilePath 'C:\backup folder\test.reg'
+
+                $result | Should -Be 'C:\backup folder\test.reg'
+                Should -Invoke Start-Process -Times 1 -ParameterFilter {
+                    $FilePath -eq 'reg.exe' -and
+                    $ArgumentList[0] -eq 'export' -and
+                    $ArgumentList[1] -eq '"HKLM\SOFTWARE\Test"' -and
+                    $ArgumentList[2] -eq '"C:\backup folder\test.reg"' -and
+                    $ArgumentList[3] -eq '/y' -and
+                    $NoNewWindow -and $Wait -and $PassThru
+                }
             }
         }
 

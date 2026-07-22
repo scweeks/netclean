@@ -27,9 +27,9 @@ Describe 'NetClean coverage runner' {
     }
 
     It 'ratchets the runner and pull-request overall coverage gates together' {
-        $script:runnerText | Should -Match '\[double\]\$MinimumCoverage\s*=\s*90\.0'
+        $script:runnerText | Should -Match '\[double\]\$MinimumCoverage\s*=\s*94\.0'
         $script:runnerText | Should -Match '\$config\.CodeCoverage\.CoveragePercentTarget\s*=\s*\$MinimumCoverage'
-        $script:ciText | Should -Match 'Run-NetClean-Coverage\.ps1\s+-MinimumCoverage\s+90'
-        $script:ciText | Should -Match 'min-coverage-overall:\s+90'
+        $script:ciText | Should -Match 'Run-NetClean-Coverage\.ps1\s+-MinimumCoverage\s+94'
+        $script:ciText | Should -Match 'min-coverage-overall:\s+94'
     }
 }

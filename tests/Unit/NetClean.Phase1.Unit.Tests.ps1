@@ -112,6 +112,53 @@ Describe 'NetClean Phase 1 unit tests' {
                 $result = @(Get-NdisServiceBindingEvidence)
                 $result.Count | Should -Be 0
             }
+
+            It 'preserves service metadata plus bind, export, and route linkage evidence' {
+                Mock Get-RegistryChildKeyNamesSafe { @('ContosoFilter') }
+                Mock Get-RegistryValuesSafe {
+                    if ($RegistryPath -like '*\Linkage') {
+                        [pscustomobject]@{
+                            Bind   = @($null, '', '\Device\ContosoFilter')
+                            Export = @($null, '\Device\ContosoExport')
+                            Route  = @('', 'ContosoVpnRoute')
+                        }
+                    }
+                    else {
+                        [pscustomobject]@{
+                            DisplayName = 'Contoso NDIS Filter'
+                            Group       = 'NDIS'
+                            ImagePath   = 'C:\Windows\System32\drivers\contoso.sys'
+                        }
+                    }
+                }
+                Mock Resolve-VendorFromText { 'Contoso' }
+
+                $result = @(Get-NdisServiceBindingEvidence)
+
+                $result.Count | Should -Be 1
+                $result[0].DisplayName | Should -Be 'Contoso NDIS Filter'
+                $result[0].Path | Should -Be 'C:\Windows\System32\drivers\contoso.sys'
+                $result[0].InferredVendor | Should -Be 'Contoso'
+                @($result[0].Instance.Linkage.Export) | Should -Contain '\Device\ContosoExport'
+                @($result[0].Instance.Linkage.Route) | Should -Contain 'ContosoVpnRoute'
+            }
+
+            It 'falls back to the service name when the display name is blank' {
+                Mock Get-RegistryChildKeyNamesSafe { @('PacketFilter') }
+                Mock Get-RegistryValuesSafe {
+                    if ($RegistryPath -like '*\Linkage') {
+                        [pscustomobject]@{ Bind = @('packet filter') }
+                    }
+                    else {
+                        [pscustomobject]@{ DisplayName = '  '; Group = ''; ImagePath = $null }
+                    }
+                }
+
+                $result = @(Get-NdisServiceBindingEvidence)
+
+                $result.Count | Should -Be 1
+                $result[0].DisplayName | Should -Be 'PacketFilter'
+            }
         }
 
         Context 'Get-MsiRegistryEvidence' {
@@ -333,6 +380,50 @@ Describe 'NetClean Phase 1 unit tests' {
                 $service.InferredVendor | Should -Be 'CrowdStrike'
                 $driver.ServiceType | Should -Be 'Kernel Driver'
                 $driver.InferredVendor | Should -Be 'Contoso'
+            }
+
+            It 'falls back to textual vendor detection when file metadata has no inferred vendor' {
+                Mock Get-CimInstance {
+                    [pscustomobject]@{
+                        displayName            = 'Contoso Endpoint'
+                        pathToSignedProductExe = 'C:\Contoso\endpoint.exe'
+                    }
+                } -ParameterFilter { $Namespace -eq 'root/SecurityCenter2' -and $ClassName -eq 'AntivirusProduct' }
+                Mock Get-CimInstance {
+                    [pscustomobject]@{
+                        displayName            = 'Contoso Firewall'
+                        pathToSignedProductExe = 'C:\Contoso\firewall.exe'
+                    }
+                } -ParameterFilter { $Namespace -eq 'root/SecurityCenter2' -and $ClassName -eq 'FirewallProduct' }
+                Mock Get-CimInstance {
+                    [pscustomobject]@{
+                        Name = 'ContosoService'; DisplayName = 'Contoso Service'
+                        PathName = 'C:\Contoso\service.exe'; State = 'Running'
+                        StartMode = 'Auto'; ServiceType = 'Own Process'
+                    }
+                } -ParameterFilter { $ClassName -eq 'Win32_Service' }
+                Mock Get-CimInstance {
+                    [pscustomobject]@{
+                        Name = 'ContosoDriver'; DisplayName = 'Contoso Driver'
+                        PathName = 'C:\Contoso\driver.sys'; State = 'Running'
+                        StartMode = 'System'; ServiceType = 'Kernel Driver'
+                    }
+                } -ParameterFilter { $ClassName -eq 'Win32_SystemDriver' }
+                Mock Get-FileMetadatum {
+                    [pscustomobject]@{
+                        CompanyName = 'Contoso'; FileDescription = 'Endpoint component'
+                        ProductName = 'Contoso Endpoint'; SignerSubject = 'CN=Contoso'
+                        InferredVendor = $null
+                    }
+                }
+                Mock Resolve-VendorFromText { 'Contoso' }
+
+                $result = @(Get-ProtectionEvidence)
+
+                @($result | Where-Object {
+                    $_.Source -in @('SecurityCenter2', 'Service', 'Driver') -and
+                    $_.InferredVendor -eq 'Contoso'
+                }).Count | Should -Be 4
             }
 
             It 'collects uninstall evidence with metadata and registry fallbacks' {
@@ -617,6 +708,38 @@ Describe 'NetClean Phase 1 unit tests' {
                 @($result[0].Categories) | Should -Contain 'Hypervisor'
                 @($result[0].Categories) | Should -Contain 'VPN'
                 $result[0].Confidence | Should -Be 100
+            }
+
+            It 'infers VirtualBox, Sentinel, Defender, and Hyper-V protection categories' {
+                $script:categoryEvidence = @(
+                    @{ Source = 'Service'; Name = 'vboxfilter'; DisplayName = 'VirtualBox Filter' }
+                    @{ Source = 'Service'; Name = 'SentinelAgent'; DisplayName = 'Sentinel Agent' }
+                    @{ Source = 'Service'; Name = 'DefenderService'; DisplayName = 'Defender Service' }
+                    @{ Source = 'NetAdapter'; Name = 'VirtualBox'; DisplayName = 'VirtualBox Adapter'; InterfaceDescription = 'VirtualBox Host-Only Ethernet Adapter' }
+                    @{ Source = 'NetAdapter'; Name = 'VBox'; DisplayName = 'VBox Adapter'; InterfaceDescription = 'VBox Network Adapter' }
+                    @{ Source = 'NetAdapter'; Name = 'Hyper-V'; DisplayName = 'Hyper-V Adapter'; InterfaceDescription = 'Hyper-V Virtual Ethernet Adapter' }
+                ) | ForEach-Object {
+                    [pscustomobject]@{
+                        Source               = $_.Source
+                        Name                 = $_.Name
+                        DisplayName          = $_.DisplayName
+                        Path                 = $null
+                        InterfaceDescription = $_['InterfaceDescription']
+                        CompanyName          = 'CrowdStrike'
+                        InferredVendor       = 'CrowdStrike'
+                        InstallPath          = $null
+                    }
+                }
+                Mock Get-ProtectionEvidence { $script:categoryEvidence }
+                Mock Test-VendorPatternMatch { $true }
+
+                $result = @(Get-ProtectionInventory)
+
+                @($result[0].Categories) | Should -Contain 'VirtualAdapter'
+                @($result[0].Categories) | Should -Contain 'Hypervisor'
+                @($result[0].Categories) | Should -Contain 'EDR'
+                @($result[0].Categories) | Should -Contain 'XDR'
+                @($result[0].Categories) | Should -Contain 'AV'
             }
         }
 

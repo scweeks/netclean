@@ -628,7 +628,7 @@ function Get-ProtectionEvidence {
                     FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
                     ProductName          = if ($meta) { $meta.ProductName } else { $null }
                     SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                    InferredVendor       = if ($meta) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($item.displayName)) }
+                    InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($item.displayName)) }
                     Instance             = $item
                 })
         }
@@ -655,7 +655,7 @@ function Get-ProtectionEvidence {
                     FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
                     ProductName          = if ($meta) { $meta.ProductName } else { $null }
                     SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                    InferredVendor       = if ($meta) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($item.displayName)) }
+                    InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($item.displayName)) }
                     Instance             = $item
                 })
         }
@@ -682,7 +682,7 @@ function Get-ProtectionEvidence {
                     FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
                     ProductName          = if ($meta) { $meta.ProductName } else { $null }
                     SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                    InferredVendor       = if ($meta) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($svc.Name, $svc.DisplayName, $svc.PathName)) }
+                    InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($svc.Name, $svc.DisplayName, $svc.PathName)) }
                     State                = $svc.State
                     StartMode            = $svc.StartMode
                     ServiceType          = $svc.ServiceType
@@ -712,7 +712,7 @@ function Get-ProtectionEvidence {
                     FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
                     ProductName          = if ($meta) { $meta.ProductName } else { $null }
                     SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                    InferredVendor       = if ($meta) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($drv.Name, $drv.DisplayName, $drv.PathName)) }
+                    InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($drv.Name, $drv.DisplayName, $drv.PathName)) }
                     State                = $drv.State
                     StartMode            = $drv.StartMode
                     ServiceType          = $drv.ServiceType

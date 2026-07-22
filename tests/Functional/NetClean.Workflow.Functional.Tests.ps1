@@ -71,6 +71,55 @@ Describe 'NetClean workflow functional tests' {
                 Should -Invoke Invoke-NetCleanPhase3Clean -Times 0
                 Should -Invoke Invoke-NetCleanPhase4Verify -Times 0
             }
+
+            It 'restores profile names from planned and exported Wi-Fi manifest entries' {
+                Mock Invoke-NetCleanPhase1Detect { [pscustomobject]@{ Phase = 'Detect' } }
+                Mock Invoke-NetCleanPhase2Protect {
+                    [pscustomobject]@{
+                        Phase      = 'Protect'
+                        BackupPath = $BackupPath
+                        Protect    = [pscustomobject]@{
+                            Summary  = [pscustomobject]@{}
+                            Manifest = [pscustomobject]@{
+                                WiFiExports = @(
+                                    'PROFILE:HomeSSID'
+                                    'C:\backup\Wi-Fi-OfficeSSID.xml'
+                                    42
+                                )
+                            }
+                        }
+                    }
+                }
+                Mock Get-WiFiProfileName { throw 'Manifest entries should be sufficient' }
+                Mock Get-NetworkListProfileName { @('Private network') }
+
+                $result = Invoke-NetCleanWorkflow -Mode Preview -BackupPath 'C:\backup' -DryRun
+
+                @($result.Protect.Summary.WiFiProfilesFound) | Should -Be @('HomeSSID', 'OfficeSSID')
+                $result.Protect.Summary.WiFiProfilesFoundCount | Should -Be 2
+                @($result.Protect.Summary.NetworkProfilesFound) | Should -Be @('Private network')
+                Should -Invoke Get-WiFiProfileName -Times 0
+            }
+
+            It 'returns the protected context when cache population fails' {
+                Mock Invoke-NetCleanPhase1Detect { [pscustomobject]@{ Phase = 'Detect' } }
+                Mock Invoke-NetCleanPhase2Protect {
+                    [pscustomobject]@{
+                        Phase      = 'Protect'
+                        BackupPath = $BackupPath
+                        Protect    = [pscustomobject]@{
+                            Summary  = [pscustomobject]@{}
+                            Manifest = [pscustomobject]@{ WiFiExports = @() }
+                        }
+                    }
+                }
+                Mock Get-WiFiProfileName { throw 'profile enumeration failed' }
+
+                $result = Invoke-NetCleanWorkflow -Mode Preview -BackupPath 'C:\backup' -DryRun
+
+                $result.Phase | Should -Be 'Protect'
+                $result.Timings.Protect | Should -Not -BeNullOrEmpty
+            }
         }
 
         Context 'SafeConferencePrep mode' {
@@ -681,6 +730,63 @@ Describe 'NetClean workflow functional tests' {
                 $result.Timings.Protect | Should -Not -BeNullOrEmpty
                 $result.Timings.Clean | Should -Not -BeNullOrEmpty
                 $result.Timings.Verify | Should -Not -BeNullOrEmpty
+            }
+
+            It 'writes a complete live audit summary from the preserved workflow context' {
+                Mock Invoke-NetCleanPhase1Detect { [pscustomobject]@{ Phase = 'Detect' } }
+                Mock Invoke-NetCleanPhase2Protect {
+                    [pscustomobject]@{
+                        Phase   = 'Protect'
+                        Protect = [pscustomobject]@{
+                            Summary      = [pscustomobject]@{}
+                            Manifest     = [pscustomobject]@{ WiFiExports = @() }
+                            ManifestFile = 'C:\backup\RestoreManifest.json'
+                        }
+                    }
+                }
+                Mock Get-WiFiProfileName { @() }
+                Mock Get-NetworkListProfileName { @() }
+                Mock Invoke-NetCleanPhase3Clean {
+                    $Context | Add-Member -NotePropertyName Phase -NotePropertyValue 'Clean' -Force
+                    $Context | Add-Member -NotePropertyName Clean -NotePropertyValue ([pscustomobject]@{
+                        WiFi = [pscustomobject]@{ Profiles = @('HomeSSID', 'OfficeSSID') }
+                        RegistryArtifacts = [pscustomobject]@{
+                            Results = @(
+                                [pscustomobject]@{ RegistryPath = 'HKLM:\Removed'; Removed = $true }
+                                [pscustomobject]@{ RegistryPath = 'HKLM:\Retained'; Removed = $false }
+                            )
+                        }
+                        EventLogs = @('WLAN', 'NetworkProfile')
+                        UserArtifacts = @(
+                            [pscustomobject]@{ Path = 'HKCU:\Removed'; Removed = $true }
+                            [pscustomobject]@{ Path = 'HKCU:\Retained'; Removed = $false }
+                        )
+                    }) -Force
+                    $Context
+                }
+                Mock Invoke-NetCleanPhase4Verify {
+                    $Context | Add-Member -NotePropertyName Phase -NotePropertyValue 'Verify' -Force
+                    $Context | Add-Member -NotePropertyName Verify -NotePropertyValue ([pscustomobject]@{
+                        Summary           = [pscustomobject]@{ Passed = $true }
+                        VendorComparison  = [pscustomobject]@{ Missing = @() }
+                        GuidComparison    = [pscustomobject]@{ Missing = @() }
+                        ServiceComparison = [pscustomobject]@{ Missing = @() }
+                    }) -Force
+                    $Context
+                }
+                $script:logMessages = [System.Collections.Generic.List[string]]::new()
+                Mock Write-NetCleanLog { [void]$script:logMessages.Add($Message) }
+
+                $result = Invoke-NetCleanWorkflow -Mode SafeConferencePrep -BackupPath 'C:\backup'
+
+                $result.Phase | Should -Be 'Verify'
+                $script:logMessages | Should -Contain 'Final summary: Mode=SafeConferencePrep DryRun=False BackupPath=(none) ManifestFile=C:\backup\RestoreManifest.json'
+                $script:logMessages | Should -Contain 'Wi-Fi profiles removed/wouldRemove: HomeSSID, OfficeSSID'
+                $script:logMessages | Should -Contain 'Registry artifacts removed count: 1'
+                $script:logMessages | Should -Contain 'Registry removed: HKLM:\Removed'
+                $script:logMessages | Should -Contain 'Event logs touched: 2'
+                $script:logMessages | Should -Contain 'User artifacts touched count: 1'
+                $script:logMessages | Should -Contain 'Verification passed: True'
             }
         }
     }
