@@ -3,7 +3,7 @@
         # Keep defaults but explicitly enable common best-practice rules
         PSAvoidUsingCmdletAliases = @{ Enable = $true; Severity = 'Error' }
         PSAvoidUsingWriteHost = @{ Enable = $true; Severity = 'Warning' }
-        PSUseApprovedVerbs = @{ Enable = $false; Severity = 'Warning' }
+        PSUseApprovedVerbs = @{ Enable = $true; Severity = 'Warning' }
         # PSScriptAnalyzer 1.25.0 throws a NullReferenceException while this
         # rule resolves the module's explicit Export-ModuleMember command.
         # Keep the runner fail-closed and disable only the defective rule.

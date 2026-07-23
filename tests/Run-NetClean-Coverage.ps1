@@ -4,6 +4,8 @@ param(
     [string]$OutputPath = (Join-Path $PSScriptRoot 'TestResults'),
     [version]$PesterVersion = [version]'6.0.1',
     [string[]]$CoveragePath,
+    # Keep this default in sync with the -MinimumCoverage passed in
+    # .github/workflows/ci.yml and that workflow's min-coverage-overall.
     [ValidateRange(0, 100)]
     [double]$MinimumCoverage = 94.0,
     [switch]$PassThru

@@ -56,6 +56,9 @@ jobs:
           .\tests\Invoke-NetCleanAnalyzer.ps1 | Format-List
 
       - name: Run Pester with coverage
+        # Coverage floor (94) is duplicated in tests/Run-NetClean-Coverage.ps1's
+        # $MinimumCoverage default and in the comment-coverage job's
+        # min-coverage-overall below - update all three together when ratcheting.
         run: |
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
           .\tests\Run-NetClean-Coverage.ps1 -MinimumCoverage 94
@@ -141,6 +144,8 @@ jobs:
           paths: |
             ${{ github.workspace }}/tests/TestResults/coverage.xml
           token: ${{ secrets.GITHUB_TOKEN }}
+          # Keep min-coverage-overall in sync with the -MinimumCoverage passed to
+          # Run-NetClean-Coverage.ps1 above and its own $MinimumCoverage default.
           min-coverage-overall: 94
           min-coverage-changed-files: 95
           title: NetClean Coverage Report
