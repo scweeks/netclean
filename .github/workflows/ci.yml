@@ -112,29 +112,58 @@ jobs:
           FORCE_MODULE_REFRESH: ${{ steps.inputs.outputs.force }}
         run: |
           $cachePath = '${{ steps.prep_cache.outputs.cachePath }}'
-          # Install Pester 6.0.1 if not present or if forced
+
+          # Ensure cache path is on PSModulePath (after repo path which is already prepended)
+          if (-not ($env:PSModulePath -split ';' | Where-Object { $_ -eq $cachePath })) {
+            $env:PSModulePath = "$cachePath;$env:PSModulePath"
+          }
+          Write-Host "PSModulePath now: $env:PSModulePath"
+
+          # Debug listing before install
+          Write-Host "Cache path contents before install:"
+          Get-ChildItem -LiteralPath $cachePath -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName, Mode, Length | Format-Table -AutoSize
+
+          # Install modules into cache path so they are discoverable
           $needPester = -not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [version]'6.0.1' })
           if ($env:FORCE_MODULE_REFRESH -eq 'true') { $needPester = $true }
           if ($needPester) {
-            Save-Module Pester -Path $cachePath -RequiredVersion 6.0.1 -Force -ErrorAction Stop
+            Write-Host "Installing Pester 6.0.1 into $cachePath"
+            Install-Module -Name Pester -RequiredVersion 6.0.1 -Force -Scope CurrentUser -DestinationPath $cachePath -ErrorAction Stop
           } else {
             Write-Host "Pester 6.0.1 already available in module path."
           }
-          # Install PSScriptAnalyzer if not present or if forced
+
           $needPssa = -not (Get-Module -ListAvailable -Name PSScriptAnalyzer)
           if ($env:FORCE_MODULE_REFRESH -eq 'true') { $needPssa = $true }
           if ($needPssa) {
-            Save-Module PSScriptAnalyzer -Path $cachePath -RequiredVersion 1.25.0 -Force -ErrorAction Stop
+            Write-Host "Installing PSScriptAnalyzer 1.25.0 into $cachePath"
+            Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser -DestinationPath $cachePath -ErrorAction Stop
           } else {
             Write-Host "PSScriptAnalyzer already available in module path."
           }
-          Import-Module Pester -RequiredVersion 6.0.1 -Force -ErrorAction Stop
-          if ((Get-Module Pester).Version -ne [version]'6.0.1') {
-            throw 'CI requires Pester 6.0.1.'
+
+          # Debug listing after install
+          Write-Host "Cache path contents after install:"
+          Get-ChildItem -LiteralPath $cachePath -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName, Mode, Length | Format-Table -AutoSize
+
+          # Verify Pester manifest exists and import explicitly by manifest path
+          $pesterManifest = Join-Path $cachePath 'Pester\6.0.1\Pester.psd1'
+          if (Test-Path -LiteralPath $pesterManifest) {
+            Write-Host "Found Pester manifest at $pesterManifest"
+          } else {
+            Write-Host "Pester manifest not found at expected path: $pesterManifest"
+            Get-ChildItem -LiteralPath $cachePath -Recurse | Select-Object FullName | Format-Table -AutoSize
+            throw "Pester 6.0.1 not found in cache path after install."
           }
-          Get-Module PSScriptAnalyzer -ListAvailable |
-            Sort-Object Version -Descending |
-            Select-Object -First 1 Name, Version, Path
+
+          Import-Module -LiteralPath $pesterManifest -Force -ErrorAction Stop
+
+          # Confirm available modules
+          Write-Host "Available Pester modules:"
+          Get-Module -ListAvailable -Name Pester | Select-Object Name, Version, Path | Format-Table -AutoSize
+          Write-Host "Available PSScriptAnalyzer modules:"
+          Get-Module -ListAvailable -Name PSScriptAnalyzer | Select-Object Name, Version, Path | Format-Table -AutoSize
+
 
       - name: Validate module manifest
         run: |
