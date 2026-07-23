@@ -60,7 +60,8 @@ Describe 'NetClean coverage runner' {
         $compatibilityJob = $jobMatch.Value
 
         $compatibilityJob | Should -Match 'shell:\s+powershell'
-        $compatibilityJob | Should -Match 'Install-Module Pester[^\r\n]+RequiredVersion 6\.0\.1'
+        $compatibilityJob | Should -Match '(Install-Module|Save-Module) Pester[^\r\n]+RequiredVersion 6\.0\.1'
+        $compatibilityJob | Should -Match 'Import-Module Pester[^\r\n]+RequiredVersion 6\.0\.1'
         $compatibilityJob | Should -Match 'Invoke-Pester'
         $compatibilityJob | Should -Match 'Test-ModuleManifest'
     }

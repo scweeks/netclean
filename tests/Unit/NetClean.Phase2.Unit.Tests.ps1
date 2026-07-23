@@ -261,7 +261,20 @@ Describe 'NetClean Phase 2 unit tests' {
             It 'falls back to per-profile export when bulk export creates no files' {
                 Mock Get-WiFiProfileName { @('HomeSSID', 'OfficeSSID') }
 
+                # Model the real netsh/filesystem relationship as state (a virtual
+                # file list that grows only when a per-profile export "succeeds"),
+                # rather than a hardcoded call-order sequence: the bulk export
+                # never creates a file (forcing the per-profile fallback), and
+                # each per-profile export creates exactly its own named file.
+                # This is robust to how many times or in what order the
+                # production code happens to call Get-ChildItem.
+                $script:virtualExportedFiles = [System.Collections.Generic.List[string]]::new()
                 Mock Invoke-ExternalCommandSafe {
+                    if ($Name -like 'Export Wi-Fi profile *') {
+                        $profileName = $Name -replace '^Export Wi-Fi profile ', ''
+                        [void]$script:virtualExportedFiles.Add("C:\backup\Wi-Fi-$profileName.xml")
+                    }
+
                     [pscustomobject]@{
                         Name      = $Name
                         ExitCode  = 0
@@ -270,24 +283,8 @@ Describe 'NetClean Phase 2 unit tests' {
                     }
                 }
 
-                $script:ChildItemCall = 0
                 Mock Get-ChildItem {
-                    $script:ChildItemCall++
-
-                    switch ($script:ChildItemCall) {
-                        1 { @() } # bulk before
-                        2 { @() } # bulk after -> no new files
-                        3 { @() } # HomeSSID before
-                        4 { @([pscustomobject]@{ FullName = 'C:\backup\Wi-Fi-HomeSSID.xml' }) } # HomeSSID after
-                        5 { @([pscustomobject]@{ FullName = 'C:\backup\Wi-Fi-HomeSSID.xml' }) } # OfficeSSID before
-                        6 {
-                            @(
-                                [pscustomobject]@{ FullName = 'C:\backup\Wi-Fi-HomeSSID.xml' }
-                                [pscustomobject]@{ FullName = 'C:\backup\Wi-Fi-OfficeSSID.xml' }
-                            )
-                        } # OfficeSSID after
-                        default { @() }
-                    }
+                    @($script:virtualExportedFiles | ForEach-Object { [pscustomobject]@{ FullName = $_ } })
                 }
 
                 $result = @(Export-WiFiProfile -Dest 'C:\backup')

@@ -180,15 +180,6 @@ jobs:
           Write-Host "Available PSScriptAnalyzer modules (process):"
           Get-Module -ListAvailable -Name PSScriptAnalyzer | Select-Object Name, Version, Path | Format-Table -AutoSize
 
-      - name: Validate module manifest
-        run: |
-          Test-ModuleManifest .\NetClean.psd1 | Out-Null
-          Write-Host 'Module manifest validated successfully.'
-
-      - name: Run PSScriptAnalyzer
-        run: |
-          .\tests\Invoke-NetCleanAnalyzer.ps1 | Format-List
-
       - name: Verify Pester 6 is available (diagnostic)
         run: |
           Write-Host "Shell and PowerShell version:"
@@ -209,6 +200,15 @@ jobs:
           } else {
             Write-Host "Pester 6.0.1 is available."
           }
+      
+      - name: Validate module manifest
+        run: |
+          Test-ModuleManifest .\NetClean.psd1 | Out-Null
+          Write-Host 'Module manifest validated successfully.'
+
+      - name: Run PSScriptAnalyzer
+        run: |
+          .\tests\Invoke-NetCleanAnalyzer.ps1 | Format-List
 
       - name: Run Pester with coverage
         env:
@@ -402,6 +402,11 @@ jobs:
           $cachePath = '${{ steps.prep_cache_ps51.outputs.cachePath }}'
           $env:PSModulePath = "$cachePath;$env:PSModulePath"
           Write-Host "PSModulePath: $env:PSModulePath"
+
+          # Each workflow step runs in a fresh process, so PSModulePath set above
+          # would otherwise be lost before the next step runs. Persist it via
+          # GITHUB_ENV, matching the pattern already used in the PS7 job above.
+          "PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Optionally clear cached modules (FORCE_MODULE_REFRESH)
         if: ${{ steps.inputs.outputs.force == 'true' }}
