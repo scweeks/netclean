@@ -158,5 +158,80 @@ Describe 'NetClean isolated registry system-component tests' -Tag 'System', 'Reg
             @($verification.Checks | Where-Object VerificationType -EQ 'ProtectionBoundary').Count |
                 Should -Be 1
         }
+
+        Context 'Test-RegistryPathExist against real registry state' {
+
+            It 'returns true for an existing key' {
+                Test-RegistryPathExist -RegistryPath "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles\$script:ProfileGuid" |
+                    Should -BeTrue
+            }
+
+            It 'returns false for a missing key' {
+                Test-RegistryPathExist -RegistryPath 'HKLM\SOFTWARE\Contoso\DoesNotExist12345' |
+                    Should -BeFalse
+            }
+
+            It 'returns false for an unsupported registry root without ThrowOnError' {
+                Test-RegistryPathExist -RegistryPath 'NOTAHIVE\SOFTWARE\Test' | Should -BeFalse
+            }
+
+            It 'throws for an unsupported registry root with ThrowOnError' {
+                { Test-RegistryPathExist -RegistryPath 'NOTAHIVE\SOFTWARE\Test' -ThrowOnError } |
+                    Should -Throw
+            }
+        }
+
+        Context 'Get-RegistryValuesSafe against real registry state' {
+
+            It 'returns the value bag for an existing key' {
+                $result = Get-RegistryValuesSafe -RegistryPath "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles\$script:ProfileGuid"
+
+                $result.ProfileName | Should -Be 'ConferenceSSID'
+            }
+
+            It 'returns a multi-string value with the correct array shape' {
+                $tcpipPath = "HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces\{$script:InterfaceGuid}"
+                New-ItemProperty -LiteralPath (Convert-RegToProviderPath -RegistryPath $tcpipPath) -Name 'NameServer' -Value @('9.9.9.9', '149.112.112.112') -PropertyType MultiString -Force | Out-Null
+
+                $result = Get-RegistryValuesSafe -RegistryPath $tcpipPath
+
+                @($result.NameServer) | Should -Be @('9.9.9.9', '149.112.112.112')
+            }
+
+            It 'returns null for a missing key' {
+                Get-RegistryValuesSafe -RegistryPath 'HKLM\SOFTWARE\Contoso\DoesNotExist12345' | Should -BeNullOrEmpty
+            }
+
+            It 'returns null for an unsupported registry root' {
+                Get-RegistryValuesSafe -RegistryPath 'NOTAHIVE\SOFTWARE\Test' | Should -BeNullOrEmpty
+            }
+        }
+
+        Context 'Get-RegistryChildKeyNamesSafe against real registry state' {
+
+            It 'returns child key names for a key with subkeys' {
+                $result = @(Get-RegistryChildKeyNamesSafe -RegistryPath 'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles')
+
+                $result | Should -Contain $script:ProfileGuid
+            }
+
+            It 'returns an empty collection for a leaf key with no subkeys' {
+                $result = @(Get-RegistryChildKeyNamesSafe -RegistryPath "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles\$script:ProfileGuid")
+
+                $result.Count | Should -Be 0
+            }
+
+            It 'returns an empty collection for a missing key' {
+                $result = @(Get-RegistryChildKeyNamesSafe -RegistryPath 'HKLM\SOFTWARE\Contoso\DoesNotExist12345')
+
+                $result.Count | Should -Be 0
+            }
+
+            It 'returns an empty collection for an unsupported registry root' {
+                $result = @(Get-RegistryChildKeyNamesSafe -RegistryPath 'NOTAHIVE\SOFTWARE\Test')
+
+                $result.Count | Should -Be 0
+            }
+        }
     }
 }

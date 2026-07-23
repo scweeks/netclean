@@ -644,6 +644,64 @@ function Convert-RegToProviderPath {
 
 <#
 .SYNOPSIS
+Maps a short registry hive root to its .NET RegistryKey handle.
+.DESCRIPTION
+Private helper for the raw-registry-API read path. Throws for any root not
+present in $script:RegistryHiveMap, matching Get-NetCleanRegistryPathInfo's
+own unsupported-root contract.
+#>
+function Get-NetCleanRegistryHiveRoot {
+    [CmdletBinding()]
+    [OutputType([Microsoft.Win32.RegistryKey])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Root
+    )
+
+    switch ($Root) {
+        'HKLM' { return [Microsoft.Win32.Registry]::LocalMachine }
+        'HKCU' { return [Microsoft.Win32.Registry]::CurrentUser }
+        'HKCR' { return [Microsoft.Win32.Registry]::ClassesRoot }
+        'HKU' { return [Microsoft.Win32.Registry]::Users }
+        'HKCC' { return [Microsoft.Win32.Registry]::CurrentConfig }
+        default { throw "Unsupported registry hive root: '$Root'" }
+    }
+}
+
+<#
+.SYNOPSIS
+Opens a registry key via the raw .NET registry API, honoring the existing
+path-resolution and TestRegistry-redirection contract.
+.DESCRIPTION
+Resolves the path exactly as the provider-cmdlet path did (Resolve-
+NetCleanRegistryPath, then Get-NetCleanRegistryPathInfo), so redirection set
+up by Set-NetCleanRegistryRootMap continues to work unchanged. Returns $null
+when the key does not exist (OpenSubKey's own not-found contract) rather than
+throwing; throws for an unsupported registry root or an access-denied key, to
+be caught by each caller's existing fail-soft/fail-closed wrapper. The
+returned key, if any, is a handle the caller owns and must Close().
+.PARAMETER RegistryPath
+The registry path to open.
+.OUTPUTS
+Microsoft.Win32.RegistryKey or $null.
+#>
+function Open-NetCleanRegistryKey {
+    [CmdletBinding()]
+    [OutputType([Microsoft.Win32.RegistryKey])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$RegistryPath
+    )
+
+    $resolvedPath = Resolve-NetCleanRegistryPath -RegistryPath $RegistryPath
+    $info = Get-NetCleanRegistryPathInfo -RegistryPath $resolvedPath
+    $hiveRoot = Get-NetCleanRegistryHiveRoot -Root $info.Root
+
+    return $hiveRoot.OpenSubKey($info.Suffix)
+}
+
+<#
+.SYNOPSIS
     Tests if a registry path exists.
 .DESCRIPTION
     This function checks if a specified registry path exists.
@@ -655,8 +713,6 @@ function Convert-RegToProviderPath {
     Test-RegistryPathExist -RegistryPath "HKLM:\SOFTWARE\MyKey"
 .OUTPUTS
     System.Boolean - True if the path exists, false otherwise.
-.NOTES
-    The function uses the Convert-RegToProviderPath function to normalize the input path.
 #>
 function Test-RegistryPathExist {
     [CmdletBinding()]
@@ -669,15 +725,19 @@ function Test-RegistryPathExist {
         [switch]$ThrowOnError
     )
 
+    $key = $null
     try {
-        $providerPath = Convert-RegToProviderPath -RegistryPath $RegistryPath
-        return (Test-Path -LiteralPath $providerPath)
+        $key = Open-NetCleanRegistryKey -RegistryPath $RegistryPath
+        return ($null -ne $key)
     }
     catch {
         if ($ThrowOnError) {
             throw
         }
         return $false
+    }
+    finally {
+        if ($key) { $key.Close() }
     }
 }
 
@@ -692,8 +752,6 @@ function Test-RegistryPathExist {
     Get-RegistryValuesSafe -RegistryPath "HKLM:\SOFTWARE\MyKey"
 .OUTPUTS
     System.Object - The registry values.
-.NOTES
-    The function uses the Convert-RegToProviderPath function to normalize the input path.
 #>
 function Get-RegistryValuesSafe {
     [CmdletBinding()]
@@ -704,12 +762,26 @@ function Get-RegistryValuesSafe {
         [string]$RegistryPath
     )
 
+    $key = $null
     try {
-        $providerPath = Convert-RegToProviderPath -RegistryPath $RegistryPath
-        return Get-ItemProperty -LiteralPath $providerPath -ErrorAction Stop
+        $key = Open-NetCleanRegistryKey -RegistryPath $RegistryPath
+        if ($null -eq $key) {
+            return $null
+        }
+
+        $values = [ordered]@{}
+        foreach ($valueName in $key.GetValueNames()) {
+            $propertyName = if ([string]::IsNullOrEmpty($valueName)) { '(default)' } else { $valueName }
+            $values[$propertyName] = $key.GetValue($valueName, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        }
+
+        return [pscustomobject]$values
     }
     catch {
         return $null
+    }
+    finally {
+        if ($key) { $key.Close() }
     }
 }
 
@@ -724,8 +796,6 @@ function Get-RegistryValuesSafe {
     Get-RegistryChildKeyNamesSafe -RegistryPath "HKLM:\SOFTWARE\MyKey"
 .OUTPUTS
     System.String[] - A list of child key names.
-.NOTES
-    The function uses the Convert-RegToProviderPath function to normalize the input path.
 #>
 function Get-RegistryChildKeyNamesSafe {
     [CmdletBinding()]
@@ -736,12 +806,20 @@ function Get-RegistryChildKeyNamesSafe {
         [string]$RegistryPath
     )
 
+    $key = $null
     try {
-        $providerPath = Convert-RegToProviderPath -RegistryPath $RegistryPath
-        return @(Get-ChildItem -LiteralPath $providerPath -ErrorAction Stop | Select-Object -ExpandProperty PSChildName)
+        $key = Open-NetCleanRegistryKey -RegistryPath $RegistryPath
+        if ($null -eq $key) {
+            return @()
+        }
+
+        return @($key.GetSubKeyNames())
     }
     catch {
         return @()
+    }
+    finally {
+        if ($key) { $key.Close() }
     }
 }
 
