@@ -1,6 +1,14 @@
 # NetClean
 
-[![CI](https://github.com/scweeks/netclean/actions/workflows/ci.yml/badge.svg)](https://github.com/scweeks/netclean/actions/workflows/ci.yml) [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
+## Badges
+
+[![CI](https://github.com/scweeks/netclean/actions/workflows/ci.yml/badge.svg)](https://github.com/scweeks/netclean/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/scweeks/netclean/branch/main/graph/badge.svg)](https://codecov.io/gh/scweeks/netclean)
+[![Analyzer](https://img.shields.io/badge/style-PSScriptAnalyzer-00aaff)](https://github.com/scweeks/netclean/actions/workflows/ci.yml)
+[![Coverage target](https://img.shields.io/badge/coverage_target-94%25-green)](https://github.com/scweeks/netclean/actions/workflows/ci.yml)
+[![PowerShell 5.1 | 7.4](https://img.shields.io/badge/PowerShell-5.1%20%7C%207.4-blue)](https://learn.microsoft.com/powershell/)
+[![Windows](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/scweeks/netclean)
+[![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
 NetClean is a Windows PowerShell tool for detecting, backing up, cleaning, and verifying selected network-history artifacts before using a system at a conference, workshop, or security event. It uses an inventory of security products, services, drivers, and network adapters to avoid modifying identified protected artifacts.
 
@@ -121,6 +129,6 @@ Invoke-Pester -Path .\tests
 .\tests\Run-NetClean-Coverage.ps1
 ```
 
-CI is defined in `.github/workflows/ci.yml`. The authoritative PowerShell 7 job validates the module manifest, treats analyzer warnings/errors as failures, and runs Pester 6.0.1 with coverage. An independent Windows PowerShell 5.1 job runs the complete test suite and manifest validation in parallel. Tests execute to exercise production behavior, but the coverage runner rejects source paths beneath `tests/`, so test code cannot inflate the result. Pester 6's profiler-based collector measures the current suite at 95.55% command coverage; the overall gate is ratcheted at 94% to retain regression margin, while pull-request reporting retains a 95% changed-file target. The suite now exceeds the 95% long-term overall target, and the enforced ratchet should only move upward as focused tests add durable margin. Generated output is written under `tests/TestResults` and is ignored by Git.
+CI is defined in `.github/workflows/ci.yml`. The authoritative PowerShell 7 job validates the module manifest, treats analyzer warnings/errors as failures, uploads coverage to Codecov for the README badge, and runs Pester 6.0.1 with coverage. An independent Windows PowerShell 5.1 job runs the complete test suite and manifest validation in parallel. Tests execute to exercise production behavior, but the coverage runner rejects source paths beneath `tests/`, so test code cannot inflate the result. Pester 6's profiler-based collector measures the current suite at 95.55% command coverage; the overall gate is ratcheted at 94% to retain regression margin, while pull-request reporting retains a 95% changed-file target. The suite now exceeds the 95% long-term overall target, and the enforced ratchet should only move upward as focused tests add durable margin. Generated output is written under `tests/TestResults` and is ignored by Git.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution expectations and [LICENSE](LICENSE) for GPLv3 terms.

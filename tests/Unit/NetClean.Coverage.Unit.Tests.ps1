@@ -4,6 +4,8 @@ Describe 'NetClean coverage runner' {
         $script:runnerText = Get-Content -LiteralPath $script:runnerPath -Raw
         $ciPath = Join-Path $PSScriptRoot '..\..\.github\workflows\ci.yml'
         $script:ciText = Get-Content -LiteralPath $ciPath -Raw
+        $readmePath = Join-Path $PSScriptRoot '..\..\README.md'
+        $script:readmeText = Get-Content -LiteralPath $readmePath -Raw
     }
 
     It 'rejects test files as coverage sources' {
@@ -38,6 +40,16 @@ Describe 'NetClean coverage runner' {
         $script:ciText | Should -Match 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a\s+# v7\.0\.1'
         $script:ciText | Should -Match 'actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3\s+# v8\.0\.0'
         $script:ciText | Should -Match 'madrapps/jacoco-report@e51ce1f46f7f8b5331593f935e59cbaf44b84920\s+# v1\.8\.0'
+        $script:ciText | Should -Match 'codecov/codecov-action@v5\.5\.2'
+    }
+
+    It 'exposes the supported badge set in the README' {
+        $script:readmeText | Should -Match 'codecov\.io/gh/scweeks/netclean/branch/main/graph/badge\.svg'
+        $script:readmeText | Should -Match 'img\.shields\.io/badge/style-PSScriptAnalyzer-00aaff'
+        $script:readmeText | Should -Match 'img\.shields\.io/badge/license-GPLv3-blue\.svg'
+        $script:readmeText | Should -Match 'img\.shields\.io/badge/PowerShell-5\.1%20%7C%207\.4-blue'
+        $script:readmeText | Should -Match 'img\.shields\.io/badge/platform-Windows-blue'
+        $script:readmeText | Should -Match 'img\.shields\.io/badge/coverage_target-94%25-green'
     }
 
     It 'runs the complete suite under Windows PowerShell 5.1 in CI' {

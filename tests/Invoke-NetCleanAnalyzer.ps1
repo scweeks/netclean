@@ -71,7 +71,7 @@ $analyzerModule = Get-Module -ListAvailable PSScriptAnalyzer |
     Select-Object -First 1
 
 if ($null -eq $analyzerModule) {
-    throw "PSScriptAnalyzer $AnalyzerVersion is required. Install that version from the PowerShell Gallery."
+    throw "PSScriptAnalyzer $AnalyzerVersion is required. Install that version from a trusted PowerShell package source."
 }
 
 Import-Module $analyzerModule.Path -Force -ErrorAction Stop

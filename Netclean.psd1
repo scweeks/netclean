@@ -29,7 +29,7 @@
     PrivateData = @{
         PSData = @{
             ProjectUri = 'https://github.com/scweeks/netclean'
-            LicenseUri = 'https://github.com/scweeks/netclean/blob/ci/pester-v5-coverage/LICENSE'
+            LicenseUri = 'https://github.com/scweeks/netclean/blob/main/LICENSE'
             Tags = @('PowerShell', 'Networking', 'Privacy', 'Diagnostics', 'Windows')
         }
     }
