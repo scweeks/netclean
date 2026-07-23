@@ -657,9 +657,17 @@ Describe 'NetClean Phase 2 unit tests' {
                 $result.Protect.Manifest.FirewallPolicyBackup | Should -Be 'C:\backup\FirewallPolicy.wfw'
                 $result.Protect.Manifest.AdapterConfigurationJson | Should -Be 'C:\backup\AdapterConfiguration.json'
                 $result.Protect.Summary.ProtectedRegistryPathCount | Should -Be 1
-                $result.Protect.Summary.AdapterConfigurationBackupCount | Should -Be 1
+                $result.Protect.Summary.HasAdapterConfigurationBackup | Should -BeTrue
                 $result.Protect.Summary.WiFiBackupCount | Should -Be 1
                 $result.Protect.Summary.ProtectedRegistryBackupCount | Should -Be 1
+            }
+
+            It 'reports no adapter configuration backup when the export produced no path' {
+                Mock Export-NetCleanAdapterConfiguration { $null }
+
+                $result = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup' -DryRun
+
+                $result.Protect.Summary.HasAdapterConfigurationBackup | Should -BeFalse
             }
 
             It 'skips firewall backup when requested' {

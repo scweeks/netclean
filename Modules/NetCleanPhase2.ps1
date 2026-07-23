@@ -496,6 +496,75 @@ function Export-FirewallPolicy {
 
 <#
 .SYNOPSIS
+Shared JSON-export skeleton for Phase 2 backup artifacts.
+.DESCRIPTION
+Builds the destination file path and either logs the planned path
+(`-DryRun`) or writes the supplied data as UTF-8 JSON to disk. Callers
+compute `Data` themselves before calling this, so derivation happens
+unconditionally in both dry-run and real runs, matching prior behavior.
+Consolidates the identical build-path/log/write skeleton previously
+duplicated across Export-ProtectionInventory, Export-ProtectionRegistryMap,
+Export-SanitizableNetworkArtifact, and Export-NetCleanManifest.
+.PARAMETER Dest
+Destination directory for the JSON file.
+.PARAMETER FileNamePrefix
+Prefix used to build the timestamped output file name.
+.PARAMETER LogNoun
+Human-readable noun phrase used in the "would export"/"exported" log lines.
+.PARAMETER Data
+The object graph to serialize.
+.PARAMETER DryRun
+Return the intended output path without writing a file.
+.OUTPUTS
+System.String
+#>
+function Export-NetCleanJsonArtifact {
+    [CmdletBinding()]
+    [OutputType([System.String])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Dest,
+
+        [Parameter(Mandatory = $true)]
+        [string]$FileNamePrefix,
+
+        [Parameter(Mandatory = $true)]
+        [string]$LogNoun,
+
+        [Parameter()]
+        [AllowNull()]
+        [object]$Data,
+
+        [switch]$DryRun
+    )
+
+    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
+
+    if (-not $DryRun) {
+        New-DirectoryIfNotExist -Path $Dest
+    }
+
+    $file = Join-Path $Dest ("{0}_{1}.json" -f $FileNamePrefix, (Get-Date -Format 'yyyyMMdd_HHmmss'))
+
+    if ($DryRun) {
+        if ($canLog) {
+            Write-NetCleanLog -Level INFO -Message ("Would export {0} to: {1}" -f $LogNoun, $file)
+        }
+        return $file
+    }
+
+    $json = $Data | ConvertTo-Json -Depth 8
+    WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
+
+    if ($canLog) {
+        Write-NetCleanLog -Level INFO -Message ("Exported {0} to: {1}" -f $LogNoun, $file)
+    }
+
+    return $file
+}
+
+<#
+.SYNOPSIS
 Export protection inventory to JSON.
 .DESCRIPTION
 Writes the supplied inventory, or newly detected inventory when omitted, as
@@ -524,35 +593,18 @@ function Export-ProtectionInventory {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
-
-    if (-not $DryRun) {
-        New-DirectoryIfNotExist -Path $Dest
-    }
-
     if (-not $PSBoundParameters.ContainsKey('Inventory') -or $null -eq $Inventory) {
         Write-NetCleanLog -Level INFO -Message 'No inventory provided, performing detection to gather current protection inventory.'
         $Inventory = @(Get-ProtectionInventory)
         Write-NetCleanLog -Level INFO -Message ("Detected {0} inventory entries for export." -f @($Inventory).Count)
     }
 
-    $file = Join-Path $Dest ("ProtectionInventory_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-
-    if ($DryRun) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("Would export protection inventory to: {0}" -f $file)
-        }
-        return $file
-    }
-
-    $json = $Inventory | ConvertTo-Json -Depth 8
-    WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
-
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message ("Exported protection inventory to: {0}" -f $file)
-    }
-
-    return $file
+    Export-NetCleanJsonArtifact `
+        -Dest $Dest `
+        -FileNamePrefix 'ProtectionInventory' `
+        -LogNoun 'protection inventory' `
+        -Data $Inventory `
+        -DryRun:$DryRun
 }
 
 <#
@@ -584,30 +636,14 @@ function Export-ProtectionRegistryMap {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
-
-    if (-not $DryRun) {
-        New-DirectoryIfNotExist -Path $Dest
-    }
-
     $map = @(Get-ProtectionRegistryMap -Inventory $Inventory)
-    $file = Join-Path $Dest ("ProtectionRegistryMap_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 
-    if ($DryRun) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("Would export protection registry map to: {0}" -f $file)
-        }
-        return $file
-    }
-
-    $json = $map | ConvertTo-Json -Depth 8
-    WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
-
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message ("Exported protection registry map to: {0}" -f $file)
-    }
-
-    return $file
+    Export-NetCleanJsonArtifact `
+        -Dest $Dest `
+        -FileNamePrefix 'ProtectionRegistryMap' `
+        -LogNoun 'protection registry map' `
+        -Data $map `
+        -DryRun:$DryRun
 }
 
 <#
@@ -638,30 +674,14 @@ function Export-SanitizableNetworkArtifact {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
-
-    if (-not $DryRun) {
-        New-DirectoryIfNotExist -Path $Dest
-    }
-
     $artifacts = @(Get-SanitizableNetworkArtifact -Inventory $Inventory)
-    $file = Join-Path $Dest ("SanitizableNetworkArtifact_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 
-    if ($DryRun) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("Would export sanitizable artifact inventory to: {0}" -f $file)
-        }
-        return $file
-    }
-
-    $json = $artifacts | ConvertTo-Json -Depth 8
-    WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
-
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message ("Exported sanitizable artifact inventory to: {0}" -f $file)
-    }
-
-    return $file
+    Export-NetCleanJsonArtifact `
+        -Dest $Dest `
+        -FileNamePrefix 'SanitizableNetworkArtifact' `
+        -LogNoun 'sanitizable artifact inventory' `
+        -Data $artifacts `
+        -DryRun:$DryRun
 }
 
 <#
@@ -826,28 +846,12 @@ function Export-NetCleanManifest {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
-
-    if (-not $DryRun) {
-        New-DirectoryIfNotExist -Path $Dest
-    }
-    $file = Join-Path $Dest ("RestoreManifest_{0}.json" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
-
-    if ($DryRun) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("Would export restore manifest to: {0}" -f $file)
-        }
-        return $file
-    }
-
-    $json = $Manifest | ConvertTo-Json -Depth 8
-    WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
-
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message ("Exported restore manifest to: {0}" -f $file)
-    }
-
-    return $file
+    Export-NetCleanJsonArtifact `
+        -Dest $Dest `
+        -FileNamePrefix 'RestoreManifest' `
+        -LogNoun 'restore manifest' `
+        -Data $Manifest `
+        -DryRun:$DryRun
 }
 
 <#
@@ -1073,10 +1077,10 @@ function Invoke-NetCleanPhase2Protect {
             Manifest     = $manifest
             ManifestFile = $manifestFile
             Summary      = [pscustomobject]@{
-                ProtectedRegistryPathCount   = $protectedPaths.Count
-                AdapterConfigurationBackupCount = @($manifest.AdapterConfigurationJson | Where-Object { $_ }).Count
-                WiFiBackupCount              = @($manifest.WiFiExports).Count
-                ProtectedRegistryBackupCount = @($manifest.ProtectedRegistryBackups).Count
+                ProtectedRegistryPathCount     = $protectedPaths.Count
+                HasAdapterConfigurationBackup  = [bool]$manifest.AdapterConfigurationJson
+                WiFiBackupCount                = @($manifest.WiFiExports).Count
+                ProtectedRegistryBackupCount   = @($manifest.ProtectedRegistryBackups).Count
             }
         }) -Force
 
