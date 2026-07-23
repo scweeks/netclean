@@ -365,6 +365,9 @@ Describe 'NetClean launcher functional tests' {
 
         It 'reports no remaining Wi-Fi profiles when every discovered profile was removed' {
             $result = [pscustomobject]@{
+                CollectionSnapshot = [pscustomobject]@{
+                    WiFiProfiles = @([pscustomobject]@{ Name = 'Home'; IsPolicyManaged = $false })
+                }
                 Protect = [pscustomobject]@{
                     Summary = [pscustomobject]@{
                         ProtectedRegistryPathCount   = 0
@@ -372,7 +375,7 @@ Describe 'NetClean launcher functional tests' {
                         ProtectedRegistryBackupCount = 0
                     }
                     Manifest = [pscustomobject]@{
-                        WiFiExports       = @('PROFILE:Home')
+                        WiFiExports       = @('C:\backup\Home.xml')
                         NetworkListBackup = $null
                     }
                 }
@@ -389,12 +392,77 @@ Describe 'NetClean launcher functional tests' {
                     RegistryArtifacts = $null
                     EventLogs = @()
                 }
+                Verify = [pscustomobject]@{
+                    Summary = [pscustomobject]@{
+                        Passed              = $true
+                        MissingVendorsCount = 0
+                        MissingGuidCount    = 0
+                        MissingServiceCount = 0
+                    }
+                    VendorComparison      = [pscustomobject]@{ Missing = @() }
+                    RemainingWiFiProfiles = @()
+                }
             }
 
             Show-NetCleanSummary -Result $result -SelectedMode SafeConferencePrep
 
+            $script:messages | Should -Contain 'Wi-Fi Profiles - Found'
+            $script:messages | Should -Contain '  - Home'
             $script:messages | Should -Contain 'Wi-Fi Profiles - Remaining After Cleanup'
             $script:messages | Should -Contain '  - (none)'
+        }
+
+        It 'reports Wi-Fi profiles found and still remaining on a real (non-dry-run) run, not just dry-run marker strings' {
+            $result = [pscustomobject]@{
+                CollectionSnapshot = [pscustomobject]@{
+                    WiFiProfiles = @(
+                        [pscustomobject]@{ Name = 'Home'; IsPolicyManaged = $false }
+                        [pscustomobject]@{ Name = 'StubbornSSID'; IsPolicyManaged = $false }
+                    )
+                }
+                Protect = [pscustomobject]@{
+                    Summary  = [pscustomobject]@{
+                        ProtectedRegistryPathCount   = 0
+                        WiFiBackupCount               = 2
+                        ProtectedRegistryBackupCount = 0
+                    }
+                    Manifest = [pscustomobject]@{
+                        WiFiExports       = @('C:\backup\Home.xml', 'C:\backup\StubbornSSID.xml')
+                        NetworkListBackup = $null
+                    }
+                }
+                Clean   = [pscustomobject]@{
+                    Summary = [pscustomobject]@{
+                        WiFiProfilesRemoved      = 1
+                        RegistryArtifactsRemoved = 0
+                        EventLogsTouched         = 0
+                        UserArtifactsTouched     = 0
+                        AdvancedRepairActions    = 0
+                        PerformanceTuningActions = 0
+                    }
+                    WiFi              = [pscustomobject]@{ Profiles = @('Home') }
+                    RegistryArtifacts = $null
+                    EventLogs         = @()
+                }
+                Verify  = [pscustomobject]@{
+                    Summary = [pscustomobject]@{
+                        Passed              = $false
+                        MissingVendorsCount = 0
+                        MissingGuidCount    = 0
+                        MissingServiceCount = 0
+                    }
+                    VendorComparison      = [pscustomobject]@{ Missing = @() }
+                    RemainingWiFiProfiles = @('StubbornSSID')
+                }
+            }
+
+            Show-NetCleanSummary -Result $result -SelectedMode SafeConferencePrep
+
+            $script:messages | Should -Contain 'Wi-Fi Profiles - Found'
+            $script:messages | Should -Contain '  - Home'
+            $script:messages | Should -Contain '  - StubbornSSID'
+            $script:messages | Should -Contain 'Wi-Fi Profiles - Remaining After Cleanup'
+            $script:messages | Should -Not -Contain '  - (none)'
         }
 
         It 'renders a complete preview including profiles, registry candidates, paths, and timings' {
@@ -407,9 +475,15 @@ Describe 'NetClean launcher functional tests' {
                     SanitizableArtifactCount    = 1
                 }
                 BackupPath = 'C:\backup'
+                CollectionSnapshot = [pscustomobject]@{
+                    WiFiProfiles = @(
+                        [pscustomobject]@{ Name = 'Home'; IsPolicyManaged = $false }
+                        [pscustomobject]@{ Name = 'Office'; IsPolicyManaged = $false }
+                    )
+                }
                 Protect = [pscustomobject]@{
                     Manifest = [pscustomobject]@{
-                        WiFiExports       = @('PROFILE:Home', 'PROFILE:Office')
+                        WiFiExports       = @('C:\backup\Home.xml', 'C:\backup\Office.xml')
                         NetworkListBackup = 'C:\backup\NetworkList.reg'
                     }
                 }

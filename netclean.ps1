@@ -518,20 +518,23 @@ function Show-NetCleanSummary {
     }
 
     # Detailed lists: Wi-Fi & network profile details and removed artifacts
-    # Wi-Fi: initial list comes from Protect.Manifest.WiFiExports (entries include "PROFILE:<name>")
-    if ($Result.PSObject.Properties.Name -contains 'Protect') {
-        $manifest = $Result.Protect.Manifest
-        if ($manifest -and $manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {
-            $found = @($manifest.WiFiExports | Where-Object { $_ -is [string] -and $_ -like 'PROFILE:*' } | ForEach-Object { $_ -replace '^PROFILE:', '' })
-            if ($found.Count -gt 0) {
-                Show-TruncatedList -Items $found -Heading 'Wi-Fi Profiles - Found'
-            }
-
-            if ($manifest.NetworkListBackup) {
-                Write-Information '' -InformationAction Continue
-                Write-Information "Network list backup: $($manifest.NetworkListBackup)" -InformationAction Continue
-            }
+    # Wi-Fi found: sourced from the Phase 1 collection snapshot, which is
+    # populated the same way for dry-run and real runs - unlike
+    # Protect.Manifest.WiFiExports, whose "PROFILE:<name>" markers are only
+    # emitted in the dry-run export path.
+    if ($Result.PSObject.Properties.Name -contains 'CollectionSnapshot' -and
+        $Result.CollectionSnapshot.PSObject.Properties.Name -contains 'WiFiProfiles') {
+        $found = @($Result.CollectionSnapshot.WiFiProfiles | ForEach-Object Name | Where-Object { $_ })
+        if ($found.Count -gt 0) {
+            Show-TruncatedList -Items $found -Heading 'Wi-Fi Profiles - Found'
         }
+    }
+
+    if ($Result.PSObject.Properties.Name -contains 'Protect' -and
+        $Result.Protect.Manifest -and
+        $Result.Protect.Manifest.NetworkListBackup) {
+        Write-Information '' -InformationAction Continue
+        Write-Information "Network list backup: $($Result.Protect.Manifest.NetworkListBackup)" -InformationAction Continue
     }
 
     # If Clean phase ran, show removed items and remaining Wi-Fi profiles
@@ -542,13 +545,15 @@ function Show-NetCleanSummary {
         if ($clean.WiFi -and $clean.WiFi.Profiles) {
             Show-TruncatedList -Items @($clean.WiFi.Profiles) -Heading 'Wi-Fi Profiles - Removed'
 
-            # Compute remaining if we have the original found list
-            if ($Result.PSObject.Properties.Name -contains 'Protect' -and $Result.Protect.Manifest -and $Result.Protect.Manifest.WiFiExports) {
-                $original = @($Result.Protect.Manifest.WiFiExports | Where-Object { $_ -is [string] -and $_ -like 'PROFILE:*' } | ForEach-Object { $_ -replace '^PROFILE:', '' })
-                $remaining = @($original | Where-Object { $_ -notin $clean.WiFi.Profiles })
-                if ($remaining.Count -gt 0) { Show-TruncatedList -Items $remaining -Heading 'Wi-Fi Profiles - Remaining After Cleanup' }
-                else { Write-Information '' -InformationAction Continue; Write-Information 'Wi-Fi Profiles - Remaining After Cleanup' -InformationAction Continue; Write-Information '  - (none)' -InformationAction Continue }
+            # Remaining comes from Phase 4's independent post-cleanup
+            # verification rather than being re-derived from the found list.
+            $remaining = @()
+            if ($Result.PSObject.Properties.Name -contains 'Verify' -and
+                $Result.Verify.PSObject.Properties.Name -contains 'RemainingWiFiProfiles') {
+                $remaining = @($Result.Verify.RemainingWiFiProfiles)
             }
+            if ($remaining.Count -gt 0) { Show-TruncatedList -Items $remaining -Heading 'Wi-Fi Profiles - Remaining After Cleanup' }
+            else { Write-Information '' -InformationAction Continue; Write-Information 'Wi-Fi Profiles - Remaining After Cleanup' -InformationAction Continue; Write-Information '  - (none)' -InformationAction Continue }
         }
 
         # Registry keys removed
@@ -653,22 +658,24 @@ function Show-PreviewSummary {
         Write-Information "Log File: $logFile" -InformationAction Continue
     }
 
-    # Show Wi-Fi profiles found (from Protect.Manifest if available)
-    if ($Result.PSObject.Properties.Name -contains 'Protect') {
-        $manifest = $Result.Protect.Manifest
-        if ($manifest -and $manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {
-            $found = @($manifest.WiFiExports | Where-Object { $_ -is [string] -and $_ -like 'PROFILE:*' } | ForEach-Object { $_ -replace '^PROFILE:', '' })
-            if ($found.Count -gt 0) {
-                Write-Information '' -InformationAction Continue
-                Write-Information 'Wi-Fi Profiles - Found' -InformationAction Continue
-                foreach ($p in $found) { Write-Information "  - $p" -InformationAction Continue }
-            }
-
-            if ($manifest.NetworkListBackup) {
-                Write-Information '' -InformationAction Continue
-                Write-Information "Network list backup: $($manifest.NetworkListBackup)" -InformationAction Continue
-            }
+    # Show Wi-Fi profiles found, sourced from the Phase 1 collection snapshot
+    # (populated for both dry-run and real runs, unlike the dry-run-only
+    # "PROFILE:<name>" markers in Protect.Manifest.WiFiExports)
+    if ($Result.PSObject.Properties.Name -contains 'CollectionSnapshot' -and
+        $Result.CollectionSnapshot.PSObject.Properties.Name -contains 'WiFiProfiles') {
+        $found = @($Result.CollectionSnapshot.WiFiProfiles | ForEach-Object Name | Where-Object { $_ })
+        if ($found.Count -gt 0) {
+            Write-Information '' -InformationAction Continue
+            Write-Information 'Wi-Fi Profiles - Found' -InformationAction Continue
+            foreach ($p in $found) { Write-Information "  - $p" -InformationAction Continue }
         }
+    }
+
+    if ($Result.PSObject.Properties.Name -contains 'Protect' -and
+        $Result.Protect.Manifest -and
+        $Result.Protect.Manifest.NetworkListBackup) {
+        Write-Information '' -InformationAction Continue
+        Write-Information "Network list backup: $($Result.Protect.Manifest.NetworkListBackup)" -InformationAction Continue
     }
 
     if ($Result.PSObject.Properties.Name -contains 'NetworkProfileDecisions' -and
