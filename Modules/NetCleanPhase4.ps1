@@ -777,6 +777,155 @@ function Test-NetCleanCleanupPostState {
 
 <#
 .SYNOPSIS
+Verifies each Phase 1 artifact decision against what Phase 3 actually recorded.
+.DESCRIPTION
+Joins Context.NetworkProfileDecisions (Wi-Fi/NetworkList profiles) and
+Context.CandidateArtifacts (registry paths) against the per-item ledgers Phase 3
+already produced (Clean.RegistryArtifacts.Results, plus the live remaining-
+profile lists computed by the caller), rather than re-detecting state. Every
+Decision=Remove item must be confirmed gone; every Decision=Preserve item must
+be confirmed still present/untouched. Not applicable during a dry run or when
+no cleanup results exist.
+.PARAMETER Context
+The context object containing NetworkProfileDecisions, CandidateArtifacts, and
+the Clean-phase result ledgers.
+.PARAMETER RemainingWiFiProfiles
+Wi-Fi profile names still present after cleanup, as already collected by the caller.
+.PARAMETER RemainingNetworkProfiles
+NetworkList profile names still present after cleanup, as already collected by the caller.
+.OUTPUTS
+System.Management.Automation.PSCustomObject
+#>
+function Test-NetCleanArtifactRemovalPostState {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Context,
+
+        [Parameter()]
+        [AllowNull()]
+        [string[]]$RemainingWiFiProfiles,
+
+        [Parameter()]
+        [AllowNull()]
+        [string[]]$RemainingNetworkProfiles
+    )
+
+    if (
+        $Context.PSObject.Properties.Name -notcontains 'Clean' -or
+        -not $Context.Clean
+    ) {
+        return [pscustomobject]@{
+            Applicable = $false
+            Passed     = $true
+            Reason     = 'NoCleanupResults'
+            Checks     = @()
+        }
+    }
+
+    if (
+        $Context.Clean.PSObject.Properties.Name -contains 'DryRun' -and
+        $Context.Clean.DryRun
+    ) {
+        return [pscustomobject]@{
+            Applicable = $false
+            Passed     = $true
+            Reason     = 'DryRun'
+            Checks     = @()
+        }
+    }
+
+    $checks = [System.Collections.Generic.List[object]]::new()
+
+    $remainingWiFiSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    Add-HashSetValue -Set $remainingWiFiSet -Values $RemainingWiFiProfiles
+
+    $remainingNetworkSet = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    Add-HashSetValue -Set $remainingNetworkSet -Values $RemainingNetworkProfiles
+
+    if ($Context.PSObject.Properties.Name -contains 'NetworkProfileDecisions') {
+        foreach ($decision in @($Context.NetworkProfileDecisions)) {
+            if ([string]::IsNullOrWhiteSpace($decision.Name)) { continue }
+
+            $stillPresent = if ($decision.ArtifactType -eq 'WiFiProfile') {
+                $remainingWiFiSet.Contains($decision.Name)
+            }
+            elseif ($decision.ArtifactType -eq 'NetworkListProfile') {
+                $remainingNetworkSet.Contains($decision.Name)
+            }
+            else {
+                $null
+            }
+
+            if ($null -eq $stillPresent) { continue }
+
+            $expectedRemoved = $decision.Decision -eq 'Remove'
+            $verified = if ($expectedRemoved) { -not $stillPresent } else { $stillPresent }
+
+            $checks.Add([pscustomobject]@{
+                    ArtifactType = $decision.ArtifactType
+                    Name         = $decision.Name
+                    Decision     = $decision.Decision
+                    Verified     = $verified
+                    Detail       = if ($verified) {
+                        'Matches expected decision'
+                    }
+                    elseif ($expectedRemoved) {
+                        'Still present after cleanup'
+                    }
+                    else {
+                        'Missing after cleanup; expected to be preserved'
+                    }
+                })
+        }
+    }
+
+    if ($Context.PSObject.Properties.Name -contains 'CandidateArtifacts') {
+        $removedPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+        if ($Context.Clean.PSObject.Properties.Name -contains 'RegistryArtifacts' -and $Context.Clean.RegistryArtifacts) {
+            foreach ($regResult in @($Context.Clean.RegistryArtifacts.Results)) {
+                if ($regResult.Removed -and -not [string]::IsNullOrWhiteSpace($regResult.RegistryPath)) {
+                    [void]$removedPaths.Add([string]$regResult.RegistryPath)
+                }
+            }
+        }
+
+        foreach ($candidate in @($Context.CandidateArtifacts)) {
+            if ([string]::IsNullOrWhiteSpace($candidate.RegistryPath)) { continue }
+
+            $expectedRemoved = $candidate.Decision -eq 'Remove'
+            $wasRemoved = $removedPaths.Contains($candidate.RegistryPath)
+            $verified = if ($expectedRemoved) { $wasRemoved } else { -not $wasRemoved }
+
+            $checks.Add([pscustomobject]@{
+                    ArtifactType = $candidate.ArtifactType
+                    Name         = $candidate.RegistryPath
+                    Decision     = $candidate.Decision
+                    Verified     = $verified
+                    Detail       = if ($verified) {
+                        'Matches expected decision'
+                    }
+                    elseif ($expectedRemoved) {
+                        'Not confirmed removed by Phase 3'
+                    }
+                    else {
+                        'Unexpectedly removed despite Preserve decision'
+                    }
+                })
+        }
+    }
+
+    return [pscustomobject]@{
+        Applicable = $true
+        Passed     = (@($checks | Where-Object { -not $_.Verified }).Count -eq 0)
+        Reason     = 'Verified'
+        Checks     = $checks.ToArray()
+    }
+}
+
+<#
+.SYNOPSIS
 Performs post-cleaning state verification by comparing inventories before and after cleaning.
 .DESCRIPTION
 Compares protected inventory before and after cleaning and checks that saved
@@ -807,7 +956,17 @@ function Test-NetCleanPostState {
     if ($canlog) { Write-NetCleanLog -Level INFO -Message 'Phase 4 verify started.' }
 
     $preInventory = @($Context.Inventory)
-    $postInventory = @(Get-ProtectionInventory)
+    if ($Context.PSObject.Properties.Name -contains 'CollectionSnapshot' -and
+        $Context.CollectionSnapshot.PSObject.Properties.Name -contains 'ServiceRegistry') {
+        $postInventory = @(
+            Get-ProtectionInventory `
+                -ServiceRegistrySnapshot $Context.CollectionSnapshot.ServiceRegistry `
+                -ParallelSupplementalEvidence
+        )
+    }
+    else {
+        $postInventory = @(Get-ProtectionInventory)
+    }
 
     $preVendors = @($preInventory | Select-Object -ExpandProperty Vendor -Unique | Sort-Object)
     $postVendors = @($postInventory | Select-Object -ExpandProperty Vendor -Unique | Sort-Object)
@@ -859,28 +1018,61 @@ function Test-NetCleanPostState {
         $remainingWiFiProfiles = @(Get-WiFiProfileName)
         $remainingNetworkProfiles = @(Get-NetworkListProfileName)
     }
+
+    $preservedWiFiNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $preservedNetworkProfileNames = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    if ($Context.PSObject.Properties.Name -contains 'NetworkProfileDecisions') {
+        foreach ($decision in @($Context.NetworkProfileDecisions)) {
+            if ($decision.Decision -ne 'Preserve' -or [string]::IsNullOrWhiteSpace($decision.Name)) {
+                continue
+            }
+
+            if ($decision.ArtifactType -eq 'WiFiProfile') {
+                [void]$preservedWiFiNames.Add($decision.Name)
+            }
+            elseif ($decision.ArtifactType -eq 'NetworkListProfile') {
+                [void]$preservedNetworkProfileNames.Add($decision.Name)
+            }
+        }
+    }
+
+    $unexpectedRemainingWiFiProfiles = @(
+        $remainingWiFiProfiles | Where-Object { -not $preservedWiFiNames.Contains($_) }
+    )
+    $unexpectedRemainingNetworkProfiles = @(
+        $remainingNetworkProfiles | Where-Object { -not $preservedNetworkProfileNames.Contains($_) }
+    )
+
     $adapterVerification = Test-NetCleanAdapterPostState -Context $Context
     $cleanupVerification = Test-NetCleanCleanupPostState -Context $Context
+    $artifactVerification = Test-NetCleanArtifactRemovalPostState `
+        -Context $Context `
+        -RemainingWiFiProfiles $remainingWiFiProfiles `
+        -RemainingNetworkProfiles $remainingNetworkProfiles
 
     return [pscustomobject]@{
-        VerificationMode         = if ($isDryRun) { 'Planned' } else { 'Observed' }
-        PreInventory             = $preInventory
-        PostInventory            = $postInventory
-        VendorComparison         = $vendorComparison
-        GuidComparison           = $guidComparison
-        ServiceComparison        = $serviceComparison
-        RemainingWiFiProfiles    = $remainingWiFiProfiles
-        RemainingNetworkProfiles = $remainingNetworkProfiles
-        AdapterVerification      = $adapterVerification
-        CleanupVerification      = $cleanupVerification
-        Passed                   = (
+        VerificationMode                   = if ($isDryRun) { 'Planned' } else { 'Observed' }
+        PreInventory                        = $preInventory
+        PostInventory                       = $postInventory
+        VendorComparison                    = $vendorComparison
+        GuidComparison                      = $guidComparison
+        ServiceComparison                   = $serviceComparison
+        RemainingWiFiProfiles               = $remainingWiFiProfiles
+        RemainingNetworkProfiles            = $remainingNetworkProfiles
+        UnexpectedRemainingWiFiProfiles     = $unexpectedRemainingWiFiProfiles
+        UnexpectedRemainingNetworkProfiles  = $unexpectedRemainingNetworkProfiles
+        AdapterVerification                 = $adapterVerification
+        CleanupVerification                 = $cleanupVerification
+        ArtifactVerification                 = $artifactVerification
+        Passed                              = (
             @($vendorComparison.Missing).Count -eq 0 -and
             @($guidComparison.Missing).Count -eq 0 -and
             @($serviceComparison.Missing).Count -eq 0 -and
-            $remainingWiFiProfiles.Count -eq 0 -and
-            $remainingNetworkProfiles.Count -eq 0 -and
+            $unexpectedRemainingWiFiProfiles.Count -eq 0 -and
+            $unexpectedRemainingNetworkProfiles.Count -eq 0 -and
             $adapterVerification.Passed -and
-            $cleanupVerification.Passed
+            $cleanupVerification.Passed -and
+            $artifactVerification.Passed
         )
     }
 }

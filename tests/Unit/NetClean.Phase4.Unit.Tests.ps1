@@ -798,6 +798,133 @@ Describe 'NetClean Phase 4 unit tests' {
             }
         }
 
+        Context 'Test-NetCleanArtifactRemovalPostState' {
+
+            BeforeEach {
+                $script:artifactContext = [pscustomobject]@{
+                    CandidateArtifacts      = @()
+                    NetworkProfileDecisions = @()
+                    Clean                   = [pscustomobject]@{
+                        DryRun           = $false
+                        RegistryArtifacts = [pscustomobject]@{
+                            Results = @()
+                        }
+                    }
+                }
+            }
+
+            It 'is not applicable during a dry run' {
+                $script:artifactContext.Clean.DryRun = $true
+
+                $result = Test-NetCleanArtifactRemovalPostState -Context $script:artifactContext
+
+                $result.Applicable | Should -BeFalse
+                $result.Passed | Should -BeTrue
+                $result.Reason | Should -Be 'DryRun'
+            }
+
+            It 'is not applicable when no cleanup results exist' {
+                $script:artifactContext.PSObject.Properties.Remove('Clean')
+
+                $result = Test-NetCleanArtifactRemovalPostState -Context $script:artifactContext
+
+                $result.Applicable | Should -BeFalse
+                $result.Passed | Should -BeTrue
+                $result.Reason | Should -Be 'NoCleanupResults'
+            }
+
+            It 'verifies a Remove-decision registry candidate that Phase 3 confirmed removed' {
+                $script:artifactContext.CandidateArtifacts = @(
+                    [pscustomobject]@{ ArtifactType = 'NetworkList'; RegistryPath = 'HKLM\SOFTWARE\...\Profiles'; Decision = 'Remove' }
+                )
+                $script:artifactContext.Clean.RegistryArtifacts.Results = @(
+                    [pscustomobject]@{ RegistryPath = 'HKLM\SOFTWARE\...\Profiles'; Removed = $true }
+                )
+
+                $result = Test-NetCleanArtifactRemovalPostState -Context $script:artifactContext
+
+                $result.Passed | Should -BeTrue
+                $result.Checks[0].Verified | Should -BeTrue
+            }
+
+            It 'flags a Remove-decision registry candidate that Phase 3 did not confirm removed' {
+                $script:artifactContext.CandidateArtifacts = @(
+                    [pscustomobject]@{ ArtifactType = 'NetworkList'; RegistryPath = 'HKLM\SOFTWARE\...\Profiles'; Decision = 'Remove' }
+                )
+                $script:artifactContext.Clean.RegistryArtifacts.Results = @()
+
+                $result = Test-NetCleanArtifactRemovalPostState -Context $script:artifactContext
+
+                $result.Passed | Should -BeFalse
+                $result.Checks[0].Verified | Should -BeFalse
+            }
+
+            It 'verifies a Preserve-decision registry candidate that Phase 3 left untouched' {
+                $script:artifactContext.CandidateArtifacts = @(
+                    [pscustomobject]@{ ArtifactType = 'TcpipInterface'; RegistryPath = 'HKLM\SYSTEM\...\Tcpip\{GUID}'; Decision = 'Preserve' }
+                )
+                $script:artifactContext.Clean.RegistryArtifacts.Results = @()
+
+                $result = Test-NetCleanArtifactRemovalPostState -Context $script:artifactContext
+
+                $result.Passed | Should -BeTrue
+                $result.Checks[0].Verified | Should -BeTrue
+            }
+
+            It 'flags a Preserve-decision registry candidate that unexpectedly appears removed' {
+                $script:artifactContext.CandidateArtifacts = @(
+                    [pscustomobject]@{ ArtifactType = 'TcpipInterface'; RegistryPath = 'HKLM\SYSTEM\...\Tcpip\{GUID}'; Decision = 'Preserve' }
+                )
+                $script:artifactContext.Clean.RegistryArtifacts.Results = @(
+                    [pscustomobject]@{ RegistryPath = 'HKLM\SYSTEM\...\Tcpip\{GUID}'; Removed = $true }
+                )
+
+                $result = Test-NetCleanArtifactRemovalPostState -Context $script:artifactContext
+
+                $result.Passed | Should -BeFalse
+                $result.Checks[0].Verified | Should -BeFalse
+            }
+
+            It 'verifies a Remove-decision Wi-Fi profile that no longer remains' {
+                $script:artifactContext.NetworkProfileDecisions = @(
+                    [pscustomobject]@{ ArtifactType = 'WiFiProfile'; Name = 'HomeSSID'; Decision = 'Remove' }
+                )
+
+                $result = Test-NetCleanArtifactRemovalPostState `
+                    -Context $script:artifactContext `
+                    -RemainingWiFiProfiles @()
+
+                $result.Passed | Should -BeTrue
+                $result.Checks[0].Verified | Should -BeTrue
+            }
+
+            It 'flags a Remove-decision Wi-Fi profile that still remains' {
+                $script:artifactContext.NetworkProfileDecisions = @(
+                    [pscustomobject]@{ ArtifactType = 'WiFiProfile'; Name = 'HomeSSID'; Decision = 'Remove' }
+                )
+
+                $result = Test-NetCleanArtifactRemovalPostState `
+                    -Context $script:artifactContext `
+                    -RemainingWiFiProfiles @('HomeSSID')
+
+                $result.Passed | Should -BeFalse
+                $result.Checks[0].Verified | Should -BeFalse
+            }
+
+            It 'flags a Preserve-decision Wi-Fi profile that unexpectedly disappeared' {
+                $script:artifactContext.NetworkProfileDecisions = @(
+                    [pscustomobject]@{ ArtifactType = 'WiFiProfile'; Name = 'CorpWiFi'; Decision = 'Preserve' }
+                )
+
+                $result = Test-NetCleanArtifactRemovalPostState `
+                    -Context $script:artifactContext `
+                    -RemainingWiFiProfiles @()
+
+                $result.Passed | Should -BeFalse
+                $result.Checks[0].Verified | Should -BeFalse
+            }
+        }
+
         Context 'Test-NetCleanPostState' {
 
             It 'passes when protected vendors, GUIDs, and services remain present' {
@@ -809,6 +936,28 @@ Describe 'NetClean Phase 4 unit tests' {
                 @($result.ServiceComparison.Missing).Count | Should -Be 0
                 @($result.RemainingWiFiProfiles).Count | Should -Be 0
                 @($result.RemainingNetworkProfiles).Count | Should -Be 0
+            }
+
+            It 'reuses the Phase 1 service-registry snapshot and parallel evidence collection when available' {
+                $script:context | Add-Member -NotePropertyName CollectionSnapshot -NotePropertyValue ([pscustomobject]@{
+                        ServiceRegistry = @([pscustomobject]@{ Name = 'ContosoAgent' })
+                    })
+
+                Test-NetCleanPostState -Context $script:context | Out-Null
+
+                Should -Invoke Get-ProtectionInventory -Times 1 -ParameterFilter {
+                    $ParallelSupplementalEvidence -and
+                    @($ServiceRegistrySnapshot).Count -eq 1 -and
+                    $ServiceRegistrySnapshot[0].Name -eq 'ContosoAgent'
+                }
+            }
+
+            It 'falls back to a bare Get-ProtectionInventory call when no CollectionSnapshot is available' {
+                Test-NetCleanPostState -Context $script:context | Out-Null
+
+                Should -Invoke Get-ProtectionInventory -Times 1 -ParameterFilter {
+                    -not $ParallelSupplementalEvidence -and $null -eq $ServiceRegistrySnapshot
+                }
             }
 
             It 'fails when a protected vendor is missing' {
@@ -845,6 +994,42 @@ Describe 'NetClean Phase 4 unit tests' {
                 (Test-NetCleanPostState -Context $script:context).Passed | Should -BeTrue
             }
 
+            It 'fails overall when per-artifact verification finds an unconfirmed removal' {
+                Mock Test-NetCleanAdapterPostState { [pscustomobject]@{ Applicable = $false; Passed = $true; Reason = 'NoAdapterChanges'; Checks = @() } }
+                Mock Test-NetCleanCleanupPostState { [pscustomobject]@{ Applicable = $false; Passed = $true; Reason = 'NoCleanupResults'; Checks = @() } }
+                $script:context | Add-Member -NotePropertyName CandidateArtifacts -NotePropertyValue @(
+                    [pscustomobject]@{ ArtifactType = 'NetworkList'; RegistryPath = 'HKLM\SOFTWARE\...\Profiles'; Decision = 'Remove' }
+                )
+                $script:context | Add-Member -NotePropertyName Clean -NotePropertyValue ([pscustomobject]@{
+                        DryRun            = $false
+                        RegistryArtifacts = [pscustomobject]@{ Results = @() }
+                    })
+
+                $result = Test-NetCleanPostState -Context $script:context
+
+                $result.Passed | Should -BeFalse
+                $result.ArtifactVerification.Passed | Should -BeFalse
+            }
+
+            It 'passes overall when per-artifact verification confirms every decision' {
+                Mock Test-NetCleanAdapterPostState { [pscustomobject]@{ Applicable = $false; Passed = $true; Reason = 'NoAdapterChanges'; Checks = @() } }
+                Mock Test-NetCleanCleanupPostState { [pscustomobject]@{ Applicable = $false; Passed = $true; Reason = 'NoCleanupResults'; Checks = @() } }
+                $script:context | Add-Member -NotePropertyName CandidateArtifacts -NotePropertyValue @(
+                    [pscustomobject]@{ ArtifactType = 'NetworkList'; RegistryPath = 'HKLM\SOFTWARE\...\Profiles'; Decision = 'Remove' }
+                )
+                $script:context | Add-Member -NotePropertyName Clean -NotePropertyValue ([pscustomobject]@{
+                        DryRun            = $false
+                        RegistryArtifacts = [pscustomobject]@{
+                            Results = @([pscustomobject]@{ RegistryPath = 'HKLM\SOFTWARE\...\Profiles'; Removed = $true })
+                        }
+                    })
+
+                $result = Test-NetCleanPostState -Context $script:context
+
+                $result.Passed | Should -BeTrue
+                $result.ArtifactVerification.Passed | Should -BeTrue
+            }
+
             It 'fails when a saved Wi-Fi profile remains' {
                 Mock Get-WiFiProfileName { @('HomeSSID') }
 
@@ -861,6 +1046,61 @@ Describe 'NetClean Phase 4 unit tests' {
 
                 $result.Passed | Should -BeFalse
                 $result.RemainingNetworkProfiles | Should -Contain 'Home network'
+            }
+
+            It 'does not fail when the only remaining Wi-Fi profile is one Phase 1 marked Preserve' {
+                Mock Get-WiFiProfileName { @('CorpWiFi') }
+                $script:context | Add-Member -NotePropertyName NetworkProfileDecisions -NotePropertyValue @(
+                    [pscustomobject]@{
+                        ArtifactType = 'WiFiProfile'
+                        Name         = 'CorpWiFi'
+                        Decision     = 'Preserve'
+                    }
+                )
+
+                $result = Test-NetCleanPostState -Context $script:context
+
+                $result.Passed | Should -BeTrue
+                $result.RemainingWiFiProfiles | Should -Contain 'CorpWiFi'
+                $result.UnexpectedRemainingWiFiProfiles | Should -Not -Contain 'CorpWiFi'
+            }
+
+            It 'still fails when an unexpected Wi-Fi profile remains alongside a legitimately preserved one' {
+                Mock Get-WiFiProfileName { @('CorpWiFi', 'HomeSSID') }
+                $script:context | Add-Member -NotePropertyName NetworkProfileDecisions -NotePropertyValue @(
+                    [pscustomobject]@{
+                        ArtifactType = 'WiFiProfile'
+                        Name         = 'CorpWiFi'
+                        Decision     = 'Preserve'
+                    }
+                    [pscustomobject]@{
+                        ArtifactType = 'WiFiProfile'
+                        Name         = 'HomeSSID'
+                        Decision     = 'Remove'
+                    }
+                )
+
+                $result = Test-NetCleanPostState -Context $script:context
+
+                $result.Passed | Should -BeFalse
+                $result.UnexpectedRemainingWiFiProfiles | Should -Contain 'HomeSSID'
+                $result.UnexpectedRemainingWiFiProfiles | Should -Not -Contain 'CorpWiFi'
+            }
+
+            It 'does not fail when the only remaining NetworkList profile is one Phase 1 marked Preserve' {
+                Mock Get-NetworkListProfileName { @('Corp network') }
+                $script:context | Add-Member -NotePropertyName NetworkProfileDecisions -NotePropertyValue @(
+                    [pscustomobject]@{
+                        ArtifactType = 'NetworkListProfile'
+                        Name         = 'Corp network'
+                        Decision     = 'Preserve'
+                    }
+                )
+
+                $result = Test-NetCleanPostState -Context $script:context
+
+                $result.Passed | Should -BeTrue
+                $result.UnexpectedRemainingNetworkProfiles | Should -Not -Contain 'Corp network'
             }
 
             It 'fails the overall verification when adapter post-state does not match' {
