@@ -123,12 +123,12 @@ jobs:
           Write-Host "Cache path contents before install:"
           Get-ChildItem -LiteralPath $cachePath -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName, Mode, Length | Format-Table -AutoSize
 
-          # Install modules into cache path so they are discoverable
+          # Use Save-Module to download module files into the cache path (creates Pester\<version>\)
           $needPester = -not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [version]'6.0.1' })
           if ($env:FORCE_MODULE_REFRESH -eq 'true') { $needPester = $true }
           if ($needPester) {
-            Write-Host "Installing Pester 6.0.1 into $cachePath"
-            Install-Module -Name Pester -RequiredVersion 6.0.1 -Force -Scope CurrentUser -DestinationPath $cachePath -ErrorAction Stop
+            Write-Host "Saving Pester 6.0.1 into $cachePath"
+            Save-Module -Name Pester -RequiredVersion 6.0.1 -Path $cachePath -Force -ErrorAction Stop
           } else {
             Write-Host "Pester 6.0.1 already available in module path."
           }
@@ -136,15 +136,15 @@ jobs:
           $needPssa = -not (Get-Module -ListAvailable -Name PSScriptAnalyzer)
           if ($env:FORCE_MODULE_REFRESH -eq 'true') { $needPssa = $true }
           if ($needPssa) {
-            Write-Host "Installing PSScriptAnalyzer 1.25.0 into $cachePath"
-            Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -Scope CurrentUser -DestinationPath $cachePath -ErrorAction Stop
+            Write-Host "Saving PSScriptAnalyzer 1.25.0 into $cachePath"
+            Save-Module -Name PSScriptAnalyzer -RequiredVersion 1.25.0 -Path $cachePath -Force -ErrorAction Stop
           } else {
             Write-Host "PSScriptAnalyzer already available in module path."
           }
 
-          # Debug listing after install
-          Write-Host "Cache path contents after install:"
-          Get-ChildItem -LiteralPath $cachePath -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName, Mode, Length | Format-Table -AutoSize
+          # Debug listing after save
+          Write-Host "Cache path contents after save:"
+          Get-ChildItem -LiteralPath $cachePath -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object FullName | Format-Table -AutoSize
 
           # Verify Pester manifest exists and import explicitly by manifest path
           $pesterManifest = Join-Path $cachePath 'Pester\6.0.1\Pester.psd1'
@@ -152,10 +152,12 @@ jobs:
             Write-Host "Found Pester manifest at $pesterManifest"
           } else {
             Write-Host "Pester manifest not found at expected path: $pesterManifest"
+            Write-Host "Listing $cachePath for debugging:"
             Get-ChildItem -LiteralPath $cachePath -Recurse | Select-Object FullName | Format-Table -AutoSize
-            throw "Pester 6.0.1 not found in cache path after install."
+            throw "Pester 6.0.1 not found in cache path after Save-Module."
           }
 
+          # Import by manifest path to avoid name-resolution issues
           Import-Module -LiteralPath $pesterManifest -Force -ErrorAction Stop
 
           # Confirm available modules
@@ -163,6 +165,7 @@ jobs:
           Get-Module -ListAvailable -Name Pester | Select-Object Name, Version, Path | Format-Table -AutoSize
           Write-Host "Available PSScriptAnalyzer modules:"
           Get-Module -ListAvailable -Name PSScriptAnalyzer | Select-Object Name, Version, Path | Format-Table -AutoSize
+
 
 
       - name: Validate module manifest
