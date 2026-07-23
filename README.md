@@ -3,12 +3,14 @@
 ## Badges
 
 [![CI](https://github.com/scweeks/netclean/actions/workflows/ci.yml/badge.svg)](https://github.com/scweeks/netclean/actions/workflows/ci.yml)
-[![Coverage](https://codecov.io/gh/scweeks/netclean/branch/main/graph/badge.svg)](https://codecov.io/gh/scweeks/netclean)
+[![Coverage](https://img.shields.io/endpoint?url=https://scweeks.github.io/netclean/coverage.json)](https://scweeks.github.io/netclean/coverage.json)
 [![Analyzer](https://img.shields.io/badge/style-PSScriptAnalyzer-00aaff)](https://github.com/scweeks/netclean/actions/workflows/ci.yml)
 [![Coverage target](https://img.shields.io/badge/coverage_target-94%25-green)](https://github.com/scweeks/netclean/actions/workflows/ci.yml)
 [![PowerShell 5.1 | 7.4](https://img.shields.io/badge/PowerShell-5.1%20%7C%207.4-blue)](https://learn.microsoft.com/powershell/)
 [![Windows](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/scweeks/netclean)
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
+
+The coverage badge is served from GitHub Pages at `https://scweeks.github.io/netclean/coverage.json`. It updates from the CI pipeline after a successful push to `main` and requires GitHub Pages to be enabled for the repository.
 
 NetClean is a Windows PowerShell tool for detecting, backing up, cleaning, and verifying selected network-history artifacts before using a system at a conference, workshop, or security event. It uses an inventory of security products, services, drivers, and network adapters to avoid modifying identified protected artifacts.
 
@@ -132,7 +134,7 @@ Test framework: Pester 6.0.1.
 
 Static analysis: PSScriptAnalyzer 1.25.0.
 
-The authoritative coverage run is intentionally sequential. Pester 6's file-level parallel execution remains experimental, so CI keeps coverage collection on the sequential path. The PowerShell 7 job validates the module manifest, treats analyzer findings as failures, runs Pester with JaCoCo coverage, uploads coverage for badge/reporting, and uploads test artifacts. A separate Windows PowerShell 5.1 job runs the full test suite for compatibility.
+The authoritative coverage run is intentionally sequential. Pester 6's file-level parallel execution remains experimental, so CI keeps coverage collection on the sequential path. The PowerShell 7 job validates the module manifest, treats analyzer findings as failures, runs Pester with JaCoCo coverage, publishes a GitHub Pages coverage badge payload, and uploads test artifacts. A separate Windows PowerShell 5.1 job runs the full test suite for compatibility.
 
 Run tests locally:
 
