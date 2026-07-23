@@ -16,7 +16,8 @@
         'Invoke-NetCleanWorkflow',
         'Get-NetCleanLogFile',
         'Start-NetCleanLog',
-        'Write-NetCleanLog'
+        'Write-NetCleanLog',
+        'Read-NetCleanPerformanceProfileSelection'
     )
 
     AliasesToExport = @(

@@ -1920,5 +1920,6 @@ Export-ModuleMember -Function @(
     'Clear-NetworkEventLogsSafe',
     'Clear-UserNetworkArtifactsSafe',
     'Invoke-AdvancedNetworkRepair',
-    'Invoke-NetworkPerformanceTune'
+    'Invoke-NetworkPerformanceTune',
+    'Read-NetCleanPerformanceProfileSelection'
 )

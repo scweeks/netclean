@@ -636,6 +636,83 @@ Describe 'NetClean launcher functional tests' {
 
     }
 
+    Context 'PerformanceTune direct invocation' {
+
+        BeforeEach {
+            $script:Mode = 'PerformanceTune'
+            $script:DryRun = $true
+            $script:Force = $true
+            $script:CreateLog = $false
+            $script:BackupPath = $TestDrive
+            $script:LogPath = $TestDrive
+            $script:SkipWifi = $false
+            $script:SkipDnsFlush = $false
+            $script:SkipEventLogs = $false
+            $script:SkipUserArtifacts = $false
+            $script:SkipFirewallBackup = $false
+            $script:PerformanceProfile = 'Optimal'
+            $script:PerformanceProfileExplicitlySet = $true
+            $script:RebootNow = $false
+
+            Mock Test-NetCleanAdministrator {}
+            Mock Start-NetCleanLog {}
+            Mock Write-NetCleanLog {}
+            Mock Invoke-NetCleanWorkflow { [pscustomobject]@{ Phase = 'Verify' } }
+            Mock Show-NetCleanSummary {}
+            Mock Read-PostRunAction { 'None' }
+            Mock Invoke-PostRunAction {}
+        }
+
+        It 'exposes Read-NetCleanPerformanceProfileSelection as a reachable module command' {
+            Get-Command -Name Read-NetCleanPerformanceProfileSelection -Module NetClean -ErrorAction SilentlyContinue |
+                Should -Not -BeNullOrEmpty
+        }
+
+        It 'skips the interactive profile prompt when PerformanceProfile was explicitly supplied, even under Force' {
+            Mock Read-Host { throw 'Read-Host should not be called when PerformanceProfile was explicitly supplied' } -ModuleName NetClean
+
+            Invoke-NetCleanLauncher
+
+            Should -Invoke Invoke-NetCleanWorkflow -Times 1 -ParameterFilter {
+                $Mode -eq 'PerformanceTune' -and $PerformanceProfile -eq 'Optimal'
+            }
+        }
+
+        It 'still prompts interactively under Force when PerformanceProfile was not explicitly supplied' {
+            $script:PerformanceProfileExplicitlySet = $false
+            Mock Read-Host { '2' } -ModuleName NetClean
+
+            Invoke-NetCleanLauncher
+
+            Should -Invoke Invoke-NetCleanWorkflow -Times 1 -ParameterFilter {
+                $Mode -eq 'PerformanceTune' -and $PerformanceProfile -eq 'Optimal'
+            }
+        }
+
+        It 'prompts interactively without Force regardless of whether PerformanceProfile was supplied, and passes the selection through' {
+            $script:Force = $false
+            $script:PerformanceProfileExplicitlySet = $false
+            Mock Read-YesNo { $true }
+            Mock Read-Host { '3' } -ModuleName NetClean
+
+            Invoke-NetCleanLauncher
+
+            Should -Invoke Invoke-NetCleanWorkflow -Times 1 -ParameterFilter {
+                $Mode -eq 'PerformanceTune' -and $PerformanceProfile -eq 'Gaming'
+            }
+        }
+
+        It 'cancels without invoking the workflow when the interactive prompt is cancelled' {
+            $script:PerformanceProfileExplicitlySet = $false
+            Mock Read-Host { '5' } -ModuleName NetClean
+
+            Invoke-NetCleanLauncher
+
+            Should -Invoke Invoke-NetCleanWorkflow -Times 0
+        }
+
+    }
+
     Context 'Console output behavior' {
 
         It 'discloses adapter, DNS, IPv6, and restart changes before safe cleanup' {

@@ -58,6 +58,11 @@ if (-not $PSBoundParameters.ContainsKey('LogPath')) {
     $LogPath = Join-Path $env:ProgramData 'NetClean\Logs'
 }
 
+# Tracks whether the caller explicitly chose a tuning profile, as opposed to
+# receiving the ValidateSet default - PerformanceTune must still ask which
+# profile is wanted even under -Force when no explicit choice was made.
+$script:PerformanceProfileExplicitlySet = $PSBoundParameters.ContainsKey('PerformanceProfile')
+
 if ($false) {
     $null = $Mode
     $null = $DryRun
@@ -818,7 +823,12 @@ function Invoke-NetCleanLauncher {
     $selectedPerformanceProfile = $null
 
     if ($selectedMode -eq 'PerformanceTune') {
-        $selectedPerformanceProfile = Read-NetCleanPerformanceProfileSelection
+        if ($script:PerformanceProfileExplicitlySet) {
+            $selectedPerformanceProfile = $script:PerformanceProfile
+        }
+        else {
+            $selectedPerformanceProfile = Read-NetCleanPerformanceProfileSelection
+        }
 
         if ($selectedPerformanceProfile -eq 'Cancel') {
             Write-Information 'Performance tuning cancelled.' -InformationAction Continue
