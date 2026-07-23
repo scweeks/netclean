@@ -113,15 +113,30 @@ jobs:
         run: |
           $cachePath = '${{ steps.prep_cache.outputs.cachePath }}'
 
-          # Ensure we are running under pwsh (PowerShell 7)
+          # Show shell info
           Write-Host "Shell and PowerShell version:"
           $PSVersionTable | Format-List
 
-          # Prepend cache path to PSModulePath if not already present
+          # Ensure cache path exists
+          if (-not (Test-Path -LiteralPath $cachePath)) {
+            New-Item -ItemType Directory -Path $cachePath | Out-Null
+          }
+
+          # Prepend cache path to PSModulePath for this process
           if (-not ($env:PSModulePath -split ';' | Where-Object { $_ -eq $cachePath })) {
             $env:PSModulePath = "$cachePath;$env:PSModulePath"
           }
-          Write-Host "PSModulePath now: $env:PSModulePath"
+          Write-Host "PSModulePath (process): $env:PSModulePath"
+
+          # Persist PSModulePath for subsequent steps by writing to GITHUB_ENV
+          # This ensures later steps run in new processes will also see the cache path.
+          $persist = "PSModulePath=$env:PSModulePath"
+          $persist | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          Write-Host "Persisted PSModulePath to GITHUB_ENV."
+
+          # Debug listing before save
+          Write-Host "Cache path contents before Save-Module:"
+          Get-ChildItem -LiteralPath $cachePath -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName | Format-Table -AutoSize
 
           # Save modules into cache path (creates ModuleName\<version>\)
           $needPester = -not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [version]'6.0.1' })
@@ -156,12 +171,14 @@ jobs:
             throw "Pester 6.0.1 not found in cache path after Save-Module."
           }
 
-          # Import by positional path (works in PS5 and PS7)
+          # Import by positional path (works across PS versions)
           Import-Module $pesterManifest -Force -ErrorAction Stop
 
-          # Confirm available modules
-          Write-Host "Available Pester modules:"
+          # Confirm available modules in this process
+          Write-Host "Available Pester modules (process):"
           Get-Module -ListAvailable -Name Pester | Select-Object Name, Version, Path | Format-Table -AutoSize
+          Write-Host "Available PSScriptAnalyzer modules (process):"
+          Get-Module -ListAvailable -Name PSScriptAnalyzer | Select-Object Name, Version, Path | Format-Table -AutoSize
 
       - name: Validate module manifest
         run: |
