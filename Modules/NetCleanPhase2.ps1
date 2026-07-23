@@ -910,17 +910,61 @@ function Invoke-NetCleanPhase2Protect {
         ProtectedRegistryBackups  = @()
     }
 
-    $manifest.ProtectionInventoryJson = Export-ProtectionInventory -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
-    $manifest.ProtectionRegistryMapJson = Export-ProtectionRegistryMap -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
-    $manifest.SanitizableArtifactsJson = Export-SanitizableNetworkArtifact -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
-    $manifest.AdapterConfigurationJson = Export-NetCleanAdapterConfiguration -Dest $BackupPath -DryRun:$DryRun
-    $manifest.NetworkListBackup = Export-NetworkList -Dest $BackupPath -DryRun:$DryRun
-    if ($canLog) {
-        if ($DryRun) {
-            Write-NetCleanLog -Level INFO -Message ("Would export network list to: {0}" -f $manifest.NetworkListBackup)
+    try {
+        $manifest.ProtectionInventoryJson = Export-ProtectionInventory -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
+    }
+    catch {
+        $manifest.ProtectionInventoryJson = $null
+        if ($canLog) {
+            Write-NetCleanLog -Level WARN -Message ("Protection inventory backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
         }
-        else {
-            Write-NetCleanLog -Level INFO -Message ("Exported network list to: {0}" -f $manifest.NetworkListBackup)
+    }
+
+    try {
+        $manifest.ProtectionRegistryMapJson = Export-ProtectionRegistryMap -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
+    }
+    catch {
+        $manifest.ProtectionRegistryMapJson = $null
+        if ($canLog) {
+            Write-NetCleanLog -Level WARN -Message ("Protection registry map backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
+        }
+    }
+
+    try {
+        $manifest.SanitizableArtifactsJson = Export-SanitizableNetworkArtifact -Dest $BackupPath -Inventory $inventory -DryRun:$DryRun
+    }
+    catch {
+        $manifest.SanitizableArtifactsJson = $null
+        if ($canLog) {
+            Write-NetCleanLog -Level WARN -Message ("Sanitizable artifact backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
+        }
+    }
+
+    try {
+        $manifest.AdapterConfigurationJson = Export-NetCleanAdapterConfiguration -Dest $BackupPath -DryRun:$DryRun
+    }
+    catch {
+        $manifest.AdapterConfigurationJson = $null
+        if ($canLog) {
+            Write-NetCleanLog -Level WARN -Message ("Adapter configuration backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
+        }
+    }
+
+    try {
+        $manifest.NetworkListBackup = Export-NetworkList -Dest $BackupPath -DryRun:$DryRun
+        if ($canLog) {
+            if ($DryRun) {
+                Write-NetCleanLog -Level INFO -Message ("Would export network list to: {0}" -f $manifest.NetworkListBackup)
+            }
+            else {
+                Write-NetCleanLog -Level INFO -Message ("Exported network list to: {0}" -f $manifest.NetworkListBackup)
+            }
+        }
+    }
+    catch {
+        $manifest.NetworkListBackup = $null
+        if ($canLog) {
+            Write-NetCleanLog -Level WARN -Message ("NetworkList backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
         }
     }
 
@@ -933,7 +977,15 @@ function Invoke-NetCleanPhase2Protect {
         $wifiExportParameters.Profiles = @($Context.CollectionSnapshot.WiFiProfiles | ForEach-Object Name)
     }
 
-    $manifest.WiFiExports = @(Export-WiFiProfile @wifiExportParameters)
+    try {
+        $manifest.WiFiExports = @(Export-WiFiProfile @wifiExportParameters)
+    }
+    catch {
+        $manifest.WiFiExports = @()
+        if ($canLog) {
+            Write-NetCleanLog -Level WARN -Message ("Wi-Fi profile backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
+        }
+    }
 
     if (-not $SkipFirewallBackup) {
         try {
@@ -953,14 +1005,22 @@ function Invoke-NetCleanPhase2Protect {
     }
 
     if ($protectedPaths.Count -gt 0) {
-        $manifest.ProtectedRegistryBackups = @(Export-ProtectedRegistryKey -Paths $protectedPaths -Dest $BackupPath -DryRun:$DryRun)
+        try {
+            $manifest.ProtectedRegistryBackups = @(Export-ProtectedRegistryKey -Paths $protectedPaths -Dest $BackupPath -DryRun:$DryRun)
 
-        if ($canLog) {
-            if ($DryRun) {
-                Write-NetCleanLog -Level INFO -Message ("Would export protected registry backups for {0} paths." -f $protectedPaths.Count)
+            if ($canLog) {
+                if ($DryRun) {
+                    Write-NetCleanLog -Level INFO -Message ("Would export protected registry backups for {0} paths." -f $protectedPaths.Count)
+                }
+                else {
+                    Write-NetCleanLog -Level INFO -Message ("Exported protected registry backups for {0} paths." -f $protectedPaths.Count)
+                }
             }
-            else {
-                Write-NetCleanLog -Level INFO -Message ("Exported protected registry backups for {0} paths." -f $protectedPaths.Count)
+        }
+        catch {
+            $manifest.ProtectedRegistryBackups = @()
+            if ($canLog) {
+                Write-NetCleanLog -Level WARN -Message ("Protected registry key backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
             }
         }
     }
@@ -996,12 +1056,7 @@ function Invoke-NetCleanPhase2Protect {
 
         if ($manifest.ProtectedRegistryBackups -and $manifest.ProtectedRegistryBackups.Count -gt 0) {
             foreach ($reg in $manifest.ProtectedRegistryBackups) {
-                if ($reg -is [string] -and $reg.StartsWith('ERROR:')) {
-                    Write-NetCleanLog -Level WARN -Message ("Registry backup error: {0}" -f $reg)
-                }
-                else {
-                    Write-NetCleanLog -Level INFO -Message ("Protected registry backup file: {0}" -f $reg)
-                }
+                Write-NetCleanLog -Level INFO -Message ("Protected registry backup file: {0}" -f $reg)
             }
             Write-NetCleanLog -Level INFO -Message ('To restore registry keys, use: reg.exe import "<regfile>.reg" (run as Administrator).')
         }

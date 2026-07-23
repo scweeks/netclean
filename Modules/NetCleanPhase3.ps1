@@ -361,7 +361,35 @@ function Reset-NetCleanAdapterConfigurationSafe {
     )
 
     if (-not $PSBoundParameters.ContainsKey('Adapters')) {
-        $Adapters = @(Get-NetAdapter -ErrorAction Stop)
+        try {
+            $Adapters = @(Get-NetAdapter -ErrorAction Stop)
+        }
+        catch {
+            return [pscustomobject]@{
+                Provider        = 'Quad9 Secure'
+                DnsServers      = $dnsServers
+                PreferIPv4      = $false
+                IPv4Preference  = [pscustomobject]@{
+                    Succeeded = $false
+                    Skipped   = $true
+                    Reason    = 'AdapterDiscoveryFailed'
+                    Error     = $_.Exception.Message
+                }
+                DnsOverHttps    = [pscustomobject]@{
+                    Supported       = $true
+                    ConfiguredCount = 0
+                    FailedCount     = 0
+                    Reason          = 'AdapterDiscoveryFailed'
+                    Operations      = @()
+                }
+                RequiresRestart = $false
+                ConfiguredCount = 0
+                SkippedCount    = 0
+                FailedCount     = 0
+                Succeeded       = $false
+                Operations      = @()
+            }
+        }
     }
 
     $isManaged = (
@@ -1775,8 +1803,7 @@ function Invoke-NetCleanPhase3Clean {
 
     $adapterResult = Reset-NetCleanAdapterConfigurationSafe `
         -Context $Context `
-        -DryRun:$DryRun `
-        -Confirm:$false
+        -DryRun:$DryRun
 
     $advancedRepair = @()
     if ($Mode -eq 'AdvancedRepair') {

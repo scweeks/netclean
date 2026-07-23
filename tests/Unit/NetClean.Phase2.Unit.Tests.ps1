@@ -669,6 +669,69 @@ Describe 'NetClean Phase 2 unit tests' {
                 Should -Invoke Export-FirewallPolicy -Times 0
             }
 
+            It 'degrades gracefully instead of aborting when protection-inventory backup fails' {
+                Mock Export-ProtectionInventory { throw 'disk full' }
+
+                $result = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup' -DryRun
+
+                $result.Protect.Manifest.ProtectionInventoryJson | Should -BeNullOrEmpty
+                $result.Phase | Should -Be 'Protect'
+            }
+
+            It 'degrades gracefully instead of aborting when protection-registry-map backup fails' {
+                Mock Export-ProtectionRegistryMap { throw 'disk full' }
+
+                $result = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup' -DryRun
+
+                $result.Protect.Manifest.ProtectionRegistryMapJson | Should -BeNullOrEmpty
+                $result.Phase | Should -Be 'Protect'
+            }
+
+            It 'degrades gracefully instead of aborting when sanitizable-artifact backup fails' {
+                Mock Export-SanitizableNetworkArtifact { throw 'disk full' }
+
+                $result = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup' -DryRun
+
+                $result.Protect.Manifest.SanitizableArtifactsJson | Should -BeNullOrEmpty
+                $result.Phase | Should -Be 'Protect'
+            }
+
+            It 'degrades gracefully instead of aborting when adapter-configuration backup fails' {
+                Mock Export-NetCleanAdapterConfiguration { throw 'wmi unavailable' }
+
+                $result = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup' -DryRun
+
+                $result.Protect.Manifest.AdapterConfigurationJson | Should -BeNullOrEmpty
+                $result.Phase | Should -Be 'Protect'
+            }
+
+            It 'degrades gracefully instead of aborting when network-list backup fails' {
+                Mock Export-NetworkList { throw 'disk full' }
+
+                $result = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup' -DryRun
+
+                $result.Protect.Manifest.NetworkListBackup | Should -BeNullOrEmpty
+                $result.Phase | Should -Be 'Protect'
+            }
+
+            It 'degrades gracefully instead of aborting when Wi-Fi profile backup fails' {
+                Mock Export-WiFiProfile { throw 'netsh unavailable' }
+
+                $result = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup' -DryRun
+
+                @($result.Protect.Manifest.WiFiExports).Count | Should -Be 0
+                $result.Phase | Should -Be 'Protect'
+            }
+
+            It 'degrades gracefully instead of aborting when protected-registry-key backup fails' {
+                Mock Export-ProtectedRegistryKey { throw 'reg.exe failed' }
+
+                $result = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup' -DryRun
+
+                @($result.Protect.Manifest.ProtectedRegistryBackups).Count | Should -Be 0
+                $result.Phase | Should -Be 'Protect'
+            }
+
             It 'creates backup directory when not in dry-run mode' {
                 $null = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup'
 

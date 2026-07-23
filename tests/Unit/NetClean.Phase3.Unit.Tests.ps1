@@ -401,6 +401,21 @@ Describe 'NetClean Phase 3 unit tests' {
                 Should -Invoke Get-NetAdapter -Times 1
             }
 
+            It 'returns a failed result instead of throwing when adapter discovery fails' {
+                Mock Get-NetAdapter { throw 'RPC server unavailable' }
+
+                $result = Reset-NetCleanAdapterConfigurationSafe `
+                    -Context $script:AdapterContext `
+                    -DryRun
+
+                $result.Succeeded | Should -BeFalse
+                $result.ConfiguredCount | Should -Be 0
+                $result.FailedCount | Should -Be 0
+                @($result.Operations).Count | Should -Be 0
+                $result.IPv4Preference.Reason | Should -Be 'AdapterDiscoveryFailed'
+                $result.IPv4Preference.Error | Should -Match 'RPC server unavailable'
+            }
+
             It 'does not configure encrypted DNS when every adapter is protected' {
                 Mock Set-NetCleanIPv4Preference {
                     [pscustomobject]@{ Succeeded = $true; Reason = 'Configured'; Error = $null }
@@ -1068,6 +1083,14 @@ Describe 'NetClean Phase 3 unit tests' {
                 $result.Clean.Summary.PreferIPv4 | Should -BeTrue
                 Should -Invoke Reset-NetCleanAdapterConfigurationSafe -Times 1 -ParameterFilter {
                     $Context -eq $script:Context -and $DryRun
+                }
+            }
+
+            It 'does not override Confirm on the adapter-reset call, unlike its cleanup siblings' {
+                Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun | Out-Null
+
+                Should -Invoke Reset-NetCleanAdapterConfigurationSafe -Times 1 -ParameterFilter {
+                    $null -eq $Confirm
                 }
             }
 
