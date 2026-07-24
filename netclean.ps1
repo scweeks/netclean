@@ -817,7 +817,13 @@ function Invoke-NetCleanLauncher {
     [OutputType([void])]
     param()
 
-    Test-NetCleanAdministrator
+    try {
+        Test-NetCleanAdministrator
+    }
+    catch {
+        Write-Information $_.Exception.Message -InformationAction Continue
+        return
+    }
 
     $selectedMode = $script:Mode
     if ($selectedMode -eq 'Menu') {

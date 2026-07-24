@@ -656,6 +656,19 @@ Describe 'NetClean launcher functional tests' {
             Should -Invoke Invoke-NetCleanWorkflow -Times 0
         }
 
+        It 'aborts cleanly instead of an uncaught exception when not running as Administrator' {
+            # The most common first-run mistake: launching non-elevated. This
+            # is the very first line of the launcher, before any mode/option
+            # handling, so it must not crash with a raw stack trace.
+            Mock Test-NetCleanAdministrator { throw 'NetClean must be run as Administrator.' }
+
+            { Invoke-NetCleanLauncher } | Should -Not -Throw
+
+            Should -Invoke Show-ModeExplanation -Times 0
+            Should -Invoke Invoke-NetCleanWorkflow -Times 0
+            Should -Invoke Invoke-PostRunAction -Times 0
+        }
+
         It 'returns before logging and workflow execution when confirmation is declined' {
             $script:Force = $false
             Mock Read-YesNo { $false }
