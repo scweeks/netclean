@@ -951,9 +951,8 @@ function Test-NetCleanPostState {
         [pscustomobject]$Context
     )
 
-    $canlog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    if ($canlog) { Write-NetCleanLog -Level INFO -Message 'Phase 4 verify started.' }
+    Write-NetCleanLog -Level INFO -Message 'Phase 4 verify started.'
 
     $preInventory = @($Context.Inventory)
     if ($Context.PSObject.Properties.Name -contains 'CollectionSnapshot' -and
@@ -985,9 +984,7 @@ function Test-NetCleanPostState {
     )
 
     foreach ($svc in $preServices) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("Pre-cleaning protected service: {0}" -f $svc)
-        }
+        Write-NetCleanLog -Level INFO -Message ("Pre-cleaning protected service: {0}" -f $svc)
     }
 
     $postServices = @(
@@ -998,12 +995,10 @@ function Test-NetCleanPostState {
     )
 
     foreach ($svc in $postServices) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("Post-cleaning protected service: {0}" -f $svc)
-        }
+        Write-NetCleanLog -Level INFO -Message ("Post-cleaning protected service: {0}" -f $svc)
     }
 
-    if ($canlog) { Write-NetCleanLog -Level INFO -Message 'Phase 4 verify completed (inventory gathered).' }
+    Write-NetCleanLog -Level INFO -Message 'Phase 4 verify completed (inventory gathered).'
 
     $serviceComparison = Compare-StringSet -Before $preServices -After $postServices
     $isDryRun = (

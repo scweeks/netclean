@@ -321,7 +321,6 @@ function Export-WiFiProfile {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
     $exported = [System.Collections.Generic.List[string]]::new()
 
     $listFile = Join-Path $Dest ("WiFiProfiles_{0}.txt" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
@@ -333,25 +332,19 @@ function Export-WiFiProfile {
     }
 
     if ($profiles.Count -eq 0) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message 'No Wi-Fi profiles detected for backup.'
-        }
+        Write-NetCleanLog -Level INFO -Message 'No Wi-Fi profiles detected for backup.'
         return @()
     }
 
     if ($DryRun) {
         [void]$exported.Add($listFile)
 
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("Would write Wi-Fi profile list file: {0}" -f $listFile)
-        }
+        Write-NetCleanLog -Level INFO -Message ("Would write Wi-Fi profile list file: {0}" -f $listFile)
 
         foreach ($wifiProfile in $profiles) {
             [void]$exported.Add("PROFILE:$wifiProfile")
 
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Would export Wi-Fi profile: {0}" -f $wifiProfile)
-            }
+            Write-NetCleanLog -Level INFO -Message ("Would export Wi-Fi profile: {0}" -f $wifiProfile)
         }
 
         return $exported.ToArray()
@@ -362,9 +355,7 @@ function Export-WiFiProfile {
     WriteAllLines -Path $listFile -Contents $profiles -Encoding $script:Utf8NoBom
     [void]$exported.Add($listFile)
 
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile list: {0}" -f $listFile)
-    }
+    Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile list: {0}" -f $listFile)
 
     $bulkSucceeded = $false
 
@@ -394,30 +385,24 @@ function Export-WiFiProfile {
 
             $bulkSucceeded = $true
 
-            if ($canLog) {
-                foreach ($newFile in $newFiles) {
-                    Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile to '{0}'" -f $newFile)
-                }
+            foreach ($newFile in $newFiles) {
+                Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile to '{0}'" -f $newFile)
             }
         }
-        elseif ($canLog) {
+        else {
             Write-NetCleanLog -Level DEBUG -Message ("Bulk Wi-Fi export returned no new XML files. ExitCode={0}" -f $bulkResult.ExitCode)
         }
     }
     catch {
         $bulkSucceeded = $false
 
-        if ($canLog) {
-            Write-NetCleanLog -Level WARN -Message ("Bulk Wi-Fi export failed: {0}" -f $_.Exception.Message)
-        }
+        Write-NetCleanLog -Level WARN -Message ("Bulk Wi-Fi export failed: {0}" -f $_.Exception.Message)
     }
 
     if (-not $bulkSucceeded) {
         foreach ($wifiProfile in $profiles) {
             if (-not (Test-NetCleanSafeIdentifier -Value $wifiProfile)) {
-                if ($canLog) {
-                    Write-NetCleanLog -Level WARN -Message ("Skipping Wi-Fi profile with unsafe characters in its name: {0}" -f $wifiProfile)
-                }
+                Write-NetCleanLog -Level WARN -Message ("Skipping Wi-Fi profile with unsafe characters in its name: {0}" -f $wifiProfile)
                 continue
             }
 
@@ -441,24 +426,18 @@ function Export-WiFiProfile {
                 $newFiles = @($after | Where-Object { $_ -notin $before })
 
                 if ($newFiles.Count -eq 0) {
-                    if ($canLog) {
-                        Write-NetCleanLog -Level DEBUG -Message ("No XML exported for Wi-Fi profile '{0}'. ExitCode={1}" -f $wifiProfile, $profileResult.ExitCode)
-                    }
+                    Write-NetCleanLog -Level DEBUG -Message ("No XML exported for Wi-Fi profile '{0}'. ExitCode={1}" -f $wifiProfile, $profileResult.ExitCode)
                     continue
                 }
 
                 foreach ($newFile in $newFiles) {
                     [void]$exported.Add($newFile)
 
-                    if ($canLog) {
-                        Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile '{0}' to '{1}'" -f $wifiProfile, $newFile)
-                    }
+                    Write-NetCleanLog -Level INFO -Message ("Exported Wi-Fi profile '{0}' to '{1}'" -f $wifiProfile, $newFile)
                 }
             }
             catch {
-                if ($canLog) {
-                    Write-NetCleanLog -Level WARN -Message ("Per-profile Wi-Fi export failed for '{0}': {1}" -f $wifiProfile, $_.Exception.Message)
-                }
+                Write-NetCleanLog -Level WARN -Message ("Per-profile Wi-Fi export failed for '{0}': {1}" -f $wifiProfile, $_.Exception.Message)
             }
         }
     }
@@ -489,31 +468,26 @@ function Export-FirewallPolicy {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     if (-not $DryRun) {
         New-DirectoryIfNotExist -Path $Dest
     }
     $file = Join-Path $Dest ("FirewallPolicy_{0}.wfw" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 
-    if ($canLog) {
-        if ($DryRun) {
-            Write-NetCleanLog -Level INFO -Message ("Would export firewall policy to: {0}" -f $file)
-        }
-        else {
-            Write-NetCleanLog -Level INFO -Message ("Exporting firewall policy to: {0}" -f $file)
-        }
+    if ($DryRun) {
+        Write-NetCleanLog -Level INFO -Message ("Would export firewall policy to: {0}" -f $file)
+    }
+    else {
+        Write-NetCleanLog -Level INFO -Message ("Exporting firewall policy to: {0}" -f $file)
     }
 
     $result = Invoke-ExternalCommandSafe -Name 'Export firewall policy' -FilePath 'netsh.exe' -ArgumentList @('advfirewall', 'export', "`"$file`"") -DryRun:$DryRun
     if (-not $result.Succeeded) {
-        if ($canLog) {
-            Write-NetCleanLog -Level ERROR -Message ("Firewall policy export failed: {0}" -f $result.Error)
-        }
+        Write-NetCleanLog -Level ERROR -Message ("Firewall policy export failed: {0}" -f $result.Error)
         throw $result.Error
     }
 
-    if ($canLog -and -not $DryRun) {
+    if (-not $DryRun) {
         Write-NetCleanLog -Level INFO -Message ("Exported firewall policy: {0}" -f $file)
     }
 
@@ -564,7 +538,6 @@ function Export-NetCleanJsonArtifact {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     if (-not $DryRun) {
         New-DirectoryIfNotExist -Path $Dest
@@ -573,18 +546,14 @@ function Export-NetCleanJsonArtifact {
     $file = Join-Path $Dest ("{0}_{1}.json" -f $FileNamePrefix, (Get-Date -Format 'yyyyMMdd_HHmmss'))
 
     if ($DryRun) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("Would export {0} to: {1}" -f $LogNoun, $file)
-        }
+        Write-NetCleanLog -Level INFO -Message ("Would export {0} to: {1}" -f $LogNoun, $file)
         return $file
     }
 
     $json = $Data | ConvertTo-Json -Depth 8
     WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
 
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message ("Exported {0} to: {1}" -f $LogNoun, $file)
-    }
+    Write-NetCleanLog -Level INFO -Message ("Exported {0} to: {1}" -f $LogNoun, $file)
 
     return $file
 }
@@ -912,11 +881,8 @@ function Invoke-NetCleanPhase2Protect {
         [switch]$SkipFirewallBackup
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message ("Phase 2 protect started. BackupPath={0} DryRun={1}" -f $BackupPath, [bool]$DryRun)
-    }
+    Write-NetCleanLog -Level INFO -Message ("Phase 2 protect started. BackupPath={0} DryRun={1}" -f $BackupPath, [bool]$DryRun)
 
     if (-not $DryRun) {
         try {
@@ -950,9 +916,7 @@ function Invoke-NetCleanPhase2Protect {
     }
     catch {
         $manifest.ProtectionInventoryJson = $null
-        if ($canLog) {
-            Write-NetCleanLog -Level WARN -Message ("Protection inventory backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
-        }
+        Write-NetCleanLog -Level WARN -Message ("Protection inventory backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
     }
 
     try {
@@ -960,9 +924,7 @@ function Invoke-NetCleanPhase2Protect {
     }
     catch {
         $manifest.ProtectionRegistryMapJson = $null
-        if ($canLog) {
-            Write-NetCleanLog -Level WARN -Message ("Protection registry map backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
-        }
+        Write-NetCleanLog -Level WARN -Message ("Protection registry map backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
     }
 
     try {
@@ -970,9 +932,7 @@ function Invoke-NetCleanPhase2Protect {
     }
     catch {
         $manifest.SanitizableArtifactsJson = $null
-        if ($canLog) {
-            Write-NetCleanLog -Level WARN -Message ("Sanitizable artifact backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
-        }
+        Write-NetCleanLog -Level WARN -Message ("Sanitizable artifact backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
     }
 
     try {
@@ -980,27 +940,21 @@ function Invoke-NetCleanPhase2Protect {
     }
     catch {
         $manifest.AdapterConfigurationJson = $null
-        if ($canLog) {
-            Write-NetCleanLog -Level WARN -Message ("Adapter configuration backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
-        }
+        Write-NetCleanLog -Level WARN -Message ("Adapter configuration backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
     }
 
     try {
         $manifest.NetworkListBackup = Export-NetworkList -Dest $BackupPath -DryRun:$DryRun
-        if ($canLog) {
-            if ($DryRun) {
-                Write-NetCleanLog -Level INFO -Message ("Would export network list to: {0}" -f $manifest.NetworkListBackup)
-            }
-            else {
-                Write-NetCleanLog -Level INFO -Message ("Exported network list to: {0}" -f $manifest.NetworkListBackup)
-            }
+        if ($DryRun) {
+            Write-NetCleanLog -Level INFO -Message ("Would export network list to: {0}" -f $manifest.NetworkListBackup)
+        }
+        else {
+            Write-NetCleanLog -Level INFO -Message ("Exported network list to: {0}" -f $manifest.NetworkListBackup)
         }
     }
     catch {
         $manifest.NetworkListBackup = $null
-        if ($canLog) {
-            Write-NetCleanLog -Level WARN -Message ("NetworkList backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
-        }
+        Write-NetCleanLog -Level WARN -Message ("NetworkList backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
     }
 
     $wifiExportParameters = @{
@@ -1017,9 +971,7 @@ function Invoke-NetCleanPhase2Protect {
     }
     catch {
         $manifest.WiFiExports = @()
-        if ($canLog) {
-            Write-NetCleanLog -Level WARN -Message ("Wi-Fi profile backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
-        }
+        Write-NetCleanLog -Level WARN -Message ("Wi-Fi profile backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
     }
 
     if (-not $SkipFirewallBackup) {
@@ -1028,73 +980,61 @@ function Invoke-NetCleanPhase2Protect {
         }
         catch {
             $manifest.FirewallPolicyBackup = $null
-            if ($canLog) {
-                Write-NetCleanLog -Level WARN -Message ("Firewall policy backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
-            }
+            Write-NetCleanLog -Level WARN -Message ("Firewall policy backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
         }
     }
     else {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message 'Skipping firewall policy backup by option.'
-        }
+        Write-NetCleanLog -Level INFO -Message 'Skipping firewall policy backup by option.'
     }
 
     if ($protectedPaths.Count -gt 0) {
         try {
             $manifest.ProtectedRegistryBackups = @(Export-ProtectedRegistryKey -Paths $protectedPaths -Dest $BackupPath -DryRun:$DryRun)
 
-            if ($canLog) {
-                if ($DryRun) {
-                    Write-NetCleanLog -Level INFO -Message ("Would export protected registry backups for {0} paths." -f $protectedPaths.Count)
-                }
-                else {
-                    Write-NetCleanLog -Level INFO -Message ("Exported protected registry backups for {0} paths." -f $protectedPaths.Count)
-                }
+            if ($DryRun) {
+                Write-NetCleanLog -Level INFO -Message ("Would export protected registry backups for {0} paths." -f $protectedPaths.Count)
+            }
+            else {
+                Write-NetCleanLog -Level INFO -Message ("Exported protected registry backups for {0} paths." -f $protectedPaths.Count)
             }
         }
         catch {
             $manifest.ProtectedRegistryBackups = @()
-            if ($canLog) {
-                Write-NetCleanLog -Level WARN -Message ("Protected registry key backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
-            }
+            Write-NetCleanLog -Level WARN -Message ("Protected registry key backup failed or was skipped due to error: {0}" -f $_.Exception.Message)
         }
     }
     else {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message 'No protected registry paths required backup.'
-        }
+        Write-NetCleanLog -Level INFO -Message 'No protected registry paths required backup.'
     }
 
     $manifestFile = Export-NetCleanManifest -Dest $BackupPath -Manifest $manifest -DryRun:$DryRun
 
     # Log detailed backup/export results and restoration instructions
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message ("Protection manifest created: {0}" -f $manifestFile)
+    Write-NetCleanLog -Level INFO -Message ("Protection manifest created: {0}" -f $manifestFile)
 
-        if ($manifest.ProtectionInventoryJson) { Write-NetCleanLog -Level INFO -Message ("Protection inventory file: {0}" -f $manifest.ProtectionInventoryJson) }
-        if ($manifest.ProtectionRegistryMapJson) { Write-NetCleanLog -Level INFO -Message ("Protection registry map file: {0}" -f $manifest.ProtectionRegistryMapJson) }
-        if ($manifest.SanitizableArtifactsJson) { Write-NetCleanLog -Level INFO -Message ("Sanitizable artifacts file: {0}" -f $manifest.SanitizableArtifactsJson) }
-        if ($manifest.AdapterConfigurationJson) { Write-NetCleanLog -Level INFO -Message ("Adapter configuration snapshot: {0}" -f $manifest.AdapterConfigurationJson) }
-        if ($manifest.NetworkListBackup) { Write-NetCleanLog -Level INFO -Message ("NetworkList backup: {0}" -f $manifest.NetworkListBackup) }
+    if ($manifest.ProtectionInventoryJson) { Write-NetCleanLog -Level INFO -Message ("Protection inventory file: {0}" -f $manifest.ProtectionInventoryJson) }
+    if ($manifest.ProtectionRegistryMapJson) { Write-NetCleanLog -Level INFO -Message ("Protection registry map file: {0}" -f $manifest.ProtectionRegistryMapJson) }
+    if ($manifest.SanitizableArtifactsJson) { Write-NetCleanLog -Level INFO -Message ("Sanitizable artifacts file: {0}" -f $manifest.SanitizableArtifactsJson) }
+    if ($manifest.AdapterConfigurationJson) { Write-NetCleanLog -Level INFO -Message ("Adapter configuration snapshot: {0}" -f $manifest.AdapterConfigurationJson) }
+    if ($manifest.NetworkListBackup) { Write-NetCleanLog -Level INFO -Message ("NetworkList backup: {0}" -f $manifest.NetworkListBackup) }
 
-        if ($manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {
-            foreach ($e in $manifest.WiFiExports) {
-                Write-NetCleanLog -Level INFO -Message ("Wi-Fi export: {0}" -f $e)
-            }
-            Write-NetCleanLog -Level INFO -Message ('To restore Wi-Fi profiles, run: netsh wlan add profile filename="<exported-profile.xml>" for each exported XML, or use the provided examples\restore-wifi-profiles.ps1 script.')
+    if ($manifest.WiFiExports -and $manifest.WiFiExports.Count -gt 0) {
+        foreach ($e in $manifest.WiFiExports) {
+            Write-NetCleanLog -Level INFO -Message ("Wi-Fi export: {0}" -f $e)
         }
+        Write-NetCleanLog -Level INFO -Message ('To restore Wi-Fi profiles, run: netsh wlan add profile filename="<exported-profile.xml>" for each exported XML, or use the provided examples\restore-wifi-profiles.ps1 script.')
+    }
 
-        if ($manifest.FirewallPolicyBackup) {
-            Write-NetCleanLog -Level INFO -Message ("Firewall policy backup: {0}" -f $manifest.FirewallPolicyBackup)
-            Write-NetCleanLog -Level INFO -Message ('To restore firewall policy, run: netsh advfirewall import "<file>.wfw"')
-        }
+    if ($manifest.FirewallPolicyBackup) {
+        Write-NetCleanLog -Level INFO -Message ("Firewall policy backup: {0}" -f $manifest.FirewallPolicyBackup)
+        Write-NetCleanLog -Level INFO -Message ('To restore firewall policy, run: netsh advfirewall import "<file>.wfw"')
+    }
 
-        if ($manifest.ProtectedRegistryBackups -and $manifest.ProtectedRegistryBackups.Count -gt 0) {
-            foreach ($reg in $manifest.ProtectedRegistryBackups) {
-                Write-NetCleanLog -Level INFO -Message ("Protected registry backup file: {0}" -f $reg)
-            }
-            Write-NetCleanLog -Level INFO -Message ('To restore registry keys, use: reg.exe import "<regfile>.reg" (run as Administrator).')
+    if ($manifest.ProtectedRegistryBackups -and $manifest.ProtectedRegistryBackups.Count -gt 0) {
+        foreach ($reg in $manifest.ProtectedRegistryBackups) {
+            Write-NetCleanLog -Level INFO -Message ("Protected registry backup file: {0}" -f $reg)
         }
+        Write-NetCleanLog -Level INFO -Message ('To restore registry keys, use: reg.exe import "<regfile>.reg" (run as Administrator).')
     }
 
     $newContext = [pscustomobject]@{}
@@ -1115,9 +1055,7 @@ function Invoke-NetCleanPhase2Protect {
             }
         }) -Force
 
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message ("Phase 2 protect complete. Manifest={0}" -f $manifestFile)
-    }
+    Write-NetCleanLog -Level INFO -Message ("Phase 2 protect complete. Manifest={0}" -f $manifestFile)
 
     return $newContext
 }

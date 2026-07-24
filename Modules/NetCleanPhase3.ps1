@@ -21,7 +21,6 @@ function Remove-WiFiProfilesSafe {
         [string[]]$WifiProfiles
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     if ($PSBoundParameters.ContainsKey('WifiProfiles')) {
         $profiles = @($WifiProfiles)
@@ -34,9 +33,7 @@ function Remove-WiFiProfilesSafe {
     $operations = [System.Collections.Generic.List[object]]::new()
 
     if ($profiles.Count -eq 0) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message 'No Wi-Fi profiles found to remove.'
-        }
+        Write-NetCleanLog -Level INFO -Message 'No Wi-Fi profiles found to remove.'
 
         return [pscustomobject]@{
             Removed    = 0
@@ -47,9 +44,7 @@ function Remove-WiFiProfilesSafe {
 
     if ($DryRun) {
         foreach ($wifiProfile in $profiles) {
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Would remove Wi-Fi profile: {0}" -f $wifiProfile)
-            }
+            Write-NetCleanLog -Level INFO -Message ("Would remove Wi-Fi profile: {0}" -f $wifiProfile)
 
             $operations.Add([pscustomobject]@{
                 Name      = $wifiProfile
@@ -66,9 +61,7 @@ function Remove-WiFiProfilesSafe {
 
         foreach ($wifiProfile in $profiles) {
             if (-not (Test-NetCleanSafeIdentifier -Value $wifiProfile)) {
-                if ($canLog) {
-                    Write-NetCleanLog -Level WARN -Message ("Skipping Wi-Fi profile with unsafe characters in its name: {0}" -f $wifiProfile)
-                }
+                Write-NetCleanLog -Level WARN -Message ("Skipping Wi-Fi profile with unsafe characters in its name: {0}" -f $wifiProfile)
 
                 $operations.Add([pscustomobject]@{
                         Name      = $wifiProfile
@@ -81,9 +74,7 @@ function Remove-WiFiProfilesSafe {
             }
 
             if (-not $PSCmdlet.ShouldProcess("Wi-Fi profile '$wifiProfile'", 'Delete')) {
-                if ($canLog) {
-                    Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented Wi-Fi profile removal: {0}" -f $wifiProfile)
-                }
+                Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented Wi-Fi profile removal: {0}" -f $wifiProfile)
 
                 $operations.Add([pscustomobject]@{
                     Name      = $wifiProfile
@@ -129,9 +120,7 @@ function Remove-WiFiProfilesSafe {
                     -ThrottleLimit ([System.Math]::Max(1, [System.Environment]::ProcessorCount))
             }
             catch {
-                if ($canLog) {
-                    Write-NetCleanLog -Level WARN -Message ("Parallel Wi-Fi profile removal failed, falling back to sequential processing: {0}" -f $_.Exception.Message)
-                }
+                Write-NetCleanLog -Level WARN -Message ("Parallel Wi-Fi profile removal failed, falling back to sequential processing: {0}" -f $_.Exception.Message)
 
                 $res = foreach ($wifiProfile in $toProcess) {
                     & netsh.exe wlan delete profile name="$wifiProfile" 2>&1 | Out-Null
@@ -166,13 +155,11 @@ function Remove-WiFiProfilesSafe {
 
                 $operations.Add($r)
 
-                if ($canLog) {
-                    if ($r.Succeeded) {
-                        Write-NetCleanLog -Level INFO -Message ("Removed Wi-Fi profile: {0}" -f $r.Name)
-                    }
-                    else {
-                        Write-NetCleanLog -Level WARN -Message ("Failed to remove Wi-Fi profile '{0}': {1}" -f $r.Name, $r.Reason)
-                    }
+                if ($r.Succeeded) {
+                    Write-NetCleanLog -Level INFO -Message ("Removed Wi-Fi profile: {0}" -f $r.Name)
+                }
+                else {
+                    Write-NetCleanLog -Level WARN -Message ("Failed to remove Wi-Fi profile '{0}': {1}" -f $r.Name, $r.Reason)
                 }
             }
         }
@@ -685,12 +672,9 @@ function Clear-DnsCacheSafe {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     if ($DryRun) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message 'Would flush DNS cache.'
-        }
+        Write-NetCleanLog -Level INFO -Message 'Would flush DNS cache.'
 
         return [pscustomobject]@{
             Name      = 'Flush DNS cache'
@@ -702,9 +686,7 @@ function Clear-DnsCacheSafe {
     }
 
     if (-not $PSCmdlet.ShouldProcess('DNS cache', 'Flush')) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message 'WhatIf/ShouldProcess prevented DNS cache flush.'
-        }
+        Write-NetCleanLog -Level INFO -Message 'WhatIf/ShouldProcess prevented DNS cache flush.'
 
         return [pscustomobject]@{
             Name      = 'Flush DNS cache'
@@ -716,13 +698,11 @@ function Clear-DnsCacheSafe {
 
     $result = Invoke-ExternalCommandSafe -Name 'Flush DNS cache' -FilePath 'ipconfig.exe' -ArgumentList @('/flushdns') -DryRun:$false
 
-    if ($canLog) {
-        if ($result.Succeeded) {
-            Write-NetCleanLog -Level INFO -Message 'Flushed DNS cache.'
-        }
-        else {
-            Write-NetCleanLog -Level WARN -Message ("Failed to flush DNS cache: {0}" -f $result.Error)
-        }
+    if ($result.Succeeded) {
+        Write-NetCleanLog -Level INFO -Message 'Flushed DNS cache.'
+    }
+    else {
+        Write-NetCleanLog -Level WARN -Message ("Failed to flush DNS cache: {0}" -f $result.Error)
     }
 
     return $result
@@ -745,12 +725,9 @@ function Clear-ArpCacheSafe {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     if ($DryRun) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message 'Would clear ARP cache.'
-        }
+        Write-NetCleanLog -Level INFO -Message 'Would clear ARP cache.'
 
         return [pscustomobject]@{
             Name      = 'Clear ARP cache'
@@ -762,9 +739,7 @@ function Clear-ArpCacheSafe {
     }
 
     if (-not $PSCmdlet.ShouldProcess('ARP cache', 'Clear')) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message 'WhatIf/ShouldProcess prevented ARP cache clear.'
-        }
+        Write-NetCleanLog -Level INFO -Message 'WhatIf/ShouldProcess prevented ARP cache clear.'
 
         return [pscustomobject]@{
             Name      = 'Clear ARP cache'
@@ -776,13 +751,11 @@ function Clear-ArpCacheSafe {
 
     $result = Invoke-ExternalCommandSafe -Name 'Clear ARP cache' -FilePath 'arp.exe' -ArgumentList @('-d', '*') -DryRun:$false -IgnoreExitCode
 
-    if ($canLog) {
-        if ($result.Succeeded) {
-            Write-NetCleanLog -Level INFO -Message 'Cleared ARP cache.'
-        }
-        else {
-            Write-NetCleanLog -Level WARN -Message ("Failed to clear ARP cache: {0}" -f $result.Error)
-        }
+    if ($result.Succeeded) {
+        Write-NetCleanLog -Level INFO -Message 'Cleared ARP cache.'
+    }
+    else {
+        Write-NetCleanLog -Level WARN -Message ("Failed to clear ARP cache: {0}" -f $result.Error)
     }
 
     return $result
@@ -815,12 +788,9 @@ function Remove-RegistryPathSafe {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     if (Test-RegistryPathProtected -Path $RegistryPath -Context $Context) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("Skipping protected registry path: {0}" -f $RegistryPath)
-        }
+        Write-NetCleanLog -Level INFO -Message ("Skipping protected registry path: {0}" -f $RegistryPath)
 
         return [pscustomobject]@{
             RegistryPath = $RegistryPath
@@ -837,9 +807,7 @@ function Remove-RegistryPathSafe {
         $providerPath = Convert-RegToProviderPath -RegistryPath $RegistryPath
     }
     catch {
-        if ($canLog) {
-            Write-NetCleanLog -Level WARN -Message ("Skipping invalid registry path '{0}'." -f $RegistryPath)
-        }
+        Write-NetCleanLog -Level WARN -Message ("Skipping invalid registry path '{0}'." -f $RegistryPath)
 
         return [pscustomobject]@{
             RegistryPath = $RegistryPath
@@ -852,9 +820,7 @@ function Remove-RegistryPathSafe {
     }
 
     if (-not (Test-Path -LiteralPath $providerPath)) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("Registry path not found, skipping: {0}" -f $RegistryPath)
-        }
+        Write-NetCleanLog -Level INFO -Message ("Registry path not found, skipping: {0}" -f $RegistryPath)
 
         return [pscustomobject]@{
             RegistryPath = $RegistryPath
@@ -867,9 +833,7 @@ function Remove-RegistryPathSafe {
     }
 
     if ($DryRun) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("Would remove registry path: {0}" -f $RegistryPath)
-        }
+        Write-NetCleanLog -Level INFO -Message ("Would remove registry path: {0}" -f $RegistryPath)
 
         return [pscustomobject]@{
             RegistryPath = $RegistryPath
@@ -882,9 +846,7 @@ function Remove-RegistryPathSafe {
     }
 
     if (-not $PSCmdlet.ShouldProcess($RegistryPath, 'Remove registry path')) {
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented removal of registry path: {0}" -f $RegistryPath)
-        }
+        Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented removal of registry path: {0}" -f $RegistryPath)
 
         return [pscustomobject]@{
             RegistryPath = $RegistryPath
@@ -899,9 +861,7 @@ function Remove-RegistryPathSafe {
     try {
         Remove-Item -LiteralPath $providerPath -Recurse -Force -ErrorAction Stop
 
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message ("Removed registry path: {0}" -f $RegistryPath)
-        }
+        Write-NetCleanLog -Level INFO -Message ("Removed registry path: {0}" -f $RegistryPath)
 
         return [pscustomobject]@{
             RegistryPath = $RegistryPath
@@ -913,9 +873,7 @@ function Remove-RegistryPathSafe {
         }
     }
     catch {
-        if ($canLog) {
-            Write-NetCleanLog -Level WARN -Message ("Failed to remove registry path '{0}': {1}" -f $RegistryPath, $_.Exception.Message)
-        }
+        Write-NetCleanLog -Level WARN -Message ("Failed to remove registry path '{0}': {1}" -f $RegistryPath, $_.Exception.Message)
 
         return [pscustomobject]@{
             RegistryPath = $RegistryPath
@@ -950,18 +908,15 @@ function Remove-NetworkPrivacyArtifactsSafe {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     $artifacts = @($Context.SanitizableArtifacts)
     $results = New-Object System.Collections.Generic.List[object]
 
-    if ($canLog) {
-        if ($DryRun) {
-            Write-NetCleanLog -Level INFO -Message ("Would process {0} sanitizable registry artifacts." -f $artifacts.Count)
-        }
-        else {
-            Write-NetCleanLog -Level INFO -Message ("Processing {0} sanitizable registry artifacts." -f $artifacts.Count)
-        }
+    if ($DryRun) {
+        Write-NetCleanLog -Level INFO -Message ("Would process {0} sanitizable registry artifacts." -f $artifacts.Count)
+    }
+    else {
+        Write-NetCleanLog -Level INFO -Message ("Processing {0} sanitizable registry artifacts." -f $artifacts.Count)
     }
 
     foreach ($artifact in $artifacts) {
@@ -979,13 +934,11 @@ function Remove-NetworkPrivacyArtifactsSafe {
         Results         = $results.ToArray()
     }
 
-    if ($canLog) {
-        if ($DryRun) {
-            Write-NetCleanLog -Level INFO -Message ("Preview registry artifact cleanup summary: candidates={0} wouldRemove={1} skipped={2}" -f $summary.TotalCandidates, $summary.RemovedCount, $summary.SkippedCount)
-        }
-        else {
-            Write-NetCleanLog -Level INFO -Message ("Registry artifact cleanup summary: candidates={0} removed={1} skipped={2}" -f $summary.TotalCandidates, $summary.RemovedCount, $summary.SkippedCount)
-        }
+    if ($DryRun) {
+        Write-NetCleanLog -Level INFO -Message ("Preview registry artifact cleanup summary: candidates={0} wouldRemove={1} skipped={2}" -f $summary.TotalCandidates, $summary.RemovedCount, $summary.SkippedCount)
+    }
+    else {
+        Write-NetCleanLog -Level INFO -Message ("Registry artifact cleanup summary: candidates={0} removed={1} skipped={2}" -f $summary.TotalCandidates, $summary.RemovedCount, $summary.SkippedCount)
     }
 
     return $summary
@@ -1012,7 +965,6 @@ function Clear-NetworkEventLogsSafe {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     $logs = @(
         # Deliberately narrow allowlist: identity, account, token, and
@@ -1026,9 +978,7 @@ function Clear-NetworkEventLogsSafe {
 
     foreach ($log in $logs) {
         if ($DryRun) {
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Would clear event log: {0}" -f $log)
-            }
+            Write-NetCleanLog -Level INFO -Message ("Would clear event log: {0}" -f $log)
 
             $results.Add([pscustomobject]@{
                     Name      = "Clear event log $log"
@@ -1047,9 +997,7 @@ function Clear-NetworkEventLogsSafe {
         }
 
         if (-not $PSCmdlet.ShouldProcess($log, 'Clear event log')) {
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("WhatIf prevented clearing event log: {0}" -f $log)
-            }
+            Write-NetCleanLog -Level INFO -Message ("WhatIf prevented clearing event log: {0}" -f $log)
 
             $results.Add([pscustomobject]@{
                     Name      = "Clear event log $log"
@@ -1086,19 +1034,15 @@ function Clear-NetworkEventLogsSafe {
                     CompletedAt = $(if ($result.Succeeded) { Get-Date } else { $null })
                 })
 
-            if ($canLog) {
-                if ($result.Succeeded) {
-                    Write-NetCleanLog -Level INFO -Message ("Cleared event log: {0}" -f $log)
-                }
-                else {
-                    Write-NetCleanLog -Level WARN -Message ("Failed to clear event log '{0}': {1}" -f $log, $result.Error)
-                }
+            if ($result.Succeeded) {
+                Write-NetCleanLog -Level INFO -Message ("Cleared event log: {0}" -f $log)
+            }
+            else {
+                Write-NetCleanLog -Level WARN -Message ("Failed to clear event log '{0}': {1}" -f $log, $result.Error)
             }
         }
         catch {
-            if ($canLog) {
-                Write-NetCleanLog -Level WARN -Message ("Exception clearing event log '{0}': {1}" -f $log, $_.Exception.Message)
-            }
+            Write-NetCleanLog -Level WARN -Message ("Exception clearing event log '{0}': {1}" -f $log, $_.Exception.Message)
 
             $results.Add([pscustomobject]@{
                     Name      = "Clear event log $log"
@@ -1142,7 +1086,6 @@ function Clear-UserNetworkArtifactsSafe {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     $paths = @(
         # Deliberately narrow allowlist. Do not add identity, SSO, token,
@@ -1158,9 +1101,7 @@ function Clear-UserNetworkArtifactsSafe {
 
         if ($DryRun) {
 
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Would remove user network artifact path: {0}" -f $path)
-            }
+            Write-NetCleanLog -Level INFO -Message ("Would remove user network artifact path: {0}" -f $path)
 
             $results.Add([pscustomobject]@{
                     Path      = $path
@@ -1188,9 +1129,7 @@ function Clear-UserNetworkArtifactsSafe {
 
         if (-not $PSCmdlet.ShouldProcess($path, 'Remove user network artifact path')) {
 
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("WhatIf prevented clearing user network artifact path: {0}" -f $path)
-            }
+            Write-NetCleanLog -Level INFO -Message ("WhatIf prevented clearing user network artifact path: {0}" -f $path)
 
             $results.Add([pscustomobject]@{
                     Path      = $path
@@ -1207,9 +1146,7 @@ function Clear-UserNetworkArtifactsSafe {
 
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction Stop
 
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Removed user network artifact path: {0}" -f $path)
-            }
+            Write-NetCleanLog -Level INFO -Message ("Removed user network artifact path: {0}" -f $path)
 
             $results.Add([pscustomobject]@{
                     Path      = $path
@@ -1221,9 +1158,7 @@ function Clear-UserNetworkArtifactsSafe {
         }
         catch {
 
-            if ($canLog) {
-                Write-NetCleanLog -Level WARN -Message ("Failed removing user network artifact path '{0}': {1}" -f $path, $_.Exception.Message)
-            }
+            Write-NetCleanLog -Level WARN -Message ("Failed removing user network artifact path '{0}': {1}" -f $path, $_.Exception.Message)
 
             $results.Add([pscustomobject]@{
                     Path      = $path
@@ -1259,7 +1194,6 @@ function Invoke-AdvancedNetworkRepair {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     $commands = @(
         [pscustomobject]@{
@@ -1283,9 +1217,7 @@ function Invoke-AdvancedNetworkRepair {
 
     foreach ($cmd in $commands) {
         if ($DryRun) {
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Would perform advanced network repair action: {0}" -f $cmd.Name)
-            }
+            Write-NetCleanLog -Level INFO -Message ("Would perform advanced network repair action: {0}" -f $cmd.Name)
 
             $results.Add([pscustomobject]@{
                     Name      = $cmd.Name
@@ -1304,9 +1236,7 @@ function Invoke-AdvancedNetworkRepair {
         }
 
         if (-not $PSCmdlet.ShouldProcess($cmd.Name, 'Perform advanced network repair action')) {
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("WhatIf prevented advanced network repair action: {0}" -f $cmd.Name)
-            }
+            Write-NetCleanLog -Level INFO -Message ("WhatIf prevented advanced network repair action: {0}" -f $cmd.Name)
 
             $results.Add([pscustomobject]@{
                     Name      = $cmd.Name
@@ -1343,19 +1273,15 @@ function Invoke-AdvancedNetworkRepair {
                     Error     = $result.Error
                 })
 
-            if ($canLog) {
-                if ($result.Succeeded) {
-                    Write-NetCleanLog -Level INFO -Message ("Completed advanced network repair action: {0}" -f $cmd.Name)
-                }
-                else {
-                    Write-NetCleanLog -Level WARN -Message ("Failed advanced network repair action '{0}': {1}" -f $cmd.Name, $result.Error)
-                }
+            if ($result.Succeeded) {
+                Write-NetCleanLog -Level INFO -Message ("Completed advanced network repair action: {0}" -f $cmd.Name)
+            }
+            else {
+                Write-NetCleanLog -Level WARN -Message ("Failed advanced network repair action '{0}': {1}" -f $cmd.Name, $result.Error)
             }
         }
         catch {
-            if ($canLog) {
-                Write-NetCleanLog -Level WARN -Message ("Exception during advanced network repair action '{0}': {1}" -f $cmd.Name, $_.Exception.Message)
-            }
+            Write-NetCleanLog -Level WARN -Message ("Exception during advanced network repair action '{0}': {1}" -f $cmd.Name, $_.Exception.Message)
 
             $results.Add([pscustomobject]@{
                     Name      = $cmd.Name
@@ -1471,7 +1397,6 @@ function Invoke-NetworkPerformanceTune {
         [switch]$DryRun
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     switch ($PerformanceProfile) {
         'Conservative' {
@@ -1559,9 +1484,7 @@ function Invoke-NetworkPerformanceTune {
 
     foreach ($cmd in $commands) {
         if ($DryRun) {
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("Would apply tuning profile '{0}' action: {1}" -f $PerformanceProfile, $cmd.Name)
-            }
+            Write-NetCleanLog -Level INFO -Message ("Would apply tuning profile '{0}' action: {1}" -f $PerformanceProfile, $cmd.Name)
 
             $results.Add([pscustomobject]@{
                     Profile   = $PerformanceProfile
@@ -1582,9 +1505,7 @@ function Invoke-NetworkPerformanceTune {
         }
 
         if (-not $PSCmdlet.ShouldProcess($cmd.Name, "Apply network tuning profile '$PerformanceProfile'")) {
-            if ($canLog) {
-                Write-NetCleanLog -Level INFO -Message ("WhatIf prevented tuning profile '{0}' action: {1}" -f $PerformanceProfile, $cmd.Name)
-            }
+            Write-NetCleanLog -Level INFO -Message ("WhatIf prevented tuning profile '{0}' action: {1}" -f $PerformanceProfile, $cmd.Name)
 
             $results.Add([pscustomobject]@{
                     Profile   = $PerformanceProfile
@@ -1626,19 +1547,15 @@ function Invoke-NetworkPerformanceTune {
                     Error     = $result.Error
                 })
 
-            if ($canLog) {
-                if ($result.Succeeded) {
-                    Write-NetCleanLog -Level INFO -Message ("Applied tuning profile '{0}' action: {1}" -f $PerformanceProfile, $cmd.Name)
-                }
-                else {
-                    Write-NetCleanLog -Level WARN -Message ("Failed tuning profile '{0}' action '{1}': {2}" -f $PerformanceProfile, $cmd.Name, $result.Error)
-                }
+            if ($result.Succeeded) {
+                Write-NetCleanLog -Level INFO -Message ("Applied tuning profile '{0}' action: {1}" -f $PerformanceProfile, $cmd.Name)
+            }
+            else {
+                Write-NetCleanLog -Level WARN -Message ("Failed tuning profile '{0}' action '{1}': {2}" -f $PerformanceProfile, $cmd.Name, $result.Error)
             }
         }
         catch {
-            if ($canLog) {
-                Write-NetCleanLog -Level WARN -Message ("Exception applying tuning profile '{0}' action '{1}': {2}" -f $PerformanceProfile, $cmd.Name, $_.Exception.Message)
-            }
+            Write-NetCleanLog -Level WARN -Message ("Exception applying tuning profile '{0}' action '{1}': {2}" -f $PerformanceProfile, $cmd.Name, $_.Exception.Message)
 
             $results.Add([pscustomobject]@{
                     Profile   = $PerformanceProfile
@@ -1708,15 +1625,12 @@ function Invoke-NetCleanPhase3Clean {
         [string]$PerformanceProfile
     )
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
 
     if ($Mode -eq 'PerformanceTune' -and [string]::IsNullOrWhiteSpace($PerformanceProfile)) {
         throw "PerformanceProfile is required when Mode is 'PerformanceTune'."
     }
 
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message ("Phase 3 clean started. Mode={0} DryRun={1}" -f $Mode, [bool]$DryRun)
-    }
+    Write-NetCleanLog -Level INFO -Message ("Phase 3 clean started. Mode={0} DryRun={1}" -f $Mode, [bool]$DryRun)
 
     $newContext = [pscustomobject]@{}
     foreach ($p in $Context.PSObject.Properties) {
@@ -1732,9 +1646,7 @@ function Invoke-NetCleanPhase3Clean {
             Reason     = 'SkippedByOption'
         }
 
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message 'Skipping Wi-Fi profile cleanup by option.'
-        }
+        Write-NetCleanLog -Level INFO -Message 'Skipping Wi-Fi profile cleanup by option.'
     }
     else {
         $profilesToRemove = @()
@@ -1784,9 +1696,7 @@ function Invoke-NetCleanPhase3Clean {
             Reason    = 'SkippedByOption'
         }
 
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message 'Skipping DNS cache flush by option.'
-        }
+        Write-NetCleanLog -Level INFO -Message 'Skipping DNS cache flush by option.'
     }
     else {
         $dnsResult = Clear-DnsCacheSafe -DryRun:$DryRun
@@ -1798,9 +1708,7 @@ function Invoke-NetCleanPhase3Clean {
 
     if ($SkipEventLogs) {
         $logResults = @()
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message 'Skipping network event log cleanup by option.'
-        }
+        Write-NetCleanLog -Level INFO -Message 'Skipping network event log cleanup by option.'
     }
     else {
         $logResults = @(Clear-NetworkEventLogsSafe -DryRun:$DryRun)
@@ -1808,9 +1716,7 @@ function Invoke-NetCleanPhase3Clean {
 
     if ($SkipUserArtifacts) {
         $userResults = @()
-        if ($canLog) {
-            Write-NetCleanLog -Level INFO -Message 'Skipping user network artifact cleanup by option.'
-        }
+        Write-NetCleanLog -Level INFO -Message 'Skipping user network artifact cleanup by option.'
     }
     else {
         $userResults = @(Clear-UserNetworkArtifactsSafe -DryRun:$DryRun)
@@ -1863,91 +1769,87 @@ function Invoke-NetCleanPhase3Clean {
             }
         }) -Force
 
-    if ($canLog) {
-        if ($DryRun) {
-            Write-NetCleanLog -Level INFO -Message ("Preview summary: WiFiWouldRemove={0} AdaptersWouldConfigure={1} AdapterFailures={2} RegistryWouldRemove={3} EventLogsTouched={4} UserArtifactsTouched={5} AdvancedRepairActions={6} PerformanceTuningActions={7}" -f `
-                    $wifiResult.Removed,
-                $adapterResult.ConfiguredCount,
-                $adapterResult.FailedCount,
-                $artifacts.RemovedCount,
-                @($logResults).Count,
-                @($userResults | Where-Object { $_.Removed }).Count,
-                @($advancedRepair).Count,
-                @($tuningResults).Count)
+    if ($DryRun) {
+        Write-NetCleanLog -Level INFO -Message ("Preview summary: WiFiWouldRemove={0} AdaptersWouldConfigure={1} AdapterFailures={2} RegistryWouldRemove={3} EventLogsTouched={4} UserArtifactsTouched={5} AdvancedRepairActions={6} PerformanceTuningActions={7}" -f `
+                $wifiResult.Removed,
+            $adapterResult.ConfiguredCount,
+            $adapterResult.FailedCount,
+            $artifacts.RemovedCount,
+            @($logResults).Count,
+            @($userResults | Where-Object { $_.Removed }).Count,
+            @($advancedRepair).Count,
+            @($tuningResults).Count)
 
-            Write-NetCleanLog -Level INFO -Message 'Preview complete. No changes were made.'
-        }
-        else {
-            Write-NetCleanLog -Level INFO -Message ("Phase 3 clean complete. WiFiRemoved={0} AdaptersConfigured={1} AdapterFailures={2} RegistryRemoved={3} EventLogsTouched={4} UserArtifactsTouched={5} AdvancedRepairActions={6} PerformanceTuningActions={7}" -f `
-                    $wifiResult.Removed,
-                $adapterResult.ConfiguredCount,
-                $adapterResult.FailedCount,
-                $artifacts.RemovedCount,
-                @($logResults).Count,
-                @($userResults | Where-Object { $_.Removed }).Count,
-                @($advancedRepair).Count,
-                @($tuningResults).Count)
-        }
+        Write-NetCleanLog -Level INFO -Message 'Preview complete. No changes were made.'
+    }
+    else {
+        Write-NetCleanLog -Level INFO -Message ("Phase 3 clean complete. WiFiRemoved={0} AdaptersConfigured={1} AdapterFailures={2} RegistryRemoved={3} EventLogsTouched={4} UserArtifactsTouched={5} AdvancedRepairActions={6} PerformanceTuningActions={7}" -f `
+                $wifiResult.Removed,
+            $adapterResult.ConfiguredCount,
+            $adapterResult.FailedCount,
+            $artifacts.RemovedCount,
+            @($logResults).Count,
+            @($userResults | Where-Object { $_.Removed }).Count,
+            @($advancedRepair).Count,
+            @($tuningResults).Count)
     }
 
     # Detailed logging of cleaning actions for auditability
-    if ($canLog) {
-        # Wi-Fi removals
-        if ($wifiResult.Profiles -and $wifiResult.Profiles.Count -gt 0) {
-            foreach ($p in $wifiResult.Profiles) {
-                Write-NetCleanLog -Level INFO -Message ("Wi-Fi profile removed or would be removed: {0}" -f $p)
-            }
+    # Wi-Fi removals
+    if ($wifiResult.Profiles -and $wifiResult.Profiles.Count -gt 0) {
+        foreach ($p in $wifiResult.Profiles) {
+            Write-NetCleanLog -Level INFO -Message ("Wi-Fi profile removed or would be removed: {0}" -f $p)
         }
-
-        # Registry artifact removals summary
-        if ($artifacts.Results -and $artifacts.Results.Count -gt 0) {
-            foreach ($r in $artifacts.Results) {
-                $status = if ($r.Removed) { 'Removed' } elseif ($r.Skipped) { "Skipped: $($r.Reason)" } else { "Failed: $($r.Reason)" }
-                Write-NetCleanLog -Level INFO -Message ("Registry artifact: {0} => {1}" -f $r.RegistryPath, $status)
-            }
-        }
-
-        # Event logs (be defensive: test for properties before accessing them)
-        foreach ($l in @($logResults)) {
-            $cmd = $null
-            if ($null -ne $l) {
-                if ($l.PSObject.Properties.Name -contains 'Command') { $cmd = $l.Command }
-                elseif ($l.PSObject.Properties.Name -contains 'Name') { $cmd = $l.Name }
-                elseif ($l.PSObject.Properties.Name -contains 'LogName') { $cmd = $l.LogName }
-            }
-
-            $status = '(unknown)'
-            if ($l -and $l.PSObject.Properties.Name -contains 'Succeeded') {
-                $status = if ($l.Succeeded) { 'OK' } else { "ERR: $($l.Error)" }
-            }
-
-            $commandDisplay = if ([string]::IsNullOrWhiteSpace($cmd)) { '(unknown)' } else { $cmd }
-            Write-NetCleanLog -Level INFO -Message ("Event log operation: {0} => {1}" -f $commandDisplay, $status)
-        }
-
-        # User artifacts
-        foreach ($u in @($userResults)) {
-            $userStatus = if ($u.Succeeded) { 'OK' } else { "ERR: $($u.Reason)" }
-            Write-NetCleanLog -Level INFO -Message ("User artifact: {0} => {1}" -f $u.Path, $userStatus)
-        }
-
-        foreach ($adapterOperation in @($adapterResult.Operations)) {
-            $adapterStatus = if ($adapterOperation.Skipped) {
-                "Skipped: $($adapterOperation.Reason)"
-            }
-            elseif ($adapterOperation.Succeeded) {
-                'IPv4 DHCP and Quad9 DNS configured'
-            }
-            else {
-                "Failed: $($adapterOperation.Error)"
-            }
-            Write-NetCleanLog -Level INFO -Message ("Adapter configuration: {0} => {1}" -f $adapterOperation.Name, $adapterStatus)
-        }
-
-        # Advanced repair and tuning actions
-        foreach ($a in @($advancedRepair)) { Write-NetCleanLog -Level INFO -Message ("Advanced repair action: {0} => ExitCode={1} Succeeded={2}" -f $a.Name, $a.ExitCode, $a.Succeeded) }
-        foreach ($t in @($tuningResults)) { Write-NetCleanLog -Level INFO -Message ("Performance tuning action: {0} => ExitCode={1} Succeeded={2}" -f $t.Name, $t.ExitCode, $t.Succeeded) }
     }
+
+    # Registry artifact removals summary
+    if ($artifacts.Results -and $artifacts.Results.Count -gt 0) {
+        foreach ($r in $artifacts.Results) {
+            $status = if ($r.Removed) { 'Removed' } elseif ($r.Skipped) { "Skipped: $($r.Reason)" } else { "Failed: $($r.Reason)" }
+            Write-NetCleanLog -Level INFO -Message ("Registry artifact: {0} => {1}" -f $r.RegistryPath, $status)
+        }
+    }
+
+    # Event logs (be defensive: test for properties before accessing them)
+    foreach ($l in @($logResults)) {
+        $cmd = $null
+        if ($null -ne $l) {
+            if ($l.PSObject.Properties.Name -contains 'Command') { $cmd = $l.Command }
+            elseif ($l.PSObject.Properties.Name -contains 'Name') { $cmd = $l.Name }
+            elseif ($l.PSObject.Properties.Name -contains 'LogName') { $cmd = $l.LogName }
+        }
+
+        $status = '(unknown)'
+        if ($l -and $l.PSObject.Properties.Name -contains 'Succeeded') {
+            $status = if ($l.Succeeded) { 'OK' } else { "ERR: $($l.Error)" }
+        }
+
+        $commandDisplay = if ([string]::IsNullOrWhiteSpace($cmd)) { '(unknown)' } else { $cmd }
+        Write-NetCleanLog -Level INFO -Message ("Event log operation: {0} => {1}" -f $commandDisplay, $status)
+    }
+
+    # User artifacts
+    foreach ($u in @($userResults)) {
+        $userStatus = if ($u.Succeeded) { 'OK' } else { "ERR: $($u.Reason)" }
+        Write-NetCleanLog -Level INFO -Message ("User artifact: {0} => {1}" -f $u.Path, $userStatus)
+    }
+
+    foreach ($adapterOperation in @($adapterResult.Operations)) {
+        $adapterStatus = if ($adapterOperation.Skipped) {
+            "Skipped: $($adapterOperation.Reason)"
+        }
+        elseif ($adapterOperation.Succeeded) {
+            'IPv4 DHCP and Quad9 DNS configured'
+        }
+        else {
+            "Failed: $($adapterOperation.Error)"
+        }
+        Write-NetCleanLog -Level INFO -Message ("Adapter configuration: {0} => {1}" -f $adapterOperation.Name, $adapterStatus)
+    }
+
+    # Advanced repair and tuning actions
+    foreach ($a in @($advancedRepair)) { Write-NetCleanLog -Level INFO -Message ("Advanced repair action: {0} => ExitCode={1} Succeeded={2}" -f $a.Name, $a.ExitCode, $a.Succeeded) }
+    foreach ($t in @($tuningResults)) { Write-NetCleanLog -Level INFO -Message ("Performance tuning action: {0} => ExitCode={1} Succeeded={2}" -f $t.Name, $t.ExitCode, $t.Succeeded) }
 
     return $newContext
 }

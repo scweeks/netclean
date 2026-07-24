@@ -1638,10 +1638,7 @@ function Invoke-NetCleanPhase1Detect {
     [OutputType([System.Object])]
     param()
 
-    $canLog = $null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message 'Phase 1 detection started.'
-    }
+    Write-NetCleanLog -Level INFO -Message 'Phase 1 detection started.'
 
     $managementState = Get-NetCleanDeviceManagementState
     $serviceRegistrySnapshot = @(Get-ServiceRegistrySnapshot)
@@ -1705,60 +1702,58 @@ function Invoke-NetCleanPhase1Detect {
         }
     }
 
-    if ($canLog) {
-        Write-NetCleanLog -Level INFO -Message ("Device management state: {0}" -f $managementState.JoinType)
-        Write-NetCleanLog -Level INFO -Message ("Protected vendors detected: {0}" -f $result.Summary.ProtectedVendorsCount)
-        Write-NetCleanLog -Level INFO -Message ("Protected interface GUIDs detected: {0}" -f $result.Summary.ProtectedInterfaceGuidCount)
-        Write-NetCleanLog -Level INFO -Message ("Candidate artifacts detected: {0}" -f $result.Summary.CandidateArtifactCount)
-        Write-NetCleanLog -Level INFO -Message ("Sanitizable artifacts identified: {0}" -f $result.Summary.SanitizableArtifactCount)
+    Write-NetCleanLog -Level INFO -Message ("Device management state: {0}" -f $managementState.JoinType)
+    Write-NetCleanLog -Level INFO -Message ("Protected vendors detected: {0}" -f $result.Summary.ProtectedVendorsCount)
+    Write-NetCleanLog -Level INFO -Message ("Protected interface GUIDs detected: {0}" -f $result.Summary.ProtectedInterfaceGuidCount)
+    Write-NetCleanLog -Level INFO -Message ("Candidate artifacts detected: {0}" -f $result.Summary.CandidateArtifactCount)
+    Write-NetCleanLog -Level INFO -Message ("Sanitizable artifacts identified: {0}" -f $result.Summary.SanitizableArtifactCount)
 
-        foreach ($artifact in @($sanitizableArtifacts)) {
-            $parts = New-Object System.Collections.Generic.List[string]
+    foreach ($artifact in @($sanitizableArtifacts)) {
+        $parts = New-Object System.Collections.Generic.List[string]
 
-            if ($artifact.PSObject.Properties.Name -contains 'ArtifactType' -and $artifact.ArtifactType) {
-                [void]$parts.Add("Type=$($artifact.ArtifactType)")
-                Write-NetCleanLog -Level DEBUG -Message ("Evaluating artifact of type: {0}" -f $artifact.ArtifactType)
-            }
-            if ($artifact.PSObject.Properties.Name -contains 'Name' -and $artifact.Name) {
-                [void]$parts.Add("Name=$($artifact.Name)")
-                Write-NetCleanLog -Level DEBUG -Message ("Evaluating artifact named: {0}" -f $artifact.Name)
-            }
-            if ($artifact.PSObject.Properties.Name -contains 'RegistryPath' -and $artifact.RegistryPath) {
-                [void]$parts.Add("RegistryPath=$($artifact.RegistryPath)")
-                Write-NetCleanLog -Level DEBUG -Message ("Evaluating artifact with registry path: {0}" -f $artifact.RegistryPath)
-            }
-            if ($artifact.PSObject.Properties.Name -contains 'Path' -and $artifact.Path) {
-                [void]$parts.Add("Path=$($artifact.Path)")
-                Write-NetCleanLog -Level DEBUG -Message ("Evaluating artifact with path: {0}" -f $artifact.Path)
-            }
-
-            if ($parts.Count -gt 0) {
-                Write-NetCleanLog -Level INFO -Message ("Preview candidate: {0}" -f ($parts.ToArray() -join ' '))
-            }
+        if ($artifact.PSObject.Properties.Name -contains 'ArtifactType' -and $artifact.ArtifactType) {
+            [void]$parts.Add("Type=$($artifact.ArtifactType)")
+            Write-NetCleanLog -Level DEBUG -Message ("Evaluating artifact of type: {0}" -f $artifact.ArtifactType)
+        }
+        if ($artifact.PSObject.Properties.Name -contains 'Name' -and $artifact.Name) {
+            [void]$parts.Add("Name=$($artifact.Name)")
+            Write-NetCleanLog -Level DEBUG -Message ("Evaluating artifact named: {0}" -f $artifact.Name)
+        }
+        if ($artifact.PSObject.Properties.Name -contains 'RegistryPath' -and $artifact.RegistryPath) {
+            [void]$parts.Add("RegistryPath=$($artifact.RegistryPath)")
+            Write-NetCleanLog -Level DEBUG -Message ("Evaluating artifact with registry path: {0}" -f $artifact.RegistryPath)
+        }
+        if ($artifact.PSObject.Properties.Name -contains 'Path' -and $artifact.Path) {
+            [void]$parts.Add("Path=$($artifact.Path)")
+            Write-NetCleanLog -Level DEBUG -Message ("Evaluating artifact with path: {0}" -f $artifact.Path)
         }
 
-        # Additional detection summary for auditing
-        Write-NetCleanLog -Level INFO -Message ("Detected inventory entries: {0}" -f @($inventory).Count)
-
-        $vendors = @($inventory | ForEach-Object { $_.Vendor } | Where-Object { $_ } | Sort-Object -Unique)
-        if ($vendors.Count -gt 0) {
-            Write-NetCleanLog -Level INFO -Message ("Detected vendors: {0}" -f ($vendors -join ', '))
+        if ($parts.Count -gt 0) {
+            Write-NetCleanLog -Level INFO -Message ("Preview candidate: {0}" -f ($parts.ToArray() -join ' '))
         }
-
-        if ($protectedRegistryPaths -and $protectedRegistryPaths.Count -gt 0) {
-            Write-NetCleanLog -Level INFO -Message ("Protected registry paths count: {0}" -f $protectedRegistryPaths.Count)
-            foreach ($p in $protectedRegistryPaths) {
-                Write-NetCleanLog -Level INFO -Message ("Protected registry path: {0}" -f $p)
-            }
-        }
-
-        Write-NetCleanLog -Level INFO -Message ("Candidate artifacts: {0}, Sanitizable artifacts: {1}" -f $candidateArtifacts.Count, $sanitizableArtifacts.Count)
-
-        # Brief console summary
-        Write-Information ("Phase 1 detection: Vendors={0} ProtectedPaths={1} SanitizableCandidates={2}" -f (@($vendors).Count), @($protectedRegistryPaths).Count, @($sanitizableArtifacts).Count) -InformationAction Continue
-
-        Write-NetCleanLog -Level INFO -Message 'Phase 1 detection complete.'
     }
+
+    # Additional detection summary for auditing
+    Write-NetCleanLog -Level INFO -Message ("Detected inventory entries: {0}" -f @($inventory).Count)
+
+    $vendors = @($inventory | ForEach-Object { $_.Vendor } | Where-Object { $_ } | Sort-Object -Unique)
+    if ($vendors.Count -gt 0) {
+        Write-NetCleanLog -Level INFO -Message ("Detected vendors: {0}" -f ($vendors -join ', '))
+    }
+
+    if ($protectedRegistryPaths -and $protectedRegistryPaths.Count -gt 0) {
+        Write-NetCleanLog -Level INFO -Message ("Protected registry paths count: {0}" -f $protectedRegistryPaths.Count)
+        foreach ($p in $protectedRegistryPaths) {
+            Write-NetCleanLog -Level INFO -Message ("Protected registry path: {0}" -f $p)
+        }
+    }
+
+    Write-NetCleanLog -Level INFO -Message ("Candidate artifacts: {0}, Sanitizable artifacts: {1}" -f $candidateArtifacts.Count, $sanitizableArtifacts.Count)
+
+    # Brief console summary
+    Write-Information ("Phase 1 detection: Vendors={0} ProtectedPaths={1} SanitizableCandidates={2}" -f (@($vendors).Count), @($protectedRegistryPaths).Count, @($sanitizableArtifacts).Count) -InformationAction Continue
+
+    Write-NetCleanLog -Level INFO -Message 'Phase 1 detection complete.'
 
     return $result
 }
