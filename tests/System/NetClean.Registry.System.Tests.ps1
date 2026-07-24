@@ -205,6 +205,24 @@ Describe 'NetClean isolated registry system-component tests' -Tag 'System', 'Reg
             It 'returns null for an unsupported registry root' {
                 Get-RegistryValuesSafe -RegistryPath 'NOTAHIVE\SOFTWARE\Test' | Should -BeNullOrEmpty
             }
+
+            It 'returns a safely-checkable result for a key that exists but has zero direct values' {
+                # A container-only key (subkeys but no direct values) is the
+                # normal shape for many real Windows service registry keys
+                # (e.g. a service's own key with only a Parameters subkey).
+                # A raw zero-property PSCustomObject makes any later
+                # `.PSObject.Properties.Name -contains 'X'` check throw under
+                # Set-StrictMode -Version Latest, which every caller of this
+                # function uses to test for a specific value name.
+                $containerPath = 'HKLM\SOFTWARE\Contoso\ContainerOnlyKey'
+                New-Item -Path (Convert-RegToProviderPath -RegistryPath $containerPath) -Force | Out-Null
+
+                $result = Get-RegistryValuesSafe -RegistryPath $containerPath
+
+                $null -ne $result | Should -BeTrue
+                { $result.PSObject.Properties.Name -contains 'ImagePath' } | Should -Not -Throw
+                $result.PSObject.Properties.Name -contains 'ImagePath' | Should -BeFalse
+            }
         }
 
         Context 'Get-RegistryChildKeyNamesSafe against real registry state' {

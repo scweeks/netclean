@@ -774,6 +774,20 @@ function Get-RegistryValuesSafe {
             $values[$propertyName] = $key.GetValue($valueName, $null, [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
         }
 
+        if ($values.Count -eq 0) {
+            # A zero-property PSCustomObject makes any later
+            # `.PSObject.Properties.Name -contains 'X'` check throw under
+            # Set-StrictMode -Version Latest (enumerating .Name over an
+            # empty PSMemberInfoCollection behaves differently than over a
+            # non-empty one). Every caller uses that idiom to test for a
+            # specific value name, so a key that exists with zero registry
+            # values must still carry at least one property to keep those
+            # checks safe - this mirrors the old Get-ItemProperty-based
+            # implementation, whose returned object always carried PSPath/
+            # PSProvider metadata properties even for a value-less key.
+            return [pscustomobject]@{ NetCleanNoRegistryValues = $true }
+        }
+
         return [pscustomobject]$values
     }
     catch {
