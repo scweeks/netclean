@@ -4,6 +4,8 @@ All notable changes to this project should be documented in this file.
 
 ## Unreleased
 
+## 1.0.0 - 2026-07-24
+
 - Add conference-preparation adapter reset and verification: IPv4 DHCP, Quad9 IPv4/IPv6 DNS, DNS over HTTPS without plaintext fallback where supported, IPv6 retained with IPv4 preferred, protected/managed-adapter boundaries, private adapter backups, and a machine-readable verification ledger.
 - Add conditional post-cleanup evidence for Wi-Fi disconnection and DNS/ARP caches; cache state is evaluated only when no physical wired LAN is connected.
 - Upgrade the test toolchain to Pester 6.0.1, make test files discovery-isolated, and fail coverage runs on discovery or container errors.
@@ -39,7 +41,11 @@ All notable changes to this project should be documented in this file.
 - Redesign Phase 4 verification: fix a false-positive failure on Group-Policy-managed Wi-Fi profiles (previously any remaining profile failed verification regardless of whether it was supposed to be preserved); stop re-running Phase 1's full unoptimized detection a second time by reusing the Phase 1 collection snapshot; add per-artifact verification that joins Phase 1's `Decision` records against Phase 3's own per-item removal ledgers instead of re-detecting state.
 - Fix the launcher's Wi-Fi "Found"/"Remaining After Cleanup" summary reporting nothing on real (non-dry-run) runs; it now reads the Phase 1 collection snapshot and Phase 4's own remaining-profile check instead of parsing dry-run-only manifest markers.
 - Consolidate the four near-identical Phase 2 JSON-export functions into a shared helper; rename the always-0-or-1 `AdapterConfigurationBackupCount` metric to a boolean `HasAdapterConfigurationBackup`; enable `PSUseApprovedVerbs` (zero violations found).
-
+- Add a `tests/Security` suite (injection-resistance, secret-redaction, and backup-directory-ACL regression tests) and fix a Wi-Fi profile name command-injection gap: a crafted profile name could reach a native `netsh.exe` call unsanitized.
+- Fix a crash reachable on every real Detect run: `Get-RegistryValuesSafe` returned a zero-property object for a registry key that exists with no direct values (a normal shape for many real service keys), which throws under `Set-StrictMode -Version Latest` when later code checks for an optional property - the object now always carries at least one property.
+- Fix `Get-AdapterRegistryCorrelation`, `Get-ProtectionEvidence`'s service-registry and Uninstall-registry evidence blocks, and `Get-NetworkListProfileSnapshot` reading unguarded optional registry properties, found by testing detection live against a real machine's registry; the service-registry block in particular was silently discarding most of a run's service evidence (confirmed ~50% of real services lack at least one of the properties it read unconditionally).
+- Fail closed with a clear, actionable message instead of an uncaught stack trace when the backup directory or log directory cannot be created (e.g. the target path already exists as a file), and when NetClean is launched without Administrator privileges.
+- Fix the `run-netclean.ps1`/`register-scheduledtask.ps1` examples: the scheduled-task wrapper had no way to select a non-interactive mode, so unattended/startup execution fell through to the interactive menu with no console attached; both examples also launched via Windows PowerShell 5.1, which can no longer load NetClean's manifest.
 - Refactor: Make repository PSScriptAnalyzer-clean across all scripts and module functions.
 	- Replace `Write-Host` with structured logging and proper streams.
 	- Add `CmdletBinding(SupportsShouldProcess=$true)` to state-changing functions.
