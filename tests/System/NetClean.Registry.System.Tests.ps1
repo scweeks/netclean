@@ -251,5 +251,25 @@ Describe 'NetClean isolated registry system-component tests' -Tag 'System', 'Reg
                 $result.Count | Should -Be 0
             }
         }
+
+        Context 'Get-AdapterRegistryCorrelation against real registry state' {
+
+            It 'correlates an adapter class subkey that has NetCfgInstanceId but lacks ComponentId, DriverDesc, and ProviderName' {
+                # A real adapter class subkey commonly has only a subset of these
+                # values populated; ComponentId/DriverDesc/ProviderName being
+                # absent must not throw.
+                $classSubPath = "TestRegistry:\Machine\SYSTEM\CurrentControlSet\Control\Class\{4d36e972-e325-11ce-bfc1-08002be10318}\0001"
+                New-Item -Path $classSubPath -Force | Out-Null
+                New-ItemProperty -LiteralPath $classSubPath -Name 'NetCfgInstanceId' -Value "{$script:InterfaceGuid}" -PropertyType String -Force | Out-Null
+
+                { $script:AdapterCorrelation = @(Get-AdapterRegistryCorrelation) } | Should -Not -Throw
+
+                $entry = $script:AdapterCorrelation | Where-Object InterfaceGuid -EQ $script:InterfaceGuid
+                $entry | Should -Not -BeNullOrEmpty
+                $entry.ComponentId | Should -BeNullOrEmpty
+                $entry.DriverDesc | Should -BeNullOrEmpty
+                $entry.ProviderName | Should -BeNullOrEmpty
+            }
+        }
     }
 }

@@ -1812,10 +1812,10 @@ function Get-AdapterRegistryCorrelation {
         $props = Get-RegistryValuesSafe -RegistryPath $classPath
         if ($null -eq $props) { continue }
 
-        $componentId = $props.ComponentId
-        $driverDesc = $props.DriverDesc
-        $providerName = $props.ProviderName
-        $netCfgInstanceId = $props.NetCfgInstanceId
+        $componentId = if ($props.PSObject.Properties.Name -contains 'ComponentId') { $props.ComponentId } else { $null }
+        $driverDesc = if ($props.PSObject.Properties.Name -contains 'DriverDesc') { $props.DriverDesc } else { $null }
+        $providerName = if ($props.PSObject.Properties.Name -contains 'ProviderName') { $props.ProviderName } else { $null }
+        $netCfgInstanceId = if ($props.PSObject.Properties.Name -contains 'NetCfgInstanceId') { $props.NetCfgInstanceId } else { $null }
 
         $networkPath = $null
         $connectionPath = $null
