@@ -271,5 +271,21 @@ Describe 'NetClean isolated registry system-component tests' -Tag 'System', 'Reg
                 $entry.ProviderName | Should -BeNullOrEmpty
             }
         }
+
+        Context 'Get-NetworkListProfileSnapshot against real registry state' {
+
+            It 'skips a NetworkList profile subkey with no ProfileName value, without throwing' {
+                # A NetworkList profile subkey can exist without a ProfileName
+                # value (e.g. a transient/incompletely-initialized profile).
+                $noNamePath = 'TestRegistry:\Machine\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles\{22222222-3333-4444-5555-666666666666}'
+                New-Item -Path $noNamePath -Force | Out-Null
+                New-ItemProperty -LiteralPath $noNamePath -Name 'Category' -Value 0 -PropertyType DWord -Force | Out-Null
+
+                { $script:NetworkListSnapshot = @(Get-NetworkListProfileSnapshot) } | Should -Not -Throw
+
+                @($script:NetworkListSnapshot | Where-Object ProfileGuid -EQ '{22222222-3333-4444-5555-666666666666}').Count | Should -Be 0
+                $script:NetworkListSnapshot | Where-Object Name -EQ 'ConferenceSSID' | Should -Not -BeNullOrEmpty
+            }
+        }
     }
 }

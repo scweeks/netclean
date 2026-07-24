@@ -81,9 +81,10 @@ function Get-NetworkListProfileSnapshot {
             foreach ($c in $children) {
                 try {
                     $properties = Get-ItemProperty -LiteralPath $c.PSPath -ErrorAction SilentlyContinue
-                    if ($properties -and $properties.ProfileName) {
+                    $profileName = if ($properties -and $properties.PSObject.Properties.Name -contains 'ProfileName') { $properties.ProfileName } else { $null }
+                    if ($profileName) {
                         $profiles.Add([pscustomobject]@{
-                                Name         = [string]$properties.ProfileName
+                                Name         = [string]$profileName
                                 ProfileGuid  = [string]$c.PSChildName
                                 Category     = if ($properties.PSObject.Properties.Name -contains 'Category') { $properties.Category } else { $null }
                                 Description  = if ($properties.PSObject.Properties.Name -contains 'Description') { $properties.Description } else { $null }

@@ -577,6 +577,24 @@ Describe 'NetClean Phase 1 unit tests' {
                 ($result | Where-Object Name -EQ 'Contoso Secure Client').InferredVendor | Should -Be 'Contoso'
             }
 
+            It 'collects minimal uninstall evidence for a real entry missing DisplayIcon, Publisher, InstallLocation, and UninstallString' {
+                # A real Uninstall subkey (common for hotfix/update entries) may
+                # have only DisplayName set - Get-ItemProperty's returned object
+                # then genuinely lacks the other properties, not just null values.
+                Mock Get-ItemProperty {
+                    @([pscustomobject]@{ DisplayName = 'Minimal App' })
+                } -ParameterFilter { $Path -notlike '*WOW6432Node*' }
+
+                { $script:MinimalUninstallResult = @(Get-ProtectionEvidence | Where-Object Source -EQ 'Uninstall') } |
+                    Should -Not -Throw
+
+                $script:MinimalUninstallResult.Count | Should -Be 1
+                $script:MinimalUninstallResult[0].Name | Should -Be 'Minimal App'
+                $script:MinimalUninstallResult[0].Publisher | Should -BeNullOrEmpty
+                $script:MinimalUninstallResult[0].InstallPath | Should -BeNullOrEmpty
+                $script:MinimalUninstallResult[0].UninstallString | Should -BeNullOrEmpty
+            }
+
             It 'normalizes adapter GUIDs and preserves adapter identity evidence' {
                 Mock Get-NetAdapter {
                     @(

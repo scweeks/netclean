@@ -810,28 +810,34 @@ function Get-ProtectionEvidence {
         )) {
         try {
             Get-ItemProperty -Path $root -ErrorAction SilentlyContinue | ForEach-Object {
-                if ($_.DisplayName) {
+                $displayName = if ($_.PSObject.Properties.Name -contains 'DisplayName') { $_.DisplayName } else { $null }
+                if ($displayName) {
+                    $displayIcon = if ($_.PSObject.Properties.Name -contains 'DisplayIcon') { $_.DisplayIcon } else { $null }
+                    $publisher = if ($_.PSObject.Properties.Name -contains 'Publisher') { $_.Publisher } else { $null }
+                    $installLocation = if ($_.PSObject.Properties.Name -contains 'InstallLocation') { $_.InstallLocation } else { $null }
+                    $uninstallString = if ($_.PSObject.Properties.Name -contains 'UninstallString') { $_.UninstallString } else { $null }
+
                     $meta = $null
-                    if ($_.DisplayIcon) {
-                        $meta = Get-CachedFileMetadatum -Path $_.DisplayIcon -Cache $FileMetadataCache
+                    if ($displayIcon) {
+                        $meta = Get-CachedFileMetadatum -Path $displayIcon -Cache $FileMetadataCache
                     }
 
                     $evidence.Add([pscustomobject]@{
                             Source               = 'Uninstall'
                             ProductClass         = 'InstalledProduct'
-                            Name                 = $_.DisplayName
-                            DisplayName          = $_.DisplayName
-                            Path                 = $_.DisplayIcon
-                            Publisher            = $_.Publisher
-                            InstallPath          = $_.InstallLocation
+                            Name                 = $displayName
+                            DisplayName          = $displayName
+                            Path                 = $displayIcon
+                            Publisher            = $publisher
+                            InstallPath          = $installLocation
                             InterfaceDescription = $null
-                            Manufacturer         = $_.Publisher
-                            CompanyName          = if ($meta) { $meta.CompanyName } else { $_.Publisher }
+                            Manufacturer         = $publisher
+                            CompanyName          = if ($meta) { $meta.CompanyName } else { $publisher }
                             FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
-                            ProductName          = if ($meta) { $meta.ProductName } else { $_.DisplayName }
+                            ProductName          = if ($meta) { $meta.ProductName } else { $displayName }
                             SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                            InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($_.DisplayName, $_.Publisher, $_.InstallLocation, $_.UninstallString)) }
-                            UninstallString      = $_.UninstallString
+                            InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($displayName, $publisher, $installLocation, $uninstallString)) }
+                            UninstallString      = $uninstallString
                             Instance             = $_
                         })
                 }
