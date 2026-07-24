@@ -287,6 +287,8 @@ Describe 'NetClean Phase 2 unit tests' {
                     @($script:virtualExportedFiles | ForEach-Object { [pscustomobject]@{ FullName = $_ } })
                 }
 
+                Mock WriteAllLines {}
+
                 $result = @(Export-WiFiProfile -Dest 'C:\backup')
 
                 $result[0] | Should -Match 'WiFiProfiles_'
