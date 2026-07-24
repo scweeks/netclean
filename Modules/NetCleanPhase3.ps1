@@ -657,6 +657,50 @@ function Reset-NetCleanAdapterConfigurationSafe {
 
 <#
 .SYNOPSIS
+Runs a single native command for a Phase3 cache-clearing wrapper and logs the outcome.
+.DESCRIPTION
+Shared by Clear-DnsCacheSafe and Clear-ArpCacheSafe once each has already handled its own
+-DryRun short-circuit and $PSCmdlet.ShouldProcess check; this only performs the actual
+command invocation and success/failure logging.
+#>
+function Invoke-NetCleanSingleCommandSafe {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Private helper; each caller already performs its own $PSCmdlet.ShouldProcess check before calling in.')]
+    [CmdletBinding()]
+    [OutputType([System.Object])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [string]$FilePath,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$ArgumentList,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PastTenseVerb,
+
+        [Parameter(Mandatory = $true)]
+        [string]$LowercaseAction,
+
+        [switch]$IgnoreExitCode
+    )
+
+    $result = Invoke-ExternalCommandSafe -Name $Name -FilePath $FilePath -ArgumentList $ArgumentList -DryRun:$false -IgnoreExitCode:$IgnoreExitCode
+
+    if ($result.Succeeded) {
+        Write-NetCleanLog -Level INFO -Message ("{0}." -f $PastTenseVerb)
+    }
+    else {
+        Write-NetCleanLog -Level WARN -Message ("Failed to {0}: {1}" -f $LowercaseAction, $result.Error)
+    }
+
+    return $result
+}
+
+<#
+.SYNOPSIS
 Clears the DNS resolver cache (supports -WhatIf).
 .DESCRIPTION
 Invokes the platform command to flush the DNS resolver cache. Honors `-DryRun`, `-WhatIf` and `-Confirm`.
@@ -696,16 +740,8 @@ function Clear-DnsCacheSafe {
         }
     }
 
-    $result = Invoke-ExternalCommandSafe -Name 'Flush DNS cache' -FilePath 'ipconfig.exe' -ArgumentList @('/flushdns') -DryRun:$false
-
-    if ($result.Succeeded) {
-        Write-NetCleanLog -Level INFO -Message 'Flushed DNS cache.'
-    }
-    else {
-        Write-NetCleanLog -Level WARN -Message ("Failed to flush DNS cache: {0}" -f $result.Error)
-    }
-
-    return $result
+    return Invoke-NetCleanSingleCommandSafe -Name 'Flush DNS cache' -FilePath 'ipconfig.exe' -ArgumentList @('/flushdns') `
+        -PastTenseVerb 'Flushed DNS cache' -LowercaseAction 'flush DNS cache'
 }
 
 <#
@@ -749,16 +785,8 @@ function Clear-ArpCacheSafe {
         }
     }
 
-    $result = Invoke-ExternalCommandSafe -Name 'Clear ARP cache' -FilePath 'arp.exe' -ArgumentList @('-d', '*') -DryRun:$false -IgnoreExitCode
-
-    if ($result.Succeeded) {
-        Write-NetCleanLog -Level INFO -Message 'Cleared ARP cache.'
-    }
-    else {
-        Write-NetCleanLog -Level WARN -Message ("Failed to clear ARP cache: {0}" -f $result.Error)
-    }
-
-    return $result
+    return Invoke-NetCleanSingleCommandSafe -Name 'Clear ARP cache' -FilePath 'arp.exe' -ArgumentList @('-d', '*') -IgnoreExitCode `
+        -PastTenseVerb 'Cleared ARP cache' -LowercaseAction 'clear ARP cache'
 }
 
 <#
