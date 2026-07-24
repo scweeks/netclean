@@ -31,3 +31,8 @@ ai_outputs/
 # Generated test and coverage output
 tests/TestResults/
 coverage*.xml
+
+# Real-machine registry/system fixtures captured locally for higher-fidelity
+# testing (see tests/LocalFixtures/). Contains real machine-specific data and
+# must never be committed - only the capture/harness tooling is versioned.
+tests/LocalFixtures/data/
