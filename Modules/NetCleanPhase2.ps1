@@ -395,6 +395,13 @@ function Export-WiFiProfile {
 
     if (-not $bulkSucceeded) {
         foreach ($wifiProfile in $profiles) {
+            if (-not (Test-NetCleanSafeIdentifier -Value $wifiProfile)) {
+                if ($canLog) {
+                    Write-NetCleanLog -Level WARN -Message ("Skipping Wi-Fi profile with unsafe characters in its name: {0}" -f $wifiProfile)
+                }
+                continue
+            }
+
             try {
                 $before = @(
                     Get-ChildItem -Path $Dest -Filter '*.xml' -File -ErrorAction SilentlyContinue |

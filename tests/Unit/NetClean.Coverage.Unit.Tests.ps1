@@ -28,6 +28,10 @@ Describe 'NetClean coverage runner' {
         $script:runnerText | Should -Match 'Join-Path\s+\$testsPath\s+''System'''
     }
 
+    It 'includes the security test suite in the coverage run' {
+        $script:runnerText | Should -Match 'Join-Path\s+\$testsPath\s+''Security'''
+    }
+
     It 'ratchets the runner and pull-request overall coverage gates together' {
         $script:runnerText | Should -Match '\[double\]\$MinimumCoverage\s*=\s*94\.0'
         $script:runnerText | Should -Match '\$config\.CodeCoverage\.CoveragePercentTarget\s*=\s*\$MinimumCoverage'

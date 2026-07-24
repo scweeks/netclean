@@ -87,10 +87,11 @@ $testFiles = @(
     Get-ChildItem -Path (Join-Path $testsPath 'Functional') -Filter '*.Tests.ps1' -File -ErrorAction SilentlyContinue
     Get-ChildItem -Path (Join-Path $testsPath 'Integration') -Filter '*.Tests.ps1' -File -ErrorAction SilentlyContinue
     Get-ChildItem -Path (Join-Path $testsPath 'System') -Filter '*.Tests.ps1' -File -ErrorAction SilentlyContinue
+    Get-ChildItem -Path (Join-Path $testsPath 'Security') -Filter '*.Tests.ps1' -File -ErrorAction SilentlyContinue
 ) | Sort-Object FullName
 
 if (-not $testFiles -or $testFiles.Count -eq 0) {
-    throw "No test files found under tests\Unit, tests\Functional, tests\Integration, or tests\System."
+    throw "No test files found under tests\Unit, tests\Functional, tests\Integration, tests\System, or tests\Security."
 }
 
 $coverageXml = Join-Path $OutputPath 'coverage.xml'

@@ -1211,6 +1211,37 @@ function Get-VendorRootsFromInstallPath {
 
 <#
 .SYNOPSIS
+    Tests whether a string is safe to embed as a native-command argument value.
+.DESCRIPTION
+    Rejects values containing characters that could alter argument-boundary
+    parsing when embedded in a single native command-line argument (e.g. an
+    embedded double quote closing the argument early). Used to validate
+    externally-sourced, attacker-influenceable identifiers - such as Wi-Fi
+    profile names - before they reach any external command.
+.PARAMETER Value
+    The string to validate.
+.OUTPUTS
+    System.Boolean
+#>
+function Test-NetCleanSafeIdentifier {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [AllowNull()]
+        [string]$Value
+    )
+
+    if ([string]::IsNullOrEmpty($Value)) {
+        return $false
+    }
+
+    return $Value -notmatch '["`;&|<>\r\n\x00]'
+}
+
+<#
+.SYNOPSIS
     Invokes an external command safely.
 .DESCRIPTION
     This function executes an external command and handles potential errors gracefully.

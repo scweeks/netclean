@@ -65,6 +65,21 @@ function Remove-WiFiProfilesSafe {
         $toProcess = @()
 
         foreach ($wifiProfile in $profiles) {
+            if (-not (Test-NetCleanSafeIdentifier -Value $wifiProfile)) {
+                if ($canLog) {
+                    Write-NetCleanLog -Level WARN -Message ("Skipping Wi-Fi profile with unsafe characters in its name: {0}" -f $wifiProfile)
+                }
+
+                $operations.Add([pscustomobject]@{
+                        Name      = $wifiProfile
+                        Succeeded = $false
+                        Skipped   = $true
+                        Reason    = 'UnsafeName'
+                    })
+
+                continue
+            }
+
             if (-not $PSCmdlet.ShouldProcess("Wi-Fi profile '$wifiProfile'", 'Delete')) {
                 if ($canLog) {
                     Write-NetCleanLog -Level INFO -Message ("WhatIf/ShouldProcess prevented Wi-Fi profile removal: {0}" -f $wifiProfile)
