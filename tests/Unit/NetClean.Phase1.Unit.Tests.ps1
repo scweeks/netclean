@@ -187,6 +187,30 @@ Describe 'NetClean Phase 1 unit tests' {
                 Should -Invoke Get-RegistryChildKeyNamesSafe -Times 0 -Exactly
                 Should -Invoke Get-RegistryValuesSafe -Times 0 -Exactly
             }
+
+            It 'accepts a supplied snapshot entry with no LinkageValues property at all' {
+                # Get-ProtectionEvidence builds its own internal snapshot with
+                # only Name/RegistryPath/Values - no LinkageValues field - so
+                # this function must not assume every caller-supplied entry
+                # has that property.
+                Mock Get-RegistryChildKeyNamesSafe { throw 'registry should not be queried' }
+                Mock Get-RegistryValuesSafe { throw 'registry should not be queried' }
+                $snapshot = @(
+                    [pscustomobject]@{
+                        Name         = 'ContosoService'
+                        RegistryPath = 'HKLM\SYSTEM\CurrentControlSet\Services\ContosoService'
+                        Values       = [pscustomobject]@{
+                            DisplayName = 'Contoso Service'
+                            ImagePath   = 'C:\Program Files\Contoso\service.exe'
+                        }
+                    }
+                )
+
+                { $script:NoLinkageResult = @(Get-NdisServiceBindingEvidence -ServiceRegistrySnapshot $snapshot) } |
+                    Should -Not -Throw
+
+                $script:NoLinkageResult.Count | Should -Be 0
+            }
         }
 
         Context 'Get-MsiRegistryEvidence' {
@@ -645,6 +669,55 @@ Describe 'NetClean Phase 1 unit tests' {
                 $result[0].Name | Should -Be 'CSFalconService'
                 $result[0].ServiceRegistryPath | Should -Be 'HKLM\SYSTEM\CurrentControlSet\Services\CSFalconService'
                 $result[0].Start | Should -Be 2
+            }
+
+            It 'collects partial service-registry evidence when a real service is missing Group, DisplayName, Start, and Type' {
+                # A real service key very commonly has only a subset of these
+                # values populated (empirically: ~50% of real services lack
+                # Group, ~9% lack DisplayName, on a real Windows machine).
+                Mock Get-RegistryChildKeyNamesSafe { @('MinimalService') }
+                Mock Get-RegistryValuesSafe {
+                    [pscustomobject]@{
+                        ImagePath = 'C:\Program Files\Contoso\minimal.exe'
+                    }
+                }
+
+                { $script:MinimalResult = @(Get-ProtectionEvidence | Where-Object Source -EQ 'ServiceRegistry') } |
+                    Should -Not -Throw
+
+                $script:MinimalResult.Count | Should -Be 1
+                $script:MinimalResult[0].Name | Should -Be 'MinimalService'
+                $script:MinimalResult[0].Path | Should -Be 'C:\Program Files\Contoso\minimal.exe'
+                $script:MinimalResult[0].DisplayName | Should -BeNullOrEmpty
+                $script:MinimalResult[0].Start | Should -BeNullOrEmpty
+                $script:MinimalResult[0].Type | Should -BeNullOrEmpty
+                $script:MinimalResult[0].Group | Should -BeNullOrEmpty
+            }
+
+            It 'still collects evidence for other services when an earlier service is missing registry values' {
+                # Regression guard: the whole per-service loop shares a single
+                # try/catch, so one service missing a property must not
+                # silently drop every other service's evidence too.
+                Mock Get-RegistryChildKeyNamesSafe { @('MinimalService', 'CSFalconService') }
+                Mock Get-RegistryValuesSafe {
+                    if ($RegistryPath -like '*CSFalconService') {
+                        [pscustomobject]@{
+                            ImagePath   = 'C:\Program Files\CrowdStrike\sensor.exe'
+                            DisplayName = 'CrowdStrike Falcon Sensor'
+                            Start       = 2
+                            Type        = 16
+                            Group       = 'NetworkProvider'
+                        }
+                    }
+                    else {
+                        [pscustomobject]@{ ImagePath = 'C:\Program Files\Contoso\minimal.exe' }
+                    }
+                }
+
+                $result = @(Get-ProtectionEvidence | Where-Object Source -EQ 'ServiceRegistry')
+
+                @($result | Where-Object Name -EQ 'MinimalService').Count | Should -Be 1
+                @($result | Where-Object Name -EQ 'CSFalconService').Count | Should -Be 1
             }
 
             It 'inspects a service binary only once across CIM and registry evidence' {

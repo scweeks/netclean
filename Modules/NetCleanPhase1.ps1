@@ -208,7 +208,10 @@ function Get-NdisServiceBindingEvidence {
     foreach ($serviceEntry in $ServiceRegistrySnapshot) {
         $svcName = $serviceEntry.Name
         $svcPath = $serviceEntry.RegistryPath
-        $linkage = $serviceEntry.LinkageValues
+        # A caller-supplied snapshot (e.g. Get-ProtectionEvidence's own internal
+        # snapshot construction) may not include LinkageValues at all - it's
+        # specific to this function's own default-collection shape.
+        $linkage = if ($serviceEntry.PSObject.Properties.Name -contains 'LinkageValues') { $serviceEntry.LinkageValues } else { $null }
         $props = $serviceEntry.Values
 
         $tokens = New-Object System.Collections.Generic.List[string]
@@ -944,8 +947,8 @@ function Get-ProtectionEvidence {
             $svcProps = $serviceEntry.Values
             if ($null -eq $svcProps) { continue }
 
-            $imagePath = $svcProps.ImagePath
-            $displayName = $svcProps.DisplayName
+            $imagePath = if ($svcProps.PSObject.Properties.Name -contains 'ImagePath') { $svcProps.ImagePath } else { $null }
+            $displayName = if ($svcProps.PSObject.Properties.Name -contains 'DisplayName') { $svcProps.DisplayName } else { $null }
             $meta = Get-CachedFileMetadatum -Path $imagePath -Cache $FileMetadataCache
 
             $evidence.Add([pscustomobject]@{
@@ -964,9 +967,9 @@ function Get-ProtectionEvidence {
                     SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
                     InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($svcName, $displayName, $imagePath)) }
                     ServiceRegistryPath  = $svcRegPath
-                    Start                = $svcProps.Start
-                    Type                 = $svcProps.Type
-                    Group                = $svcProps.Group
+                    Start                = if ($svcProps.PSObject.Properties.Name -contains 'Start') { $svcProps.Start } else { $null }
+                    Type                 = if ($svcProps.PSObject.Properties.Name -contains 'Type') { $svcProps.Type } else { $null }
+                    Group                = if ($svcProps.PSObject.Properties.Name -contains 'Group') { $svcProps.Group } else { $null }
                     Instance             = $svcProps
                 })
         }
