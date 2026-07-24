@@ -869,7 +869,14 @@ function Invoke-NetCleanLauncher {
     }
 
     if ($script:CreateLog -or $selectedMode -ne 'Menu') {
-        Start-NetCleanLog -Directory $script:LogPath
+        try {
+            Start-NetCleanLog -Directory $script:LogPath
+        }
+        catch {
+            Write-Information ("Unable to initialize logging at '{0}': {1}" -f $script:LogPath, $_.Exception.Message) -InformationAction Continue
+            Write-Information 'Aborting: check that the log path does not already exist as a file, and that you have permission to create directories there.' -InformationAction Continue
+            return
+        }
     }
 
     if ($selectedMode -eq 'PerformanceTune' -and $selectedPerformanceProfile) {
@@ -880,7 +887,14 @@ function Invoke-NetCleanLauncher {
     }
 
     if (-not $options.DryRun -and -not (Test-Path -LiteralPath $script:BackupPath)) {
-        New-Item -Path $script:BackupPath -ItemType Directory -Force | Out-Null
+        try {
+            New-Item -Path $script:BackupPath -ItemType Directory -Force -ErrorAction Stop | Out-Null
+        }
+        catch {
+            Write-Information ("Unable to create backup directory '{0}': {1}" -f $script:BackupPath, $_.Exception.Message) -InformationAction Continue
+            Write-Information 'Aborting: a usable backup directory is required before making any changes.' -InformationAction Continue
+            return
+        }
     }
 
     if ($selectedMode -eq 'Preview') {

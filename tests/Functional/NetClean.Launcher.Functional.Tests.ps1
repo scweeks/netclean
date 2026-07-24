@@ -725,6 +725,43 @@ Describe 'NetClean launcher functional tests' {
             Should -Invoke Invoke-PostRunAction -Times 1 -ParameterFilter { -not $DryRunMode }
         }
 
+        It 'aborts cleanly instead of an uncaught exception when the backup directory cannot be created' {
+            # Real trigger: -BackupPath resolves to something that already
+            # exists as a file rather than a directory.
+            $script:DryRun = $false
+            $script:BackupPath = Join-Path $TestDrive 'blocked-backup'
+            Mock Read-NetCleanOption {
+                [pscustomobject]@{
+                    SelectedMode       = 'SafeConferencePrep'
+                    DryRun             = $false
+                    SkipWifi           = $false
+                    SkipDnsFlush       = $false
+                    SkipEventLogs      = $false
+                    SkipUserArtifacts  = $false
+                    SkipFirewallBackup = $false
+                    PerformanceProfile = $null
+                }
+            }
+            Mock Test-Path { $false }
+            Mock New-Item { throw 'New-Item : Cannot create because a file with that name already exists.' }
+
+            { Invoke-NetCleanLauncher } | Should -Not -Throw
+
+            Should -Invoke Invoke-NetCleanWorkflow -Times 0
+            Should -Invoke Invoke-PostRunAction -Times 0
+        }
+
+        It 'aborts cleanly instead of an uncaught exception when logging cannot be initialized' {
+            # Real trigger: -LogPath resolves to something that already
+            # exists as a file rather than a directory.
+            Mock Start-NetCleanLog { throw 'Unable to create private log directory: C:\blocked-log' }
+
+            { Invoke-NetCleanLauncher } | Should -Not -Throw
+
+            Should -Invoke Invoke-NetCleanWorkflow -Times 0
+            Should -Invoke Invoke-PostRunAction -Times 0
+        }
+
     }
 
     Context 'PerformanceTune direct invocation' {

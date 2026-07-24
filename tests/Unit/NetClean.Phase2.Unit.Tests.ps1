@@ -747,6 +747,15 @@ Describe 'NetClean Phase 2 unit tests' {
                 Should -Invoke Set-NetCleanPrivateDirectoryAcl -Times 1 -ParameterFilter { $Path -eq 'C:\backup' }
             }
 
+            It 'fails with a clear, actionable message when the backup directory cannot be created or secured' {
+                # Real trigger: -BackupPath resolves to something that already
+                # exists as a file rather than a directory.
+                Mock Set-NetCleanPrivateDirectoryAcl { throw 'Private data directory does not exist: C:\backup' }
+
+                { Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup' } |
+                    Should -Throw '*Unable to create or secure the backup directory*C:\backup*'
+            }
+
             It 'handles empty protected registry paths gracefully' {
                 $script:context.ProtectedRegistryPaths = @()
                 Mock Export-ProtectedRegistryKey { @() }

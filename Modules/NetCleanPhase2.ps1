@@ -901,8 +901,13 @@ function Invoke-NetCleanPhase2Protect {
     }
 
     if (-not $DryRun) {
-        New-DirectoryIfNotExist -Path $BackupPath
-        Set-NetCleanPrivateDirectoryAcl -Path $BackupPath
+        try {
+            New-DirectoryIfNotExist -Path $BackupPath
+            Set-NetCleanPrivateDirectoryAcl -Path $BackupPath
+        }
+        catch {
+            throw "Unable to create or secure the backup directory '$BackupPath': $($_.Exception.Message). Check that the path does not already exist as a file, and that you have permission to create directories there."
+        }
     }
 
     $inventory = @($Context.Inventory)
