@@ -192,6 +192,7 @@ function Get-WiFiProfileSnapshot {
     $profiles = [System.Collections.Generic.List[object]]::new()
     $profileKeys = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::Ordinal)
     $currentSource = 'Unknown'
+    $recognizedLocalizedHeader = $false
 
     foreach ($line in $result.Output) {
         if ($null -eq $line) {
@@ -202,21 +203,38 @@ function Get-WiFiProfileSnapshot {
 
         if ($text -match '^\s*Group policy profiles') {
             $currentSource = 'GroupPolicy'
+            $recognizedLocalizedHeader = $true
             continue
         }
 
         if ($text -match '^\s*User profiles') {
             $currentSource = 'User'
+            $recognizedLocalizedHeader = $true
             continue
         }
 
         if ($text -match '^\s*[^:]+:\s*(.+?)\s*$') {
-            $label = ($text -replace ':\s*.+$', '').Trim()
             $name = $matches[1].Trim()
 
-            if ($label -match 'Profile' -and -not [string]::IsNullOrWhiteSpace($name)) {
-                $isPolicyManaged = $currentSource -eq 'GroupPolicy' -or $label -match 'Group Policy'
-                $source = if ($isPolicyManaged) { 'GroupPolicy' } else { 'User' }
+            if (-not [string]::IsNullOrWhiteSpace($name)) {
+                # Locale-independent: any "key: value" line in this specific
+                # netsh command's output is a profile entry - netsh's labels
+                # (and the "Group policy profiles"/"User profiles" section
+                # headers above) are localized, so matching on the English
+                # word "Profile" here previously detected zero profiles on
+                # non-English Windows installs.
+                $isPolicyManaged = if ($recognizedLocalizedHeader) {
+                    $currentSource -eq 'GroupPolicy'
+                }
+                else {
+                    # Fail closed: no localized section header was recognized
+                    # (non-English Windows), so Group-Policy-managed profiles
+                    # can't be distinguished from user profiles - treat as
+                    # policy-managed (excluded from removal) rather than risk
+                    # removing a profile that should have been protected.
+                    $true
+                }
+                $source = if ($recognizedLocalizedHeader) { $currentSource } else { 'Unknown' }
                 $profileKey = "$source`0$name"
 
                 if ($profileKeys.Add($profileKey)) {

@@ -110,6 +110,60 @@ Describe 'NetClean Phase 2 unit tests' {
                 Should -Invoke Invoke-NetCleanNativeCapture -Times 1 -Exactly
             }
 
+            It 'still detects profiles on a non-English Windows install (localized labels, no English "Profile" text)' {
+                # Real-world risk: netsh's labels and section headers are
+                # localized, so matching on the English word "Profile" (or
+                # "Group policy profiles"/"User profiles") silently detects
+                # zero profiles on non-English Windows. Fail-closed here
+                # means a profile we can't classify is treated as policy-
+                # managed (excluded from removal) rather than risking
+                # removal of something that should have been protected.
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Name      = 'List Wi-Fi profiles'
+                        ExitCode  = 0
+                        Succeeded = $true
+                        Output    = @(
+                            'Profils sur l''interface Wi-Fi :'
+                            'Profils de tous les utilisateurs : HomeSSID'
+                            'Profils de tous les utilisateurs : OfficeSSID'
+                        )
+                        Error     = $null
+                    }
+                }
+
+                $result = @(Get-WiFiProfileSnapshot)
+
+                $result.Count | Should -Be 2
+                $result | ForEach-Object Name | Should -Contain 'HomeSSID'
+                $result | ForEach-Object Name | Should -Contain 'OfficeSSID'
+                @($result | Where-Object IsPolicyManaged).Count | Should -Be 2
+            }
+
+            It 'still classifies policy vs. user profiles correctly when English section headers are recognized' {
+                # Regression guard: the locale-independent fallback above
+                # must not weaken the existing English-locale classification.
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Name      = 'List Wi-Fi profiles'
+                        ExitCode  = 0
+                        Succeeded = $true
+                        Output    = @(
+                            'Group policy profiles (read only)'
+                            '    Group Policy Profile : SchoolSSID'
+                            'User profiles'
+                            '    All User Profile     : ConferenceSSID'
+                        )
+                        Error     = $null
+                    }
+                }
+
+                $result = @(Get-WiFiProfileSnapshot)
+
+                ($result | Where-Object Name -EQ 'SchoolSSID').IsPolicyManaged | Should -BeTrue
+                ($result | Where-Object Name -EQ 'ConferenceSSID').IsPolicyManaged | Should -BeFalse
+            }
+
             It 'captures netsh profile names as UTF-8 and restores the host encoding' {
                 $originalEncoding = [Console]::OutputEncoding
                 $testHostEncoding = [System.Text.Encoding]::GetEncoding(437)
