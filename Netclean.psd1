@@ -6,7 +6,8 @@
     CompanyName       = 'Open Source'
     Copyright = '(c) Sean Weeks. All rights reserved.'
     Description = 'Phase-oriented PowerShell toolkit for detecting, protecting, cleaning, and verifying network privacy artifacts.'
-    PowerShellVersion = '5.1'
+    PowerShellVersion = '7.4'
+    CompatiblePSEditions = @('Core')
 
     FunctionsToExport = @(
         'Invoke-NetCleanPhase1Detect',

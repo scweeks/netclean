@@ -23,14 +23,14 @@ Invoke-Pester -Path .\tests
 .\tests\Run-NetClean-Coverage.ps1
 ```
 
-Run the complete Pester suite under both PowerShell 7.4 or later and Windows PowerShell 5.1 before submitting changes. The authoritative coverage run remains on PowerShell 7 and is intentionally sequential.
+Run the complete Pester suite under PowerShell 7.4 or later before submitting changes. The authoritative coverage run is intentionally sequential.
 
 The repository's registry System tests are safe for normal local and CI runs: Pester creates a random, container-scoped `TestRegistry:` key under HKCU, and the suite populates it only with synthetic data. Run tests that change real adapters, Wi-Fi state, caches, event logs, or restart behavior only on a disposable Windows system you control. Never commit generated test results, coverage reports, logs, exported registry data, Wi-Fi profiles, credentials, or other machine inventory.
 
 ## Pull request checklist
 
 - [ ] A focused test demonstrated the defect or missing behavior before the implementation change.
-- [ ] Pester 6.0.1 tests pass under PowerShell 7.4 or later and Windows PowerShell 5.1.
+- [ ] Pester 6.0.1 tests pass under PowerShell 7.4 or later.
 - [ ] PSScriptAnalyzer reports no warnings or errors.
 - [ ] Documentation and change notes match the implementation.
 - [ ] No generated output, secrets, credentials, or host-specific inventory is included.

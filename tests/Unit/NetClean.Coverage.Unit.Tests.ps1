@@ -48,21 +48,20 @@ Describe 'NetClean coverage runner' {
         $script:readmeText | Should -Match 'img\.shields\.io/endpoint\?url=https://scweeks\.github\.io/netclean/coverage\.json'
         $script:readmeText | Should -Match 'img\.shields\.io/badge/style-PSScriptAnalyzer-00aaff'
         $script:readmeText | Should -Match 'img\.shields\.io/badge/license-GPLv3-blue\.svg'
-        $script:readmeText | Should -Match 'img\.shields\.io/badge/PowerShell-5\.1%20%7C%207\.4-blue'
+        $script:readmeText | Should -Match 'img\.shields\.io/badge/PowerShell-7\.4%2B-blue'
         $script:readmeText | Should -Match 'img\.shields\.io/badge/platform-Windows-blue'
         $script:readmeText | Should -Match 'img\.shields\.io/badge/coverage_target-94%25-green'
     }
 
-    It 'runs the complete suite under Windows PowerShell 5.1 in CI' {
-        $jobPattern = '(?ms)^  windows-powershell-compatibility:.*?^  comment-coverage:'
-        $jobMatch = [regex]::Match($script:ciText, $jobPattern)
-        $jobMatch.Success | Should -BeTrue
-        $compatibilityJob = $jobMatch.Value
+    It 'does not run a Windows PowerShell 5.1 compatibility job in CI' {
+        $script:ciText | Should -Not -Match 'windows-powershell-compatibility:'
+        $script:ciText | Should -Not -Match '(?m)^\s*shell:\s+powershell\s*$'
+    }
 
-        $compatibilityJob | Should -Match 'shell:\s+powershell'
-        $compatibilityJob | Should -Match '(Install-Module|Save-Module) Pester[^\r\n]+RequiredVersion 6\.0\.1'
-        $compatibilityJob | Should -Match 'Import-Module Pester[^\r\n]+RequiredVersion 6\.0\.1'
-        $compatibilityJob | Should -Match 'Invoke-Pester'
-        $compatibilityJob | Should -Match 'Test-ModuleManifest'
+    It 'requires PowerShell 7.4 or later in the module manifest' {
+        $manifestPath = Join-Path $PSScriptRoot '..\..\NetClean.psd1'
+        $manifestText = Get-Content -LiteralPath $manifestPath -Raw
+        $manifestText | Should -Match "PowerShellVersion\s*=\s*'7\.4'"
+        $manifestText | Should -Match "CompatiblePSEditions\s*=\s*@\('Core'\)"
     }
 }

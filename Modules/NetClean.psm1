@@ -23,8 +23,7 @@ $script:ModuleRoot = Split-Path -Parent $PSCommandPath
 . (Join-Path $script:ModuleRoot 'NetCleanPhase3.ps1')
 . (Join-Path $script:ModuleRoot 'NetCleanPhase4.ps1')
 
-# Invoke independent work in a bounded runspace pool. Runspaces provide
-# in-process multithreading on both Windows PowerShell 5.1 and PowerShell 7.
+# Invoke independent work in a bounded runspace pool for in-process multithreading.
 function Invoke-InParallel {
     [CmdletBinding()]
     [OutputType([object[]])]

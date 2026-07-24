@@ -6,7 +6,7 @@
 [![Coverage](https://img.shields.io/endpoint?url=https://scweeks.github.io/netclean/coverage.json)](https://scweeks.github.io/netclean/coverage.json)
 [![Analyzer](https://img.shields.io/badge/style-PSScriptAnalyzer-00aaff)](https://github.com/scweeks/netclean/actions/workflows/ci.yml)
 [![Coverage target](https://img.shields.io/badge/coverage_target-94%25-green)](https://github.com/scweeks/netclean/actions/workflows/ci.yml)
-[![PowerShell 5.1 | 7.4](https://img.shields.io/badge/PowerShell-5.1%20%7C%207.4-blue)](https://learn.microsoft.com/powershell/)
+[![PowerShell 7.4+](https://img.shields.io/badge/PowerShell-7.4%2B-blue)](https://learn.microsoft.com/powershell/)
 [![Windows](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/scweeks/netclean)
 [![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
@@ -32,7 +32,7 @@ The tool is designed to be safe by default, auditable, and reversible when used 
 ## Requirements
 
 - Windows 10 or Windows 11.
-- Windows PowerShell 5.1 or PowerShell 7.x.
+- PowerShell 7.4 or later.
 - Administrator privileges are required for full detection, backup, cleanup, and verification.
 
 ## Quick Start
@@ -134,7 +134,7 @@ Test framework: Pester 6.0.1.
 
 Static analysis: PSScriptAnalyzer 1.25.0.
 
-The authoritative coverage run is intentionally sequential. Pester 6's file-level parallel execution remains experimental, so CI keeps coverage collection on the sequential path. The PowerShell 7 job validates the module manifest, treats analyzer findings as failures, runs Pester with JaCoCo coverage, publishes a GitHub Pages coverage badge payload, and uploads test artifacts. A separate Windows PowerShell 5.1 job runs the full test suite for compatibility.
+The authoritative coverage run is intentionally sequential. Pester 6's file-level parallel execution remains experimental, so CI keeps coverage collection on the sequential path. The CI job validates the module manifest, treats analyzer findings as failures, runs Pester with JaCoCo coverage, publishes a GitHub Pages coverage badge payload, and uploads test artifacts. A dedicated `tests/Security` suite exercises command-injection resistance and backup-directory access-control guarantees for the tool's high-privilege operations.
 
 Run tests locally:
 

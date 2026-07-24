@@ -32,7 +32,7 @@ This document defines mandatory standards for contributors and automation agents
 - Ensure supply-chain hygiene by pinning or constraining dependency/module versions where practical.
 
 ## PowerShell Standards (Microsoft + Community Best Practices)
-- Target PowerShell 5.1+ and `pwsh` compatibility where feasible.
+- Target PowerShell 7.4+ (`pwsh`) only.
 - Follow existing `PSScriptAnalyzerSettings.psd1`; do not introduce new warnings/errors.
 - Avoid `Invoke-Expression`, aliases, and `Write-Host` for control flow.
 - Use `SupportsShouldProcess` for state-changing functions and respect `-WhatIf` semantics where applicable.
