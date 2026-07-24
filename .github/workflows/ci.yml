@@ -7,19 +7,14 @@ on:
       - 'ci/**'
       - 'feature/**'
       - 'bugfix/**'
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
   workflow_dispatch:
-    inputs:
-      force-module-refresh:
-        description: 'Set to true to clear module cache and force fresh installs'
-        required: false
-        type: boolean
-        default: false
-      coverage-gate:
-        description: 'Coverage gate percent (overrides default)'
-        required: false
-        type: number
-        default: 94
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -29,14 +24,16 @@ permissions:
   contents: read
 
 env:
-  # Default coverage gate; can be overridden by workflow_dispatch input
+  # Coverage floor (94) is duplicated in tests/Run-NetClean-Coverage.ps1's
+  # $MinimumCoverage default and in the comment-coverage job's
+  # min-coverage-overall below - update all three together when ratcheting.
   COVERAGE_GATE: '94'
 
 jobs:
   test-and-analyze:
     name: PSSA + Pester + Coverage
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
 
     defaults:
       run:
@@ -46,19 +43,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
-      - name: Resolve runtime inputs
-        id: inputs
-        run: |
-          # Read workflow_dispatch inputs directly from the event payload so hyphenated input IDs stay reliable.
-          $event = Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
-          $force = [string]$event.inputs.'force-module-refresh'
-          if ([string]::IsNullOrWhiteSpace($force)) { $force = 'false' }
-          else { $force = $force.ToLowerInvariant() }
-          "force=$force" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-          $cov = [string]$event.inputs.'coverage-gate'
-          if ([string]::IsNullOrWhiteSpace($cov)) { $cov = '94' }
-          "coverage_gate=$cov" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
       - name: Show PowerShell environment
         run: |
           $PSVersionTable
@@ -66,141 +50,19 @@ jobs:
             Sort-Object Version -Descending |
             Select-Object -First 5 Name, Version, Path
 
-      - name: Prepare module cache path
-        id: prep_cache
+      - name: Install PowerShell test and analysis tools
         run: |
-          $cachePath = Join-Path $env:RUNNER_TEMP 'psmodules'
-          if (-not (Test-Path $cachePath)) { New-Item -ItemType Directory -Path $cachePath | Out-Null }
-          "cachePath=$cachePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8
-
-      - name: Restore module cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.prep_cache.outputs.cachePath }}
-          key: ps-modules-${{ runner.os }}-${{ hashFiles('**/modules.lock.json','**/*.psd1') }}
-          restore-keys: |
-            ps-modules-${{ runner.os }}-
-
-      - name: Ensure repo modules are preferred and PSModulePath set
-        run: |
-          $repoModulePath = (Resolve-Path -Path ./src -ErrorAction SilentlyContinue)
-          if ($repoModulePath) {
-            $repoModulePath = $repoModulePath.Path
-            $env:PSModulePath = "$repoModulePath;$env:PSModulePath"
-            Write-Host "Prepended repo module path: $repoModulePath"
-          } else {
-            Write-Host "No ./src folder found to prefer for modules."
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -Scope CurrentUser -RequiredVersion 6.0.1 -Force -SkipPublisherCheck -ErrorAction Stop
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -RequiredVersion 1.25.0 -Force -ErrorAction Stop
+          Import-Module Pester -RequiredVersion 6.0.1 -Force -ErrorAction Stop
+          if ((Get-Module Pester).Version -ne [version]'6.0.1') {
+            throw 'CI requires Pester 6.0.1.'
           }
-          $cachePath = '${{ steps.prep_cache.outputs.cachePath }}'
-          $env:PSModulePath = "$cachePath;$env:PSModulePath"
-          Write-Host "PSModulePath: $env:PSModulePath"
+          Get-Module PSScriptAnalyzer -ListAvailable |
+            Sort-Object Version -Descending |
+            Select-Object -First 1 Name, Version, Path
 
-      - name: Optionally clear cached modules (workflow_dispatch toggle)
-        if: ${{ steps.inputs.outputs.force == 'true' }}
-        run: |
-          $cachePath = '${{ steps.prep_cache.outputs.cachePath }}'
-          if (Test-Path $cachePath) {
-            Write-Host "Clearing cached modules at $cachePath"
-            Remove-Item -Recurse -Force $cachePath
-            New-Item -ItemType Directory -Path $cachePath | Out-Null
-          } else {
-            Write-Host "Cache path not present; nothing to remove."
-          }
-
-      - name: Install PowerShell test and analysis tools (cache-aware)
-        env:
-          FORCE_MODULE_REFRESH: ${{ steps.inputs.outputs.force }}
-        run: |
-          $cachePath = '${{ steps.prep_cache.outputs.cachePath }}'
-
-          # Show shell info
-          Write-Host "Shell and PowerShell version:"
-          $PSVersionTable | Format-List
-
-          # Ensure cache path exists
-          if (-not (Test-Path -LiteralPath $cachePath)) {
-            New-Item -ItemType Directory -Path $cachePath | Out-Null
-          }
-
-          # Prepend cache path to PSModulePath for this process
-          if (-not ($env:PSModulePath -split ';' | Where-Object { $_ -eq $cachePath })) {
-            $env:PSModulePath = "$cachePath;$env:PSModulePath"
-          }
-          Write-Host "PSModulePath (process): $env:PSModulePath"
-
-          # Persist PSModulePath for subsequent steps by writing to GITHUB_ENV
-          # This ensures later steps run in new processes will also see the cache path.
-          $persist = "PSModulePath=$env:PSModulePath"
-          $persist | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          Write-Host "Persisted PSModulePath to GITHUB_ENV."
-
-          # Debug listing before save
-          Write-Host "Cache path contents before Save-Module:"
-          Get-ChildItem -LiteralPath $cachePath -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object FullName | Format-Table -AutoSize
-
-          # Save modules into cache path (creates ModuleName\<version>\)
-          $needPester = -not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [version]'6.0.1' })
-          if ($env:FORCE_MODULE_REFRESH -eq 'true') { $needPester = $true }
-          if ($needPester) {
-            Write-Host "Saving Pester 6.0.1 into $cachePath"
-            Save-Module -Name Pester -RequiredVersion 6.0.1 -Path $cachePath -Force -ErrorAction Stop
-          } else {
-            Write-Host "Pester 6.0.1 already available in module path."
-          }
-
-          $needPssa = -not (Get-Module -ListAvailable -Name PSScriptAnalyzer)
-          if ($env:FORCE_MODULE_REFRESH -eq 'true') { $needPssa = $true }
-          if ($needPssa) {
-            Write-Host "Saving PSScriptAnalyzer 1.25.0 into $cachePath"
-            Save-Module -Name PSScriptAnalyzer -RequiredVersion 1.25.0 -Path $cachePath -Force -ErrorAction Stop
-          } else {
-            Write-Host "PSScriptAnalyzer already available in module path."
-          }
-
-          # Debug listing after save
-          Write-Host "Cache path contents after Save-Module:"
-          Get-ChildItem -LiteralPath $cachePath -Recurse -Depth 3 -ErrorAction SilentlyContinue | Select-Object FullName | Format-Table -AutoSize
-
-          # Verify Pester manifest exists and import explicitly by manifest path (positional)
-          $pesterManifest = Join-Path $cachePath 'Pester\6.0.1\Pester.psd1'
-          if (Test-Path -LiteralPath $pesterManifest) {
-            Write-Host "Found Pester manifest at $pesterManifest"
-          } else {
-            Write-Host "Pester manifest not found at expected path: $pesterManifest"
-            Get-ChildItem -LiteralPath $cachePath -Recurse | Select-Object FullName | Format-Table -AutoSize
-            throw "Pester 6.0.1 not found in cache path after Save-Module."
-          }
-
-          # Import by positional path (works across PS versions)
-          Import-Module $pesterManifest -Force -ErrorAction Stop
-
-          # Confirm available modules in this process
-          Write-Host "Available Pester modules (process):"
-          Get-Module -ListAvailable -Name Pester | Select-Object Name, Version, Path | Format-Table -AutoSize
-          Write-Host "Available PSScriptAnalyzer modules (process):"
-          Get-Module -ListAvailable -Name PSScriptAnalyzer | Select-Object Name, Version, Path | Format-Table -AutoSize
-
-      - name: Verify Pester 6 is available (diagnostic)
-        run: |
-          Write-Host "Shell and PowerShell version:"
-          $PSVersionTable | Format-List
-
-          Write-Host "PSModulePath:"
-          $env:PSModulePath -split ';' | ForEach-Object { Write-Host " - $_" }
-
-          Write-Host "Get-Module -ListAvailable Pester:"
-          Get-Module -ListAvailable -Name Pester | Select-Object Name, Version, Path | Format-Table -AutoSize
-
-          if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [version]'6.0.1' })) {
-            Write-Host "Pester 6.0.1 not found. Aborting with diagnostic output."
-            Write-Host "Cache path contents (for debugging):"
-            $cachePath = '${{ steps.prep_cache.outputs.cachePath }}'
-            if (Test-Path $cachePath) { Get-ChildItem -LiteralPath $cachePath -Recurse | Select-Object FullName | Format-Table -AutoSize }
-            throw "Pester 6.0.1 not available to this PowerShell process."
-          } else {
-            Write-Host "Pester 6.0.1 is available."
-          }
-      
       - name: Validate module manifest
         run: |
           Test-ModuleManifest .\NetClean.psd1 | Out-Null
@@ -211,8 +73,6 @@ jobs:
           .\tests\Invoke-NetCleanAnalyzer.ps1 | Format-List
 
       - name: Run Pester with coverage
-        env:
-          COVERAGE_GATE: ${{ steps.inputs.outputs.coverage_gate }}
         run: |
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
           .\tests\Run-NetClean-Coverage.ps1 -MinimumCoverage $env:COVERAGE_GATE
@@ -222,9 +82,6 @@ jobs:
         run: |
           $candidates = Get-ChildItem -Path tests/TestResults -Recurse -Filter 'coverage*.xml' -ErrorAction SilentlyContinue |
                         Select-Object -First 1 -ExpandProperty FullName
-          if (-not $candidates) {
-            if (Test-Path -Path coverage.xml) { $candidates = (Resolve-Path coverage.xml).Path }
-          }
           if ($candidates) {
             Write-Host "Found coverage file: $candidates"
             "coverage_path=$candidates" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
@@ -252,35 +109,12 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Enforce coverage gate (fail if below threshold)
-        if: always() && steps.find_coverage.outputs.coverage_path != ''
-        run: |
-          $covPath = '${{ steps.find_coverage.outputs.coverage_path }}'
-          if (-not (Test-Path $covPath)) {
-            throw "Coverage file not found at expected path: $covPath"
-          }
-          [xml]$doc = Get-Content $covPath
-          $lineCounter = $doc.SelectNodes("//counter") | Where-Object { $_.GetAttribute('type') -eq 'LINE' } | Select-Object -First 1
-          if (-not $lineCounter) {
-            Write-Host "No LINE counter found in coverage XML; skipping numeric gate enforcement."
-            exit 0
-          }
-          $missed = [int]$lineCounter.GetAttribute('missed')
-          $covered = [int]$lineCounter.GetAttribute('covered')
-          $total = $missed + $covered
-          $percent = if ($total -gt 0) { [math]::Round(($covered / $total) * 100, 2) } else { 100 }
-          Write-Host "Line coverage: $percent`% (covered: $covered, missed: $missed)"
-          $gateValue = '${{ steps.inputs.outputs.coverage_gate }}'
-          $gate = [double]$gateValue
-          if ($percent -lt $gate) {
-            throw "Coverage $percent% is below required $gate%."
-          }
-
   publish-coverage-badge:
     name: Publish coverage badge
     needs: test-and-analyze
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: windows-latest
+    timeout-minutes: 10
 
     permissions:
       contents: read
@@ -355,7 +189,7 @@ jobs:
   windows-powershell-compatibility:
     name: Windows PowerShell 5.1 compatibility
     runs-on: windows-latest
-    timeout-minutes: 60
+    timeout-minutes: 15
 
     defaults:
       run:
@@ -365,76 +199,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
-      - name: Resolve runtime inputs
-        id: inputs
+      - name: Validate Windows PowerShell environment
         run: |
-          $event = Get-Content -LiteralPath $env:GITHUB_EVENT_PATH -Raw | ConvertFrom-Json
-          $force = [string]$event.inputs.'force-module-refresh'
-          if ([string]::IsNullOrWhiteSpace($force)) { $force = 'false' }
-          else { $force = $force.ToLowerInvariant() }
-          "force=$force" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-
-      - name: Prepare module cache path (ps51)
-        id: prep_cache_ps51
-        run: |
-          $cachePath = Join-Path $env:RUNNER_TEMP 'psmodules_ps51'
-          if (-not (Test-Path $cachePath)) { New-Item -ItemType Directory -Path $cachePath | Out-Null }
-          "cachePath=$cachePath" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8
-
-      - name: Restore module cache (ps51)
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.prep_cache_ps51.outputs.cachePath }}
-          key: ps-modules-ps51-${{ runner.os }}-${{ hashFiles('**/modules.lock.json','**/*.psd1') }}
-          restore-keys: |
-            ps-modules-ps51-${{ runner.os }}-
-
-      - name: Ensure repo modules are preferred and PSModulePath set (ps51)
-        run: |
-          $repoModulePath = (Resolve-Path -Path ./src -ErrorAction SilentlyContinue)
-          if ($repoModulePath) {
-            $repoModulePath = $repoModulePath.Path
-            $env:PSModulePath = "$repoModulePath;$env:PSModulePath"
-            Write-Host "Prepended repo module path: $repoModulePath"
-          } else {
-            Write-Host "No ./src folder found to prefer for modules."
-          }
-          $cachePath = '${{ steps.prep_cache_ps51.outputs.cachePath }}'
-          $env:PSModulePath = "$cachePath;$env:PSModulePath"
-          Write-Host "PSModulePath: $env:PSModulePath"
-
-          # Each workflow step runs in a fresh process, so PSModulePath set above
-          # would otherwise be lost before the next step runs. Persist it via
-          # GITHUB_ENV, matching the pattern already used in the PS7 job above.
-          "PSModulePath=$env:PSModulePath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-      - name: Optionally clear cached modules (FORCE_MODULE_REFRESH)
-        if: ${{ steps.inputs.outputs.force == 'true' }}
-        run: |
-          $cachePath = '${{ steps.prep_cache_ps51.outputs.cachePath }}'
-          if (Test-Path $cachePath) {
-            Write-Host "Clearing cached modules at $cachePath"
-            Remove-Item -Recurse -Force $cachePath
-            New-Item -ItemType Directory -Path $cachePath | Out-Null
-          } else {
-            Write-Host "Cache path not present; nothing to remove."
+          $PSVersionTable
+          if ($PSVersionTable.PSVersion -lt [version]'5.1' -or $PSVersionTable.PSEdition -ne 'Desktop') {
+            throw 'This job requires Windows PowerShell 5.1.'
           }
 
-      - name: Install compatibility test tools (ps51)
+      - name: Install compatibility test tools
         run: |
           [Net.ServicePointManager]::SecurityProtocol =
             [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-          $cachePath = '${{ steps.prep_cache_ps51.outputs.cachePath }}'
-          if (-not (Get-Module -ListAvailable -Name Pester | Where-Object { $_.Version -eq [version]'6.0.1' })) {
-            Save-Module Pester -Path $cachePath -RequiredVersion 6.0.1 -Force -ErrorAction Stop
-          } else {
-            Write-Host "Pester 6.0.1 already available in module path."
-          }
-          if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer)) {
-            Save-Module PSScriptAnalyzer -Path $cachePath -RequiredVersion 1.25.0 -Force -ErrorAction Stop
-          } else {
-            Write-Host "PSScriptAnalyzer already available in module path."
-          }
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module Pester -Scope CurrentUser -RequiredVersion 6.0.1 -Force -SkipPublisherCheck -ErrorAction Stop
+          Install-Module PSScriptAnalyzer -Scope CurrentUser -RequiredVersion 1.25.0 -Force -ErrorAction Stop
           Import-Module Pester -RequiredVersion 6.0.1 -Force -ErrorAction Stop
           Import-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -ErrorAction Stop
 
@@ -461,6 +239,7 @@ jobs:
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     needs: test-and-analyze
     runs-on: windows-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: write
