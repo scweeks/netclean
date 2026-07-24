@@ -740,8 +740,9 @@ Describe 'NetClean Phase 2 unit tests' {
             }
 
             It 'creates backup directory when not in dry-run mode' {
-                $null = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup'
+                $result = Invoke-NetCleanPhase2Protect -Context $script:context -BackupPath 'C:\backup'
 
+                $result.Phase | Should -Be 'Protect'
                 Should -Invoke New-DirectoryIfNotExist -Times 1 -ParameterFilter { $Path -eq 'C:\backup' }
                 Should -Invoke Set-NetCleanPrivateDirectoryAcl -Times 1 -ParameterFilter { $Path -eq 'C:\backup' }
             }

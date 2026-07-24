@@ -1081,16 +1081,11 @@ Describe 'NetClean Phase 3 unit tests' {
                 $result.Clean.Summary.AdaptersSkipped | Should -Be 0
                 $result.Clean.Summary.AdapterFailures | Should -Be 0
                 $result.Clean.Summary.PreferIPv4 | Should -BeTrue
+                # Also confirms the call site doesn't hard-code -Confirm:$false (a
+                # previously-fixed outlier that would silently disable the ambient
+                # $ConfirmPreference for this call while every cleanup sibling honors it).
                 Should -Invoke Reset-NetCleanAdapterConfigurationSafe -Times 1 -ParameterFilter {
-                    $Context -eq $script:Context -and $DryRun
-                }
-            }
-
-            It 'does not override Confirm on the adapter-reset call, unlike its cleanup siblings' {
-                Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun | Out-Null
-
-                Should -Invoke Reset-NetCleanAdapterConfigurationSafe -Times 1 -ParameterFilter {
-                    $null -eq $Confirm
+                    $Context -eq $script:Context -and $DryRun -and $null -eq $Confirm
                 }
             }
 
@@ -1119,18 +1114,32 @@ Describe 'NetClean Phase 3 unit tests' {
                 })
                 Mock Get-WiFiProfileName { @('NewSSID') }
 
-                $null = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun
-
-                Should -Invoke Remove-WiFiProfilesSafe -Times 1 -ParameterFilter {
-                    @($WifiProfiles).Count -eq 2 -and
-                    $WifiProfiles -contains 'BackedUpSSID' -and
-                    $WifiProfiles -contains 'NewSSID'
+                # Only echoes the merged list back when it actually received the
+                # union of both sources, so the assertions below are a real-output
+                # check, not just a call-argument inspection.
+                Mock Remove-WiFiProfilesSafe {
+                    if (@($WifiProfiles).Count -eq 2 -and
+                        $WifiProfiles -contains 'BackedUpSSID' -and
+                        $WifiProfiles -contains 'NewSSID') {
+                        [pscustomobject]@{ Removed = 2; Profiles = @($WifiProfiles); Operations = @() }
+                    }
+                    else {
+                        [pscustomobject]@{ Removed = 0; Profiles = @(); Operations = @() }
+                    }
                 }
+
+                $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun
+
+                @($result.Clean.WiFi.Profiles) | Should -Contain 'BackedUpSSID'
+                @($result.Clean.WiFi.Profiles) | Should -Contain 'NewSSID'
+                @($result.Clean.WiFi.Profiles).Count | Should -Be 2
             }
 
             It 'skips DNS cleanup when SkipDnsFlush is used' {
-                $null = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun -SkipDnsFlush
+                $result = Invoke-NetCleanPhase3Clean -Context $script:Context -Mode SafeConferencePrep -DryRun -SkipDnsFlush
 
+                $result.Clean.Dns.Skipped | Should -BeTrue
+                $result.Clean.Dns.Reason | Should -Be 'SkippedByOption'
                 Should -Invoke Clear-DnsCacheSafe -Times 0
                 Should -Invoke Clear-ArpCacheSafe -Times 1
             }

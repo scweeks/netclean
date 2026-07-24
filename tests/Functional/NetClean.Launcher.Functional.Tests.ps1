@@ -78,7 +78,25 @@ Describe 'NetClean launcher functional tests' {
     Context 'Launcher workflow invocation' {
 
         BeforeEach {
+            $script:Mode = 'SafeConferencePrep'
+            $script:DryRun = $false
+            $script:Force = $true
+            $script:CreateLog = $false
+            $script:BackupPath = $TestDrive
+            $script:LogPath = $TestDrive
+            $script:SkipWifi = $false
+            $script:SkipDnsFlush = $false
+            $script:SkipEventLogs = $false
+            $script:SkipUserArtifacts = $false
+            $script:SkipFirewallBackup = $false
+            $script:PerformanceProfile = $null
+            $script:PerformanceProfileExplicitlySet = $false
+            $script:RebootNow = $false
 
+            Mock Test-NetCleanAdministrator {}
+            Mock Show-ModeExplanation {}
+            Mock Start-NetCleanLog {}
+            Mock Write-NetCleanLog {}
             Mock Invoke-NetCleanWorkflow {
                 [pscustomobject]@{
                     Phase = 'Verify'
@@ -87,60 +105,29 @@ Describe 'NetClean launcher functional tests' {
                     }
                 }
             }
-
-            Mock Start-NetCleanLog {}
-            Mock Write-NetCleanLog {}
-
+            Mock Show-NetCleanSummary {}
+            Mock Read-PostRunAction { 'None' }
+            Mock Invoke-PostRunAction {}
         }
 
-        It 'calls workflow when script executes Preview mode' {
+        It 'passes the selected mode through to Invoke-NetCleanWorkflow' {
 
-            $options = Read-NetCleanOption -SelectedMode Preview
-
-            Invoke-NetCleanWorkflow `
-                -Mode $options.SelectedMode `
-                -DryRun:$options.DryRun `
-                -BackupPath "$TestDrive"
+            Invoke-NetCleanLauncher
 
             Should -Invoke Invoke-NetCleanWorkflow -Times 1 -ParameterFilter {
-                $Mode -eq 'Preview'
+                $Mode -eq 'SafeConferencePrep'
             }
 
         }
 
         It 'passes Skip switches into workflow' {
+            $script:SkipWifi = $true
+            $script:SkipDnsFlush = $true
 
-            $options = Read-NetCleanOption `
-                -SelectedMode SafeConferencePrep `
-                -SkipWifi `
-                -SkipDnsFlush
-
-            Invoke-NetCleanWorkflow `
-                -Mode $options.SelectedMode `
-                -SkipWifi:$options.SkipWifi `
-                -SkipDnsFlush:$options.SkipDnsFlush `
-                -BackupPath "$TestDrive"
+            Invoke-NetCleanLauncher
 
             Should -Invoke Invoke-NetCleanWorkflow -Times 1 -ParameterFilter {
                 $SkipWifi -and $SkipDnsFlush
-            }
-
-        }
-
-        It 'passes PerformanceProfile when using PerformanceTune mode' {
-
-            $options = Read-NetCleanOption `
-                -SelectedMode PerformanceTune `
-                -PerformanceProfile Gaming
-
-            Invoke-NetCleanWorkflow `
-                -Mode $options.SelectedMode `
-                -PerformanceProfile $options.PerformanceProfile `
-                -BackupPath "$TestDrive"
-
-            Should -Invoke Invoke-NetCleanWorkflow -Times 1 -ParameterFilter {
-                $Mode -eq 'PerformanceTune' -and
-                $PerformanceProfile -eq 'Gaming'
             }
 
         }
@@ -149,17 +136,47 @@ Describe 'NetClean launcher functional tests' {
 
     Context 'Logging initialization' {
 
+        BeforeEach {
+            $script:Mode = 'SafeConferencePrep'
+            $script:DryRun = $true
+            $script:Force = $true
+            $script:CreateLog = $false
+            $script:BackupPath = $TestDrive
+            $script:LogPath = $TestDrive
+            $script:SkipWifi = $false
+            $script:SkipDnsFlush = $false
+            $script:SkipEventLogs = $false
+            $script:SkipUserArtifacts = $false
+            $script:SkipFirewallBackup = $false
+            $script:PerformanceProfile = $null
+            $script:PerformanceProfileExplicitlySet = $false
+            $script:RebootNow = $false
+
+            Mock Test-NetCleanAdministrator {}
+            Mock Show-ModeExplanation {}
+            Mock Write-NetCleanLog {}
+            Mock Show-NetCleanSummary {}
+            Mock Read-PostRunAction { 'None' }
+            Mock Invoke-PostRunAction {}
+
+            $script:callOrder = [System.Collections.Generic.List[string]]::new()
+            Mock Start-NetCleanLog { [void]$script:callOrder.Add('Start-NetCleanLog') }
+            Mock Invoke-NetCleanWorkflow {
+                [void]$script:callOrder.Add('Invoke-NetCleanWorkflow')
+                [pscustomobject]@{
+                    Phase = 'Verify'
+                    Verify = [pscustomobject]@{
+                        Passed = $true
+                    }
+                }
+            }
+        }
+
         It 'initializes logging before workflow execution' {
 
-            Mock Start-NetCleanLog {}
-            Mock Invoke-NetCleanWorkflow {}
+            Invoke-NetCleanLauncher
 
-            Start-NetCleanLog -Directory "$TestDrive"
-
-            Invoke-NetCleanWorkflow -Mode Preview -BackupPath "$TestDrive" -DryRun
-
-            Should -Invoke Start-NetCleanLog -Times 1
-            Should -Invoke Invoke-NetCleanWorkflow -Times 1
+            $script:callOrder | Should -Be @('Start-NetCleanLog', 'Invoke-NetCleanWorkflow')
         }
 
     }
@@ -924,35 +941,52 @@ Describe 'NetClean launcher functional tests' {
         }
 
         It 'prints verification success message when workflow passes' {
-
-            Mock Invoke-NetCleanWorkflow {
-                [pscustomobject]@{
-                    Phase = 'Verify'
-                    Verify = [pscustomobject]@{
-                        Passed = $true
-                    }
+            $script:messages = [System.Collections.Generic.List[string]]::new()
+            Mock Write-Information {
+                if ($null -ne $MessageData) {
+                    [void]$script:messages.Add([string]$MessageData)
                 }
             }
+            Mock Get-NetCleanLogFile { $null }
 
-            $result = Invoke-NetCleanWorkflow -Mode Preview -BackupPath "$TestDrive" -DryRun
+            Show-NetCleanSummary -SelectedMode SafeConferencePrep -Result ([pscustomobject]@{
+                Verify = [pscustomobject]@{
+                    Summary = [pscustomobject]@{
+                        Passed              = $true
+                        MissingVendorsCount = 0
+                        MissingGuidCount    = 0
+                        MissingServiceCount = 0
+                    }
+                    VendorComparison = [pscustomobject]@{ Missing = @() }
+                }
+            })
 
-            $result.Verify.Passed | Should -BeTrue
+            $script:messages | Should -Contain '  Verification passed: True'
         }
 
-        It 'detects verification failure from workflow output' {
-
-            Mock Invoke-NetCleanWorkflow {
-                [pscustomobject]@{
-                    Phase = 'Verify'
-                    Verify = [pscustomobject]@{
-                        Passed = $false
-                    }
+        It 'prints verification failure message and missing vendor names when workflow fails' {
+            $script:messages = [System.Collections.Generic.List[string]]::new()
+            Mock Write-Information {
+                if ($null -ne $MessageData) {
+                    [void]$script:messages.Add([string]$MessageData)
                 }
             }
+            Mock Get-NetCleanLogFile { $null }
 
-            $result = Invoke-NetCleanWorkflow -Mode Preview -BackupPath "$TestDrive" -DryRun
+            Show-NetCleanSummary -SelectedMode SafeConferencePrep -Result ([pscustomobject]@{
+                Verify = [pscustomobject]@{
+                    Summary = [pscustomobject]@{
+                        Passed              = $false
+                        MissingVendorsCount = 1
+                        MissingGuidCount    = 0
+                        MissingServiceCount = 0
+                    }
+                    VendorComparison = [pscustomobject]@{ Missing = @('CrowdStrike') }
+                }
+            })
 
-            $result.Verify.Passed | Should -BeFalse
+            $script:messages | Should -Contain '  Verification passed: False'
+            $script:messages | Should -Contain '  Missing vendor names: CrowdStrike'
         }
 
     }

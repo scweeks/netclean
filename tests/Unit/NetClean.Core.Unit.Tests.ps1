@@ -413,22 +413,17 @@ Describe 'NetClean core/shared helper unit tests' {
         Context 'Set-NetCleanPrivateDirectoryAcl' {
 
             It 'applies a protected ACL to an existing directory' {
-                Mock Set-Acl {}
-
                 Set-NetCleanPrivateDirectoryAcl -Path $TestDrive
 
-                Should -Invoke Set-Acl -Times 1 -ParameterFilter {
-                    $LiteralPath -eq $TestDrive -and
-                    $AclObject.AreAccessRulesProtected
-                }
+                (Get-Acl -LiteralPath $TestDrive).AreAccessRulesProtected | Should -BeTrue
             }
 
             It 'honors WhatIf without applying an ACL' {
-                Mock Set-Acl {}
+                $before = (Get-Acl -LiteralPath $TestDrive).AreAccessRulesProtected
 
                 Set-NetCleanPrivateDirectoryAcl -Path $TestDrive -WhatIf
 
-                Should -Invoke Set-Acl -Times 0
+                (Get-Acl -LiteralPath $TestDrive).AreAccessRulesProtected | Should -Be $before
             }
 
             It 'fails closed when the directory does not exist' {
@@ -442,13 +437,10 @@ Describe 'NetClean core/shared helper unit tests' {
 
             It 'secures the directory before creating a log file' {
                 $logDir = Join-Path $TestDrive 'PrivateLogs'
-                Mock Set-NetCleanPrivateDirectoryAcl {}
 
                 Start-NetCleanLog -Directory $logDir
 
-                Should -Invoke Set-NetCleanPrivateDirectoryAcl -Times 1 -ParameterFilter {
-                    $Path -eq $logDir
-                }
+                (Get-Acl -LiteralPath $logDir).AreAccessRulesProtected | Should -BeTrue
             }
 
             It 'creates a log file in the target directory' {
@@ -614,13 +606,12 @@ Describe 'NetClean core/shared helper unit tests' {
         Context 'Invoke-NetCleanNativeCapture' {
 
             It 'captures successful native output' {
-                Mock Write-NetCleanLog {}
-                Mock Start-Process { throw 'This test expects direct invocation path to remain callable only if implemented differently.' }
+                $r = Invoke-NetCleanNativeCapture -FilePath 'cmd.exe' -ArgumentList @('/c', 'echo ok')
 
-                # If your implementation directly invokes native commands rather than Start-Process,
-                # replace this test later with a cmd.exe-based invocation using the real command.
-                { Invoke-NetCleanNativeCapture -FilePath 'cmd.exe' -ArgumentList @('/c', 'echo ok') -IgnoreExitCode } |
-                    Should -Not -Throw
+                $r.Succeeded | Should -BeTrue
+                $r.ExitCode | Should -Be 0
+                $r.Output | Should -Contain 'ok'
+                $r.Error | Should -BeNullOrEmpty
             }
 
             It 'captures non-zero exit code and respects IgnoreExitCode' {

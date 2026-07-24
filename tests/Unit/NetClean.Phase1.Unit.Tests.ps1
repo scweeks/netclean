@@ -727,8 +727,9 @@ Describe 'NetClean Phase 1 unit tests' {
                 Mock Get-ServiceRegistrySnapshot { $script:serviceSnapshot }
                 Mock Get-ProtectionEvidence { @() }
 
-                [void](Get-ProtectionInventory)
+                $result = @(Get-ProtectionInventory)
 
+                $result.Count | Should -Be 0
                 Should -Invoke Get-ServiceRegistrySnapshot -Times 1 -Exactly
                 Should -Invoke Get-ProtectionEvidence -Times 1 -Exactly -ParameterFilter {
                     @($ServiceRegistrySnapshot).Count -eq 1 -and

@@ -943,21 +943,40 @@ Describe 'NetClean Phase 4 unit tests' {
                         ServiceRegistry = @([pscustomobject]@{ Name = 'ContosoAgent' })
                     })
 
-                Test-NetCleanPostState -Context $script:context | Out-Null
-
-                Should -Invoke Get-ProtectionInventory -Times 1 -ParameterFilter {
-                    $ParallelSupplementalEvidence -and
-                    @($ServiceRegistrySnapshot).Count -eq 1 -and
-                    $ServiceRegistrySnapshot[0].Name -eq 'ContosoAgent'
+                # Only returns the real post-inventory when the snapshot/parallel flag were
+                # actually threaded through; otherwise Passed below would go False, so this
+                # is a real-output check, not just a call-argument inspection.
+                Mock Get-ProtectionInventory {
+                    if ($ParallelSupplementalEvidence -and
+                        @($ServiceRegistrySnapshot).Count -eq 1 -and
+                        $ServiceRegistrySnapshot[0].Name -eq 'ContosoAgent') {
+                        $script:postInventory
+                    }
+                    else {
+                        @()
+                    }
                 }
+
+                $result = Test-NetCleanPostState -Context $script:context
+
+                $result.Passed | Should -BeTrue
+                Should -Invoke Get-ProtectionInventory -Times 1
             }
 
             It 'falls back to a bare Get-ProtectionInventory call when no CollectionSnapshot is available' {
-                Test-NetCleanPostState -Context $script:context | Out-Null
-
-                Should -Invoke Get-ProtectionInventory -Times 1 -ParameterFilter {
-                    -not $ParallelSupplementalEvidence -and $null -eq $ServiceRegistrySnapshot
+                Mock Get-ProtectionInventory {
+                    if (-not $ParallelSupplementalEvidence -and $null -eq $ServiceRegistrySnapshot) {
+                        $script:postInventory
+                    }
+                    else {
+                        @()
+                    }
                 }
+
+                $result = Test-NetCleanPostState -Context $script:context
+
+                $result.Passed | Should -BeTrue
+                Should -Invoke Get-ProtectionInventory -Times 1
             }
 
             It 'fails when a protected vendor is missing' {
@@ -1326,8 +1345,9 @@ Describe 'NetClean Phase 4 unit tests' {
                     }
                 }
 
-                $null = Invoke-NetCleanPhase4Verify -Context $script:context
+                $result = Invoke-NetCleanPhase4Verify -Context $script:context
 
+                $result.Verify.VerificationReport | Should -Be 'C:\backup\VerificationReport.json'
                 Should -Invoke Export-NetCleanVerificationReport -Times 1 -ParameterFilter { $DryRun }
             }
 

@@ -256,7 +256,21 @@ Describe 'NetClean workflow functional tests' {
                     }
                 }
 
+                # Only returns a normal Clean result when it actually received every
+                # skip switch; otherwise it throws, so a real end-to-end failure -
+                # not just a call-argument inspection - proves the forwarding works.
                 Mock Invoke-NetCleanPhase3Clean {
+                    if (-not (
+                            $Mode -eq 'SafeConferencePrep' -and
+                            $DryRun -and
+                            $SkipWifi -and
+                            $SkipDnsFlush -and
+                            $SkipEventLogs -and
+                            $SkipUserArtifacts
+                        )) {
+                        throw 'Expected skip switches were not forwarded to Invoke-NetCleanPhase3Clean'
+                    }
+
                     [pscustomobject]@{
                         Phase      = 'Clean'
                         BackupPath = 'C:\backup'
@@ -299,7 +313,7 @@ Describe 'NetClean workflow functional tests' {
                 Mock Get-WiFiProfileName { @() }
                 Mock Get-NetworkListProfileName { @() }
 
-                $null = Invoke-NetCleanWorkflow `
+                $result = Invoke-NetCleanWorkflow `
                     -Mode SafeConferencePrep `
                     -BackupPath 'C:\backup' `
                     -DryRun `
@@ -308,14 +322,7 @@ Describe 'NetClean workflow functional tests' {
                     -SkipEventLogs `
                     -SkipUserArtifacts
 
-                Should -Invoke Invoke-NetCleanPhase3Clean -Times 1 -ParameterFilter {
-                    $Mode -eq 'SafeConferencePrep' -and
-                    $DryRun -and
-                    $SkipWifi -and
-                    $SkipDnsFlush -and
-                    $SkipEventLogs -and
-                    $SkipUserArtifacts
-                }
+                $result.Phase | Should -Be 'Verify'
             }
         }
 
@@ -346,7 +353,14 @@ Describe 'NetClean workflow functional tests' {
                     }
                 }
 
+                # Only returns a result with AdvancedRepairActions populated when it
+                # actually received Mode=AdvancedRepair, so the assertion below is a
+                # real-output check, not just a call-argument inspection.
                 Mock Invoke-NetCleanPhase3Clean {
+                    if ($Mode -ne 'AdvancedRepair') {
+                        throw 'Expected Mode=AdvancedRepair was not forwarded to Invoke-NetCleanPhase3Clean'
+                    }
+
                     [pscustomobject]@{
                         Phase      = 'Clean'
                         BackupPath = 'C:\backup'
@@ -392,7 +406,6 @@ Describe 'NetClean workflow functional tests' {
                 $result = Invoke-NetCleanWorkflow -Mode AdvancedRepair -BackupPath 'C:\backup' -DryRun
 
                 $result.Phase | Should -Be 'Verify'
-                Should -Invoke Invoke-NetCleanPhase3Clean -Times 1 -ParameterFilter { $Mode -eq 'AdvancedRepair' }
             }
         }
 
@@ -454,7 +467,15 @@ Describe 'NetClean workflow functional tests' {
                     }
                 }
 
+                # Only returns PerformanceTuningActions=1 when it actually received
+                # Mode=PerformanceTune and PerformanceProfile=Optimal, so the
+                # assertion below is a real-output check, not just a call-argument
+                # inspection.
                 Mock Invoke-NetCleanPhase3Clean {
+                    if (-not ($Mode -eq 'PerformanceTune' -and $PerformanceProfile -eq 'Optimal')) {
+                        throw 'Expected Mode/PerformanceProfile were not forwarded to Invoke-NetCleanPhase3Clean'
+                    }
+
                     [pscustomobject]@{
                         Phase              = 'Clean'
                         BackupPath         = 'C:\backup'
