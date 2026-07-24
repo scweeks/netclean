@@ -4,6 +4,120 @@
 
 <#
 .SYNOPSIS
+Builds a protection-evidence record with NetClean's standard 15-field shape.
+.DESCRIPTION
+Every evidence source (SecurityCenter2, Win32_Service, Win32_SystemDriver,
+Uninstall registry, WFP, NDIS, MSI, INF, ScheduledTask, AppX, ServiceRegistry,
+NetAdapter, PnpDevice) builds the same 15 fields, differing only in how each
+field is sourced and which extra fields (if any) are appended. Centralizing
+the shape here removes ~15 near-identical object literals.
+.PARAMETER Publisher
+Explicit publisher value. If omitted, defaults to -Meta's CompanyName (the
+common case) rather than always being null.
+.PARAMETER Extra
+Additional fields specific to one evidence source (e.g. ComponentId,
+RegistryPath, TaskPath), merged onto the standard 15 fields.
+#>
+function New-NetCleanEvidenceRecord {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure in-memory object constructor; the New- verb reflects object creation, not system state mutation, and is called dozens of times per detection pass.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Source,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ProductClass,
+
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$Name,
+
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$DisplayName,
+
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$Path,
+
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$Publisher,
+
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$InstallPath,
+
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$InterfaceDescription,
+
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$Manufacturer,
+
+        [AllowNull()]
+        [object]$Meta,
+
+        [AllowNull()]
+        [string[]]$VendorHintText,
+
+        [AllowNull()]
+        [object]$Instance,
+
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$CompanyNameFallback,
+
+        [AllowNull()]
+        [AllowEmptyString()]
+        [string]$ProductNameFallback,
+
+        [AllowNull()]
+        [hashtable]$Extra
+    )
+
+    $resolvedPublisher = if ($PSBoundParameters.ContainsKey('Publisher')) {
+        $Publisher
+    }
+    elseif ($Meta) {
+        $Meta.CompanyName
+    }
+    else {
+        $null
+    }
+
+    $record = [ordered]@{
+        Source               = $Source
+        ProductClass         = $ProductClass
+        Name                 = $Name
+        DisplayName          = $DisplayName
+        Path                 = $Path
+        Publisher            = $resolvedPublisher
+        InstallPath          = $InstallPath
+        InterfaceDescription = $InterfaceDescription
+        Manufacturer         = $Manufacturer
+        CompanyName          = if ($Meta) { $Meta.CompanyName } else { $CompanyNameFallback }
+        FileDescription      = if ($Meta) { $Meta.FileDescription } else { $null }
+        ProductName          = if ($Meta) { $Meta.ProductName } else { $ProductNameFallback }
+        SignerSubject        = if ($Meta) { $Meta.SignerSubject } else { $null }
+        InferredVendor       = if ($Meta -and $Meta.InferredVendor) { $Meta.InferredVendor } else { (Resolve-VendorFromText -Text $VendorHintText) }
+        Instance             = $Instance
+    }
+
+    if ($Extra) {
+        foreach ($key in $Extra.Keys) {
+            $record[$key] = $Extra[$key]
+        }
+    }
+
+    return [pscustomobject]$record
+}
+
+<#
+.SYNOPSIS
 Retrieves evidence of WFP (Windows Filtering Platform) state information.
 .DESCRIPTION
 Scans the WFP state to identify installed filter objects and extracts relevant properties. Attempts to infer the vendor based on known patterns.
@@ -694,23 +808,9 @@ function Get-ProtectionEvidence {
         $avProducts = Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName 'AntivirusProduct' -ErrorAction Stop
         foreach ($item in $avProducts) {
             $meta = Get-CachedFileMetadatum -Path $item.pathToSignedProductExe -Cache $FileMetadataCache
-            $evidence.Add([pscustomobject]@{
-                    Source               = 'SecurityCenter2'
-                    ProductClass         = 'AntivirusProduct'
-                    Name                 = $item.displayName
-                    DisplayName          = $item.displayName
-                    Path                 = $item.pathToSignedProductExe
-                    Publisher            = if ($meta) { $meta.CompanyName } else { $null }
-                    InstallPath          = $null
-                    InterfaceDescription = $null
-                    Manufacturer         = $null
-                    CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
-                    FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
-                    ProductName          = if ($meta) { $meta.ProductName } else { $null }
-                    SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                    InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($item.displayName)) }
-                    Instance             = $item
-                })
+            $evidence.Add((New-NetCleanEvidenceRecord -Source 'SecurityCenter2' -ProductClass 'AntivirusProduct' `
+                        -Name $item.displayName -DisplayName $item.displayName -Path $item.pathToSignedProductExe `
+                        -Meta $meta -VendorHintText @($item.displayName) -Instance $item))
         }
     }
     catch {
@@ -721,23 +821,9 @@ function Get-ProtectionEvidence {
         $fwProducts = Get-CimInstance -Namespace 'root/SecurityCenter2' -ClassName 'FirewallProduct' -ErrorAction Stop
         foreach ($item in $fwProducts) {
             $meta = Get-CachedFileMetadatum -Path $item.pathToSignedProductExe -Cache $FileMetadataCache
-            $evidence.Add([pscustomobject]@{
-                    Source               = 'SecurityCenter2'
-                    ProductClass         = 'FirewallProduct'
-                    Name                 = $item.displayName
-                    DisplayName          = $item.displayName
-                    Path                 = $item.pathToSignedProductExe
-                    Publisher            = if ($meta) { $meta.CompanyName } else { $null }
-                    InstallPath          = $null
-                    InterfaceDescription = $null
-                    Manufacturer         = $null
-                    CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
-                    FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
-                    ProductName          = if ($meta) { $meta.ProductName } else { $null }
-                    SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                    InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($item.displayName)) }
-                    Instance             = $item
-                })
+            $evidence.Add((New-NetCleanEvidenceRecord -Source 'SecurityCenter2' -ProductClass 'FirewallProduct' `
+                        -Name $item.displayName -DisplayName $item.displayName -Path $item.pathToSignedProductExe `
+                        -Meta $meta -VendorHintText @($item.displayName) -Instance $item))
         }
     }
     catch {
@@ -748,26 +834,11 @@ function Get-ProtectionEvidence {
         $services = Get-CimInstance Win32_Service -ErrorAction Stop
         foreach ($svc in $services) {
             $meta = Get-CachedFileMetadatum -Path $svc.PathName -Cache $FileMetadataCache
-            $evidence.Add([pscustomobject]@{
-                    Source               = 'Service'
-                    ProductClass         = 'Service'
-                    Name                 = $svc.Name
-                    DisplayName          = $svc.DisplayName
-                    Path                 = $svc.PathName
-                    Publisher            = if ($meta) { $meta.CompanyName } else { $null }
-                    InstallPath          = $null
-                    InterfaceDescription = $null
-                    Manufacturer         = $null
-                    CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
-                    FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
-                    ProductName          = if ($meta) { $meta.ProductName } else { $null }
-                    SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                    InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($svc.Name, $svc.DisplayName, $svc.PathName)) }
-                    State                = $svc.State
-                    StartMode            = $svc.StartMode
-                    ServiceType          = $svc.ServiceType
-                    Instance             = $svc
-                })
+            $record = New-NetCleanEvidenceRecord -Source 'Service' -ProductClass 'Service' `
+                -Name $svc.Name -DisplayName $svc.DisplayName -Path $svc.PathName `
+                -Meta $meta -VendorHintText @($svc.Name, $svc.DisplayName, $svc.PathName) -Instance $svc `
+                -Extra @{ State = $svc.State; StartMode = $svc.StartMode; ServiceType = $svc.ServiceType }
+            $evidence.Add($record)
         }
     }
     catch {
@@ -778,26 +849,11 @@ function Get-ProtectionEvidence {
         $drivers = Get-CimInstance Win32_SystemDriver -ErrorAction Stop
         foreach ($drv in $drivers) {
             $meta = Get-CachedFileMetadatum -Path $drv.PathName -Cache $FileMetadataCache
-            $evidence.Add([pscustomobject]@{
-                    Source               = 'Driver'
-                    ProductClass         = 'Driver'
-                    Name                 = $drv.Name
-                    DisplayName          = $drv.DisplayName
-                    Path                 = $drv.PathName
-                    Publisher            = if ($meta) { $meta.CompanyName } else { $null }
-                    InstallPath          = $null
-                    InterfaceDescription = $null
-                    Manufacturer         = $null
-                    CompanyName          = if ($meta) { $meta.CompanyName } else { $null }
-                    FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
-                    ProductName          = if ($meta) { $meta.ProductName } else { $null }
-                    SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                    InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($drv.Name, $drv.DisplayName, $drv.PathName)) }
-                    State                = $drv.State
-                    StartMode            = $drv.StartMode
-                    ServiceType          = $drv.ServiceType
-                    Instance             = $drv
-                })
+            $record = New-NetCleanEvidenceRecord -Source 'Driver' -ProductClass 'Driver' `
+                -Name $drv.Name -DisplayName $drv.DisplayName -Path $drv.PathName `
+                -Meta $meta -VendorHintText @($drv.Name, $drv.DisplayName, $drv.PathName) -Instance $drv `
+                -Extra @{ State = $drv.State; StartMode = $drv.StartMode; ServiceType = $drv.ServiceType }
+            $evidence.Add($record)
         }
     }
     catch {
@@ -822,24 +878,12 @@ function Get-ProtectionEvidence {
                         $meta = Get-CachedFileMetadatum -Path $displayIcon -Cache $FileMetadataCache
                     }
 
-                    $evidence.Add([pscustomobject]@{
-                            Source               = 'Uninstall'
-                            ProductClass         = 'InstalledProduct'
-                            Name                 = $displayName
-                            DisplayName          = $displayName
-                            Path                 = $displayIcon
-                            Publisher            = $publisher
-                            InstallPath          = $installLocation
-                            InterfaceDescription = $null
-                            Manufacturer         = $publisher
-                            CompanyName          = if ($meta) { $meta.CompanyName } else { $publisher }
-                            FileDescription      = if ($meta) { $meta.FileDescription } else { $null }
-                            ProductName          = if ($meta) { $meta.ProductName } else { $displayName }
-                            SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
-                            InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($displayName, $publisher, $installLocation, $uninstallString)) }
-                            UninstallString      = $uninstallString
-                            Instance             = $_
-                        })
+                    $evidence.Add((New-NetCleanEvidenceRecord -Source 'Uninstall' -ProductClass 'InstalledProduct' `
+                                -Name $displayName -DisplayName $displayName -Path $displayIcon `
+                                -Publisher $publisher -InstallPath $installLocation -Manufacturer $publisher `
+                                -Meta $meta -VendorHintText @($displayName, $publisher, $installLocation, $uninstallString) `
+                                -CompanyNameFallback $publisher -ProductNameFallback $displayName `
+                                -Instance $_ -Extra @{ UninstallString = $uninstallString }))
                 }
             }
         }
@@ -851,13 +895,6 @@ function Get-ProtectionEvidence {
     try {
         $adapters = Get-NetAdapter -IncludeHidden -ErrorAction Stop
         foreach ($adapter in $adapters) {
-            $vendor = Resolve-VendorFromText -Text @(
-                $adapter.Name,
-                $adapter.InterfaceDescription,
-                $adapter.DriverDescription,
-                $adapter.DriverFileName
-            )
-
             $guidValue = $null
             try {
                 $guidValue = $adapter.InterfaceGuid.Guid.ToString().ToLowerInvariant()
@@ -871,26 +908,12 @@ function Get-ProtectionEvidence {
                 }
             }
 
-            $evidence.Add([pscustomobject]@{
-                    Source               = 'NetAdapter'
-                    ProductClass         = 'Adapter'
-                    Name                 = $adapter.Name
-                    DisplayName          = $adapter.Name
-                    Path                 = $null
-                    Publisher            = $null
-                    InstallPath          = $null
-                    InterfaceDescription = $adapter.InterfaceDescription
-                    Manufacturer         = $null
-                    CompanyName          = $null
-                    FileDescription      = $null
-                    ProductName          = $adapter.InterfaceDescription
-                    SignerSubject        = $null
-                    InferredVendor       = $vendor
-                    InterfaceGuid        = $guidValue
-                    MacAddress           = $adapter.MacAddress
-                    Status               = $adapter.Status
-                    Instance             = $adapter
-                })
+            $record = New-NetCleanEvidenceRecord -Source 'NetAdapter' -ProductClass 'Adapter' `
+                -Name $adapter.Name -DisplayName $adapter.Name -InterfaceDescription $adapter.InterfaceDescription `
+                -ProductNameFallback $adapter.InterfaceDescription -Instance $adapter `
+                -VendorHintText @($adapter.Name, $adapter.InterfaceDescription, $adapter.DriverDescription, $adapter.DriverFileName) `
+                -Extra @{ InterfaceGuid = $guidValue; MacAddress = $adapter.MacAddress; Status = $adapter.Status }
+            $evidence.Add($record)
         }
     }
     catch {
@@ -900,32 +923,12 @@ function Get-ProtectionEvidence {
     try {
         $pnpNet = Get-PnpDevice -Class Net -ErrorAction Stop
         foreach ($dev in $pnpNet) {
-            $vendor = Resolve-VendorFromText -Text @(
-                $dev.FriendlyName,
-                $dev.Manufacturer,
-                $dev.InstanceId
-            )
-
-            $evidence.Add([pscustomobject]@{
-                    Source               = 'PnpDevice'
-                    ProductClass         = 'NetDevice'
-                    Name                 = $dev.FriendlyName
-                    DisplayName          = $dev.FriendlyName
-                    Path                 = $null
-                    Publisher            = $null
-                    InstallPath          = $null
-                    InterfaceDescription = $dev.FriendlyName
-                    Manufacturer         = $dev.Manufacturer
-                    CompanyName          = $dev.Manufacturer
-                    FileDescription      = $null
-                    ProductName          = $dev.FriendlyName
-                    SignerSubject        = $null
-                    InferredVendor       = $vendor
-                    InstanceId           = $dev.InstanceId
-                    Status               = $dev.Status
-                    Class                = $dev.Class
-                    Instance             = $dev
-                })
+            $record = New-NetCleanEvidenceRecord -Source 'PnpDevice' -ProductClass 'NetDevice' `
+                -Name $dev.FriendlyName -DisplayName $dev.FriendlyName -InterfaceDescription $dev.FriendlyName `
+                -Manufacturer $dev.Manufacturer -CompanyNameFallback $dev.Manufacturer -ProductNameFallback $dev.FriendlyName `
+                -VendorHintText @($dev.FriendlyName, $dev.Manufacturer, $dev.InstanceId) -Instance $dev `
+                -Extra @{ InstanceId = $dev.InstanceId; Status = $dev.Status; Class = $dev.Class }
+            $evidence.Add($record)
         }
     }
     catch {
