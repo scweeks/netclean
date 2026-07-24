@@ -50,11 +50,32 @@ jobs:
             Sort-Object Version -Descending |
             Select-Object -First 5 Name, Version, Path
 
+      - name: Resolve PowerShell 7 user module path
+        id: modpath
+        run: |
+          $path = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'PowerShell\Modules'
+          "path=$path" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Cache PowerShell modules
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.modpath.outputs.path }}
+          # Cache is keyed on the exact pinned versions below - bump this key's
+          # version numbers whenever RequiredVersion changes in the step below,
+          # so a version bump naturally forces a fresh install instead of
+          # reusing a stale cached copy.
+          key: ps7-modules-Pester6.0.1-PSScriptAnalyzer1.25.0-v1
+
       - name: Install PowerShell test and analysis tools
         run: |
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module Pester -Scope CurrentUser -RequiredVersion 6.0.1 -Force -SkipPublisherCheck -ErrorAction Stop
-          Install-Module PSScriptAnalyzer -Scope CurrentUser -RequiredVersion 1.25.0 -Force -ErrorAction Stop
+          if (-not (Get-Module -ListAvailable -Name Pester | Where-Object Version -eq ([version]'6.0.1'))) {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module Pester -Scope CurrentUser -RequiredVersion 6.0.1 -Force -SkipPublisherCheck -ErrorAction Stop
+          }
+          if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer | Where-Object Version -eq ([version]'1.25.0'))) {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module PSScriptAnalyzer -Scope CurrentUser -RequiredVersion 1.25.0 -Force -ErrorAction Stop
+          }
           Import-Module Pester -RequiredVersion 6.0.1 -Force -ErrorAction Stop
           if ((Get-Module Pester).Version -ne [version]'6.0.1') {
             throw 'CI requires Pester 6.0.1.'
@@ -206,13 +227,34 @@ jobs:
             throw 'This job requires Windows PowerShell 5.1.'
           }
 
+      - name: Resolve Windows PowerShell user module path
+        id: modpath
+        run: |
+          $path = Join-Path ([Environment]::GetFolderPath('MyDocuments')) 'WindowsPowerShell\Modules'
+          "path=$path" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Cache PowerShell modules
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.modpath.outputs.path }}
+          # Cache is keyed on the exact pinned versions below - bump this key's
+          # version numbers whenever RequiredVersion changes in the step below,
+          # so a version bump naturally forces a fresh install instead of
+          # reusing a stale cached copy.
+          key: ps51-modules-Pester6.0.1-PSScriptAnalyzer1.25.0-v1
+
       - name: Install compatibility test tools
         run: |
           [Net.ServicePointManager]::SecurityProtocol =
             [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module Pester -Scope CurrentUser -RequiredVersion 6.0.1 -Force -SkipPublisherCheck -ErrorAction Stop
-          Install-Module PSScriptAnalyzer -Scope CurrentUser -RequiredVersion 1.25.0 -Force -ErrorAction Stop
+          if (-not (Get-Module -ListAvailable -Name Pester | Where-Object Version -eq ([version]'6.0.1'))) {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module Pester -Scope CurrentUser -RequiredVersion 6.0.1 -Force -SkipPublisherCheck -ErrorAction Stop
+          }
+          if (-not (Get-Module -ListAvailable -Name PSScriptAnalyzer | Where-Object Version -eq ([version]'1.25.0'))) {
+            Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+            Install-Module PSScriptAnalyzer -Scope CurrentUser -RequiredVersion 1.25.0 -Force -ErrorAction Stop
+          }
           Import-Module Pester -RequiredVersion 6.0.1 -Force -ErrorAction Stop
           Import-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -ErrorAction Stop
 
