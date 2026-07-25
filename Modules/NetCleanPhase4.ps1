@@ -1154,7 +1154,7 @@ function Invoke-NetCleanPhase4Verify {
         [pscustomobject]$Context
     )
 
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message 'Invoke-NetCleanPhase4Verify: starting verification.' }
+    Write-NetCleanLog -Level INFO -Message 'Invoke-NetCleanPhase4Verify: starting verification.'
 
     $verification = Test-NetCleanPostState -Context $Context
     $verificationReport = $null
@@ -1202,91 +1202,89 @@ function Invoke-NetCleanPhase4Verify {
             }
         }) -Force
 
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) { Write-NetCleanLog -Level INFO -Message ('Invoke-NetCleanPhase4Verify: verification complete. Passed={0}' -f $verification.Passed) }
+    Write-NetCleanLog -Level INFO -Message ('Invoke-NetCleanPhase4Verify: verification complete. Passed={0}' -f $verification.Passed)
 
     # Detailed verification logging
-    if ($null -ne (Get-Command Write-NetCleanLog -ErrorAction SilentlyContinue)) {
-        if ($verification.VendorComparison -and $verification.VendorComparison.Missing.Count -gt 0) {
-            Write-NetCleanLog -Level WARN -Message ("Verification: Missing vendors: {0}" -f ($verification.VendorComparison.Missing -join ', '))
+    if ($verification.VendorComparison -and $verification.VendorComparison.Missing.Count -gt 0) {
+        Write-NetCleanLog -Level WARN -Message ("Verification: Missing vendors: {0}" -f ($verification.VendorComparison.Missing -join ', '))
+    }
+    else {
+        Write-NetCleanLog -Level INFO -Message 'Verification: No missing vendors detected.'
+    }
+
+    if ($verification.GuidComparison -and $verification.GuidComparison.Missing.Count -gt 0) {
+        Write-NetCleanLog -Level WARN -Message ("Verification: Missing GUIDs: {0}" -f ($verification.GuidComparison.Missing -join ', '))
+    }
+    else {
+        Write-NetCleanLog -Level INFO -Message 'Verification: No missing protected GUIDs detected.'
+    }
+
+    if ($verification.ServiceComparison -and $verification.ServiceComparison.Missing.Count -gt 0) {
+        Write-NetCleanLog -Level WARN -Message ("Verification: Missing services: {0}" -f ($verification.ServiceComparison.Missing -join ', '))
+    }
+    else {
+        Write-NetCleanLog -Level INFO -Message 'Verification: No missing protected services detected.'
+    }
+
+    if (@($verification.RemainingWiFiProfiles).Count -gt 0) {
+        Write-NetCleanLog -Level WARN -Message ("Verification: Remaining Wi-Fi profiles: {0}" -f ($verification.RemainingWiFiProfiles -join ', '))
+    }
+
+    if (@($verification.RemainingNetworkProfiles).Count -gt 0) {
+        Write-NetCleanLog -Level WARN -Message ("Verification: Remaining NetworkList profiles: {0}" -f ($verification.RemainingNetworkProfiles -join ', '))
+    }
+
+    foreach ($check in @($verification.AdapterVerification.Checks)) {
+        $level = if ($check.Passed) { 'INFO' } else { 'WARN' }
+        $message = 'Verification: {0} Target={1} Passed={2} Expected={3} Actual={4}' -f `
+            $check.Category,
+            $check.Target,
+            $check.Passed,
+            (@($check.Expected) -join ', '),
+            (@($check.Actual) -join ', ')
+        if ($check.Error) {
+            $message += " Error=$($check.Error)"
+        }
+        Write-NetCleanLog -Level $level -Message $message
+    }
+
+    foreach ($check in @($verification.CleanupVerification.Checks)) {
+        $level = if ($check.Passed) { 'INFO' } else { 'WARN' }
+        $applicable = if ($check.PSObject.Properties.Name -contains 'Applicable') {
+            [bool]$check.Applicable
         }
         else {
-            Write-NetCleanLog -Level INFO -Message 'Verification: No missing vendors detected.'
+            $true
         }
-
-        if ($verification.GuidComparison -and $verification.GuidComparison.Missing.Count -gt 0) {
-            Write-NetCleanLog -Level WARN -Message ("Verification: Missing GUIDs: {0}" -f ($verification.GuidComparison.Missing -join ', '))
-        }
-        else {
-            Write-NetCleanLog -Level INFO -Message 'Verification: No missing protected GUIDs detected.'
-        }
-
-        if ($verification.ServiceComparison -and $verification.ServiceComparison.Missing.Count -gt 0) {
-            Write-NetCleanLog -Level WARN -Message ("Verification: Missing services: {0}" -f ($verification.ServiceComparison.Missing -join ', '))
+        $expected = if ($check.PSObject.Properties.Name -contains 'Expected') {
+            @($check.Expected) -join ', '
         }
         else {
-            Write-NetCleanLog -Level INFO -Message 'Verification: No missing protected services detected.'
+            $null
         }
-
-        if (@($verification.RemainingWiFiProfiles).Count -gt 0) {
-            Write-NetCleanLog -Level WARN -Message ("Verification: Remaining Wi-Fi profiles: {0}" -f ($verification.RemainingWiFiProfiles -join ', '))
+        $actual = if ($check.PSObject.Properties.Name -contains 'Actual') {
+            @($check.Actual) -join ', '
         }
-
-        if (@($verification.RemainingNetworkProfiles).Count -gt 0) {
-            Write-NetCleanLog -Level WARN -Message ("Verification: Remaining NetworkList profiles: {0}" -f ($verification.RemainingNetworkProfiles -join ', '))
+        else {
+            $null
         }
-
-        foreach ($check in @($verification.AdapterVerification.Checks)) {
-            $level = if ($check.Passed) { 'INFO' } else { 'WARN' }
-            $message = 'Verification: {0} Target={1} Passed={2} Expected={3} Actual={4}' -f `
-                $check.Category,
-                $check.Target,
-                $check.Passed,
-                (@($check.Expected) -join ', '),
-                (@($check.Actual) -join ', ')
-            if ($check.Error) {
-                $message += " Error=$($check.Error)"
-            }
-            Write-NetCleanLog -Level $level -Message $message
+        $errorMessage = if ($check.PSObject.Properties.Name -contains 'Error') {
+            $check.Error
         }
-
-        foreach ($check in @($verification.CleanupVerification.Checks)) {
-            $level = if ($check.Passed) { 'INFO' } else { 'WARN' }
-            $applicable = if ($check.PSObject.Properties.Name -contains 'Applicable') {
-                [bool]$check.Applicable
-            }
-            else {
-                $true
-            }
-            $expected = if ($check.PSObject.Properties.Name -contains 'Expected') {
-                @($check.Expected) -join ', '
-            }
-            else {
-                $null
-            }
-            $actual = if ($check.PSObject.Properties.Name -contains 'Actual') {
-                @($check.Actual) -join ', '
-            }
-            else {
-                $null
-            }
-            $errorMessage = if ($check.PSObject.Properties.Name -contains 'Error') {
-                $check.Error
-            }
-            else {
-                $null
-            }
-            $message = 'Verification: {0} Target={1} Applicable={2} Passed={3} Expected={4} Actual={5}' -f `
-                $check.Category,
-                $check.Target,
-                $applicable,
-                $check.Passed,
-                $expected,
-                $actual
-            if ($errorMessage) {
-                $message += " Error=$errorMessage"
-            }
-            Write-NetCleanLog -Level $level -Message $message
+        else {
+            $null
         }
+        $message = 'Verification: {0} Target={1} Applicable={2} Passed={3} Expected={4} Actual={5}' -f `
+            $check.Category,
+            $check.Target,
+            $applicable,
+            $check.Passed,
+            $expected,
+            $actual
+        if ($errorMessage) {
+            $message += " Error=$errorMessage"
+        }
+        Write-NetCleanLog -Level $level -Message $message
     }
 
     # Console summary for verification
