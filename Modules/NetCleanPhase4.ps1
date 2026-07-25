@@ -366,12 +366,7 @@ function Test-NetCleanCleanupPostState {
             $operation.PSObject.Properties.Name -contains 'Succeeded' -and
             [bool]$operation.Succeeded
         )
-        $errorMessage = if ($operation.PSObject.Properties.Name -contains 'Error') {
-            $operation.Error
-        }
-        else {
-            $null
-        }
+        $errorMessage = Get-NetCleanSafeProperty -InputObject $operation -Name 'Error'
 
         $actualCacheState = if ($skippedByOption) { 'SkippedByOption' } elseif ($succeeded) { 'Succeeded' } else { 'Failed' }
         $checks.Add((New-NetCleanVerificationCheck -Category 'VolatileCacheAction' -Target $operation.Name -VerificationType 'CommandResult' `
@@ -389,12 +384,7 @@ function Test-NetCleanCleanupPostState {
             }
 
             $target = $operation.RegistryPath
-            $reason = if ($operation.PSObject.Properties.Name -contains 'Reason') {
-                $operation.Reason
-            }
-            else {
-                $null
-            }
+            $reason = Get-NetCleanSafeProperty -InputObject $operation -Name 'Reason'
             $succeeded = (
                 $operation.PSObject.Properties.Name -contains 'Succeeded' -and
                 [bool]$operation.Succeeded
@@ -444,12 +434,7 @@ function Test-NetCleanCleanupPostState {
                 continue
             }
 
-            $reason = if ($operation.PSObject.Properties.Name -contains 'Reason') {
-                $operation.Reason
-            }
-            else {
-                $null
-            }
+            $reason = Get-NetCleanSafeProperty -InputObject $operation -Name 'Reason'
             $succeeded = (
                 $operation.PSObject.Properties.Name -contains 'Succeeded' -and
                 [bool]$operation.Succeeded
@@ -496,12 +481,7 @@ function Test-NetCleanCleanupPostState {
                 $operation.PSObject.Properties.Name -contains 'Succeeded' -and
                 [bool]$operation.Succeeded
             )
-            $completedAt = if ($operation.PSObject.Properties.Name -contains 'CompletedAt') {
-                $operation.CompletedAt
-            }
-            else {
-                $null
-            }
+            $completedAt = Get-NetCleanSafeProperty -InputObject $operation -Name 'CompletedAt'
 
             if ($cleared -and $succeeded -and $completedAt) {
                 try {
@@ -528,12 +508,7 @@ function Test-NetCleanCleanupPostState {
                 continue
             }
 
-            $errorMessage = if ($operation.PSObject.Properties.Name -contains 'Error') {
-                $operation.Error
-            }
-            else {
-                $null
-            }
+            $errorMessage = Get-NetCleanSafeProperty -InputObject $operation -Name 'Error'
             $eventLogTarget = if ($operation.PSObject.Properties.Name -contains 'LogName') { $operation.LogName } else { $operation.Name }
             $eventLogActual = if (-not $succeeded) { 'Failed' } elseif (-not $cleared) { 'NotCleared' } else { 'MissingCompletionTime' }
             $checks.Add((New-NetCleanVerificationCheck -Category 'EventLog' -Target $eventLogTarget -VerificationType 'CommandResult' `
@@ -558,12 +533,7 @@ function Test-NetCleanCleanupPostState {
                 $operation.PSObject.Properties.Name -contains 'Succeeded' -and
                 [bool]$operation.Succeeded
             )
-            $errorMessage = if ($operation.PSObject.Properties.Name -contains 'Error') {
-                $operation.Error
-            }
-            else {
-                $null
-            }
+            $errorMessage = Get-NetCleanSafeProperty -InputObject $operation -Name 'Error'
             $checks.Add((New-NetCleanVerificationCheck -Category $operationGroup.Category -Target $operation.Name -VerificationType 'CommandResult' `
                         -Expected 'Succeeded' -Actual $(if ($succeeded) { 'Succeeded' } else { 'Failed' }) -Passed $succeeded -ErrorMessage $errorMessage))
         }
@@ -1172,12 +1142,7 @@ function Invoke-NetCleanPhase4Verify {
         else {
             $null
         }
-        $errorMessage = if ($check.PSObject.Properties.Name -contains 'Error') {
-            $check.Error
-        }
-        else {
-            $null
-        }
+        $errorMessage = Get-NetCleanSafeProperty -InputObject $check -Name 'Error'
         $message = 'Verification: {0} Target={1} Applicable={2} Passed={3} Expected={4} Actual={5}' -f `
             $check.Category,
             $check.Target,

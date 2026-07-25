@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     NetClean PowerShell module
 .DESCRIPTION
@@ -1711,6 +1711,34 @@ function Get-CachedFileMetadatum {
     return $Cache[$cacheKey]
 }
 
+<#
+.SYNOPSIS
+Reads one property from an object only if that property actually exists.
+.DESCRIPTION
+Registry-derived and other dynamically-shaped objects (Get-ItemProperty results,
+CIM/WMI records) don't reliably carry every property real-world data might omit -
+under Set-StrictMode, reading a missing property throws. This is the shared
+"read Name from InputObject if present, else null" guard used throughout the
+evidence-collection and snapshot code.
+#>
+function Get-NetCleanSafeProperty {
+    [CmdletBinding()]
+    [OutputType([object])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [object]$InputObject,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Name
+    )
+
+    if ($null -ne $InputObject -and $InputObject.PSObject.Properties.Name -contains $Name) {
+        return $InputObject.$Name
+    }
+    return $null
+}
+
 function Get-ServiceRegistrySnapshot {
     [CmdletBinding()]
     [OutputType([System.Object[]])]
@@ -1812,10 +1840,10 @@ function Get-AdapterRegistryCorrelation {
         $props = Get-RegistryValuesSafe -RegistryPath $classPath
         if ($null -eq $props) { continue }
 
-        $componentId = if ($props.PSObject.Properties.Name -contains 'ComponentId') { $props.ComponentId } else { $null }
-        $driverDesc = if ($props.PSObject.Properties.Name -contains 'DriverDesc') { $props.DriverDesc } else { $null }
-        $providerName = if ($props.PSObject.Properties.Name -contains 'ProviderName') { $props.ProviderName } else { $null }
-        $netCfgInstanceId = if ($props.PSObject.Properties.Name -contains 'NetCfgInstanceId') { $props.NetCfgInstanceId } else { $null }
+        $componentId = Get-NetCleanSafeProperty -InputObject $props -Name 'ComponentId'
+        $driverDesc = Get-NetCleanSafeProperty -InputObject $props -Name 'DriverDesc'
+        $providerName = Get-NetCleanSafeProperty -InputObject $props -Name 'ProviderName'
+        $netCfgInstanceId = Get-NetCleanSafeProperty -InputObject $props -Name 'NetCfgInstanceId'
 
         $networkPath = $null
         $connectionPath = $null

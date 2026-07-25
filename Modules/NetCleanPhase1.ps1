@@ -251,9 +251,9 @@ function Get-NdisFilterClassEvidence {
 
         if ($text.Count -eq 0) { continue }
 
-        $driverDesc = if ($props.PSObject.Properties.Name -contains 'DriverDesc') { $props.DriverDesc }   else { $null }
-        $providerName = if ($props.PSObject.Properties.Name -contains 'ProviderName') { $props.ProviderName } else { $null }
-        $componentId = if ($props.PSObject.Properties.Name -contains 'ComponentId') { $props.ComponentId }  else { $null }
+        $driverDesc = Get-NetCleanSafeProperty -InputObject $props -Name 'DriverDesc'
+        $providerName = Get-NetCleanSafeProperty -InputObject $props -Name 'ProviderName'
+        $componentId = Get-NetCleanSafeProperty -InputObject $props -Name 'ComponentId'
 
         $vendor = Resolve-VendorFromText -Text $text.ToArray()
 
@@ -325,7 +325,7 @@ function Get-NdisServiceBindingEvidence {
         # A caller-supplied snapshot (e.g. Get-ProtectionEvidence's own internal
         # snapshot construction) may not include LinkageValues at all - it's
         # specific to this function's own default-collection shape.
-        $linkage = if ($serviceEntry.PSObject.Properties.Name -contains 'LinkageValues') { $serviceEntry.LinkageValues } else { $null }
+        $linkage = Get-NetCleanSafeProperty -InputObject $serviceEntry -Name 'LinkageValues'
         $props = $serviceEntry.Values
 
         $tokens = New-Object System.Collections.Generic.List[string]
@@ -449,35 +449,13 @@ function Get-MsiRegistryEvidence {
             $props = Get-RegistryValuesSafe -RegistryPath $productPath
             if ($null -eq $props) { continue }
 
-            $displayName = if ($props.PSObject.Properties.Name -contains 'DisplayName') {
-                $props.DisplayName
-            }
-            else {
-                $null
-            }
+            $displayName = Get-NetCleanSafeProperty -InputObject $props -Name 'DisplayName'
 
             if ([string]::IsNullOrWhiteSpace([string]$displayName)) { continue }
 
-            $publisher = if ($props.PSObject.Properties.Name -contains 'Publisher') {
-                $props.Publisher
-            }
-            else {
-                $null
-            }
-
-            $installLocation = if ($props.PSObject.Properties.Name -contains 'InstallLocation') {
-                $props.InstallLocation
-            }
-            else {
-                $null
-            }
-
-            $uninstallString = if ($props.PSObject.Properties.Name -contains 'UninstallString') {
-                $props.UninstallString
-            }
-            else {
-                $null
-            }
+            $publisher = Get-NetCleanSafeProperty -InputObject $props -Name 'Publisher'
+            $installLocation = Get-NetCleanSafeProperty -InputObject $props -Name 'InstallLocation'
+            $uninstallString = Get-NetCleanSafeProperty -InputObject $props -Name 'UninstallString'
 
             $vendorText = New-Object 'System.Collections.Generic.List[string]'
             foreach ($value in @($displayName, $publisher, $installLocation, $uninstallString)) {
@@ -866,12 +844,12 @@ function Get-ProtectionEvidence {
         )) {
         try {
             Get-ItemProperty -Path $root -ErrorAction SilentlyContinue | ForEach-Object {
-                $displayName = if ($_.PSObject.Properties.Name -contains 'DisplayName') { $_.DisplayName } else { $null }
+                $displayName = Get-NetCleanSafeProperty -InputObject $_ -Name 'DisplayName'
                 if ($displayName) {
-                    $displayIcon = if ($_.PSObject.Properties.Name -contains 'DisplayIcon') { $_.DisplayIcon } else { $null }
-                    $publisher = if ($_.PSObject.Properties.Name -contains 'Publisher') { $_.Publisher } else { $null }
-                    $installLocation = if ($_.PSObject.Properties.Name -contains 'InstallLocation') { $_.InstallLocation } else { $null }
-                    $uninstallString = if ($_.PSObject.Properties.Name -contains 'UninstallString') { $_.UninstallString } else { $null }
+                    $displayIcon = Get-NetCleanSafeProperty -InputObject $_ -Name 'DisplayIcon'
+                    $publisher = Get-NetCleanSafeProperty -InputObject $_ -Name 'Publisher'
+                    $installLocation = Get-NetCleanSafeProperty -InputObject $_ -Name 'InstallLocation'
+                    $uninstallString = Get-NetCleanSafeProperty -InputObject $_ -Name 'UninstallString'
 
                     $meta = $null
                     if ($displayIcon) {
@@ -956,8 +934,8 @@ function Get-ProtectionEvidence {
             $svcProps = $serviceEntry.Values
             if ($null -eq $svcProps) { continue }
 
-            $imagePath = if ($svcProps.PSObject.Properties.Name -contains 'ImagePath') { $svcProps.ImagePath } else { $null }
-            $displayName = if ($svcProps.PSObject.Properties.Name -contains 'DisplayName') { $svcProps.DisplayName } else { $null }
+            $imagePath = Get-NetCleanSafeProperty -InputObject $svcProps -Name 'ImagePath'
+            $displayName = Get-NetCleanSafeProperty -InputObject $svcProps -Name 'DisplayName'
             $meta = Get-CachedFileMetadatum -Path $imagePath -Cache $FileMetadataCache
 
             $evidence.Add([pscustomobject]@{
@@ -976,9 +954,9 @@ function Get-ProtectionEvidence {
                     SignerSubject        = if ($meta) { $meta.SignerSubject } else { $null }
                     InferredVendor       = if ($meta -and $meta.InferredVendor) { $meta.InferredVendor } else { (Resolve-VendorFromText -Text @($svcName, $displayName, $imagePath)) }
                     ServiceRegistryPath  = $svcRegPath
-                    Start                = if ($svcProps.PSObject.Properties.Name -contains 'Start') { $svcProps.Start } else { $null }
-                    Type                 = if ($svcProps.PSObject.Properties.Name -contains 'Type') { $svcProps.Type } else { $null }
-                    Group                = if ($svcProps.PSObject.Properties.Name -contains 'Group') { $svcProps.Group } else { $null }
+                    Start = Get-NetCleanSafeProperty -InputObject $svcProps -Name 'Start'
+                    Type = Get-NetCleanSafeProperty -InputObject $svcProps -Name 'Type'
+                    Group = Get-NetCleanSafeProperty -InputObject $svcProps -Name 'Group'
                     Instance             = $svcProps
                 })
         }

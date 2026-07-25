@@ -81,14 +81,14 @@ function Get-NetworkListProfileSnapshot {
             foreach ($c in $children) {
                 try {
                     $properties = Get-ItemProperty -LiteralPath $c.PSPath -ErrorAction SilentlyContinue
-                    $profileName = if ($properties -and $properties.PSObject.Properties.Name -contains 'ProfileName') { $properties.ProfileName } else { $null }
+                    $profileName = Get-NetCleanSafeProperty -InputObject $properties -Name 'ProfileName'
                     if ($profileName) {
                         $profiles.Add([pscustomobject]@{
                                 Name         = [string]$profileName
                                 ProfileGuid  = [string]$c.PSChildName
-                                Category     = if ($properties.PSObject.Properties.Name -contains 'Category') { $properties.Category } else { $null }
-                                Description  = if ($properties.PSObject.Properties.Name -contains 'Description') { $properties.Description } else { $null }
-                                Managed      = if ($properties.PSObject.Properties.Name -contains 'Managed') { $properties.Managed } else { $null }
+                                Category = Get-NetCleanSafeProperty -InputObject $properties -Name 'Category'
+                                Description = Get-NetCleanSafeProperty -InputObject $properties -Name 'Description'
+                                Managed = Get-NetCleanSafeProperty -InputObject $properties -Name 'Managed'
                                 RegistryPath = "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\NetworkList\Profiles\$($c.PSChildName)"
                             })
                     }
