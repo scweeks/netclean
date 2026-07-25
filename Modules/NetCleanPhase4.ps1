@@ -4,6 +4,146 @@
 
 <#
 .SYNOPSIS
+Builds the standard "not applicable" verification result shared by every
+Phase 4 Test-NetClean*PostState function's early-return paths.
+#>
+function New-NetCleanNotApplicableResult {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure in-memory object constructor; the New- verb reflects object creation, not system state mutation.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Reason
+    )
+
+    return [pscustomobject]@{
+        Applicable = $false
+        Passed     = $true
+        Reason     = $Reason
+        Checks     = @()
+    }
+}
+
+<#
+.SYNOPSIS
+Builds one Phase 4 verification-check entry with NetClean's standard shape.
+.DESCRIPTION
+Category/Target/Expected/Actual/Passed/Error are always present. VerificationType
+and Applicable are only included when the caller supplies them, since some check
+families (e.g. adapter checks) never had those fields and some (e.g. WiFiConnection/
+DnsCache/ArpCache checks) always do - this preserves each family's original shape.
+#>
+function New-NetCleanVerificationCheck {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure in-memory object constructor; the New- verb reflects object creation, not system state mutation.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Category,
+
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [object]$Target,
+
+        [string]$VerificationType,
+
+        [bool]$Applicable,
+
+        [AllowNull()]
+        [object]$Expected,
+
+        [AllowNull()]
+        [object]$Actual,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$Passed,
+
+        [AllowNull()]
+        [object]$ErrorMessage
+    )
+
+    $record = [ordered]@{
+        Category = $Category
+        Target   = $Target
+    }
+    if ($PSBoundParameters.ContainsKey('VerificationType')) {
+        $record.VerificationType = $VerificationType
+    }
+    if ($PSBoundParameters.ContainsKey('Applicable')) {
+        $record.Applicable = $Applicable
+    }
+    $record.Expected = $Expected
+    $record.Actual = $Actual
+    $record.Passed = $Passed
+    $record.Error = $ErrorMessage
+
+    return [pscustomobject]$record
+}
+
+<#
+.SYNOPSIS
+Builds one artifact-decision verification entry for Test-NetCleanArtifactRemovalPostState.
+.DESCRIPTION
+Decides the Detail message from whether the decision was verified, using the
+caller-supplied wording for the two distinct "not verified" cases (still present
+when it should have been removed, vs. missing when it should have been preserved) -
+those messages differ between the NetworkProfileDecisions and CandidateArtifacts
+call sites.
+#>
+function New-NetCleanArtifactDecisionCheck {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Pure in-memory object constructor; the New- verb reflects object creation, not system state mutation.')]
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [string]$ArtifactType,
+
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [string]$Name,
+
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [string]$Decision,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$Verified,
+
+        [Parameter(Mandatory = $true)]
+        [bool]$ExpectedRemoved,
+
+        [Parameter(Mandatory = $true)]
+        [string]$StillPresentDetail,
+
+        [Parameter(Mandatory = $true)]
+        [string]$MissingDetail
+    )
+
+    $detail = if ($Verified) {
+        'Matches expected decision'
+    }
+    elseif ($ExpectedRemoved) {
+        $StillPresentDetail
+    }
+    else {
+        $MissingDetail
+    }
+
+    return [pscustomobject]@{
+        ArtifactType = $ArtifactType
+        Name         = $Name
+        Decision     = $Decision
+        Verified     = $Verified
+        Detail       = $detail
+    }
+}
+
+<#
+.SYNOPSIS
 Independently verifies adapter changes made during conference preparation.
 .DESCRIPTION
 Re-reads Windows adapter, DNS, encrypted-DNS, and registry state. Verification
@@ -29,24 +169,14 @@ function Test-NetCleanAdapterPostState {
         -not $Context.Clean -or
         $null -eq $Context.Clean.PSObject.Properties['AdapterConfiguration']
     ) {
-        return [pscustomobject]@{
-            Applicable = $false
-            Passed     = $true
-            Reason     = 'NoAdapterChanges'
-            Checks     = @()
-        }
+        return New-NetCleanNotApplicableResult -Reason 'NoAdapterChanges'
     }
 
     if (
         $Context.Clean.PSObject.Properties.Name -contains 'DryRun' -and
         $Context.Clean.DryRun
     ) {
-        return [pscustomobject]@{
-            Applicable = $false
-            Passed     = $true
-            Reason     = 'DryRun'
-            Checks     = @()
-        }
+        return New-NetCleanNotApplicableResult -Reason 'DryRun'
     }
 
     $configuration = $Context.Clean.AdapterConfiguration
@@ -59,14 +189,8 @@ function Test-NetCleanAdapterPostState {
         }
 
         if (-not $operation.Succeeded) {
-            $checks.Add([pscustomobject]@{
-                    Category = 'AdapterCommand'
-                    Target   = $operation.Name
-                    Expected = 'Succeeded'
-                    Actual   = $operation.Reason
-                    Passed   = $false
-                    Error    = $operation.Error
-                })
+            $checks.Add((New-NetCleanVerificationCheck -Category 'AdapterCommand' -Target $operation.Name `
+                        -Expected 'Succeeded' -Actual $operation.Reason -Passed $false -ErrorMessage $operation.Error))
             continue
         }
 
@@ -82,24 +206,12 @@ function Test-NetCleanAdapterPostState {
                 $dhcpStates.Count -gt 0 -and
                 @($dhcpStates | Where-Object { $_ -ne 'Enabled' }).Count -eq 0
             )
-            $checks.Add([pscustomobject]@{
-                    Category = 'IPv4Dhcp'
-                    Target   = $operation.Name
-                    Expected = 'Enabled'
-                    Actual   = ($dhcpStates -join ', ')
-                    Passed   = $dhcpPassed
-                    Error    = $null
-                })
+            $checks.Add((New-NetCleanVerificationCheck -Category 'IPv4Dhcp' -Target $operation.Name `
+                        -Expected 'Enabled' -Actual ($dhcpStates -join ', ') -Passed $dhcpPassed -ErrorMessage $null))
         }
         catch {
-            $checks.Add([pscustomobject]@{
-                    Category = 'IPv4Dhcp'
-                    Target   = $operation.Name
-                    Expected = 'Enabled'
-                    Actual   = $null
-                    Passed   = $false
-                    Error    = $_.Exception.Message
-                })
+            $checks.Add((New-NetCleanVerificationCheck -Category 'IPv4Dhcp' -Target $operation.Name `
+                        -Expected 'Enabled' -Actual $null -Passed $false -ErrorMessage $_.Exception.Message))
         }
 
         try {
@@ -116,24 +228,12 @@ function Test-NetCleanAdapterPostState {
                 @($dnsComparison.Missing).Count -eq 0 -and
                 @($dnsComparison.Added).Count -eq 0
             )
-            $checks.Add([pscustomobject]@{
-                    Category = 'DnsServers'
-                    Target   = $operation.Name
-                    Expected = @($expectedDns | Sort-Object)
-                    Actual   = $actualDns
-                    Passed   = $dnsPassed
-                    Error    = $null
-                })
+            $checks.Add((New-NetCleanVerificationCheck -Category 'DnsServers' -Target $operation.Name `
+                        -Expected @($expectedDns | Sort-Object) -Actual $actualDns -Passed $dnsPassed -ErrorMessage $null))
         }
         catch {
-            $checks.Add([pscustomobject]@{
-                    Category = 'DnsServers'
-                    Target   = $operation.Name
-                    Expected = $expectedDns
-                    Actual   = @()
-                    Passed   = $false
-                    Error    = $_.Exception.Message
-                })
+            $checks.Add((New-NetCleanVerificationCheck -Category 'DnsServers' -Target $operation.Name `
+                        -Expected $expectedDns -Actual @() -Passed $false -ErrorMessage $_.Exception.Message))
         }
     }
 
@@ -150,24 +250,12 @@ function Test-NetCleanAdapterPostState {
                 -Name 'DisabledComponents' `
                 -ErrorAction Stop
             $actualPreference = [uint32]$preference.DisabledComponents
-            $checks.Add([pscustomobject]@{
-                    Category = 'IPv4Preference'
-                    Target   = 'Windows IP stack'
-                    Expected = 32
-                    Actual   = $actualPreference
-                    Passed   = ($actualPreference -eq 32)
-                    Error    = $null
-                })
+            $checks.Add((New-NetCleanVerificationCheck -Category 'IPv4Preference' -Target 'Windows IP stack' `
+                        -Expected 32 -Actual $actualPreference -Passed ($actualPreference -eq 32) -ErrorMessage $null))
         }
         catch {
-            $checks.Add([pscustomobject]@{
-                    Category = 'IPv4Preference'
-                    Target   = 'Windows IP stack'
-                    Expected = 32
-                    Actual   = $null
-                    Passed   = $false
-                    Error    = $_.Exception.Message
-                })
+            $checks.Add((New-NetCleanVerificationCheck -Category 'IPv4Preference' -Target 'Windows IP stack' `
+                        -Expected 32 -Actual $null -Passed $false -ErrorMessage $_.Exception.Message))
         }
     }
 
@@ -202,24 +290,12 @@ function Test-NetCleanAdapterPostState {
                 else {
                     'Missing'
                 }
-                $checks.Add([pscustomobject]@{
-                        Category = 'DnsOverHttps'
-                        Target   = $serverAddress
-                        Expected = 'AutoUpgrade=True; AllowFallbackToUdp=False'
-                        Actual   = $actualDoh
-                        Passed   = $dohPassed
-                        Error    = $null
-                    })
+                $checks.Add((New-NetCleanVerificationCheck -Category 'DnsOverHttps' -Target $serverAddress `
+                            -Expected 'AutoUpgrade=True; AllowFallbackToUdp=False' -Actual $actualDoh -Passed $dohPassed -ErrorMessage $null))
             }
             catch {
-                $checks.Add([pscustomobject]@{
-                        Category = 'DnsOverHttps'
-                        Target   = $serverAddress
-                        Expected = 'AutoUpgrade=True; AllowFallbackToUdp=False'
-                        Actual   = $null
-                        Passed   = $false
-                        Error    = $_.Exception.Message
-                    })
+                $checks.Add((New-NetCleanVerificationCheck -Category 'DnsOverHttps' -Target $serverAddress `
+                            -Expected 'AutoUpgrade=True; AllowFallbackToUdp=False' -Actual $null -Passed $false -ErrorMessage $_.Exception.Message))
             }
         }
     }
@@ -259,24 +335,14 @@ function Test-NetCleanCleanupPostState {
         $null -eq $Context.PSObject.Properties['Clean'] -or
         -not $Context.Clean
     ) {
-        return [pscustomobject]@{
-            Applicable = $false
-            Passed     = $true
-            Reason     = 'NoCleanupResults'
-            Checks     = @()
-        }
+        return New-NetCleanNotApplicableResult -Reason 'NoCleanupResults'
     }
 
     if (
         $Context.Clean.PSObject.Properties.Name -contains 'DryRun' -and
         $Context.Clean.DryRun
     ) {
-        return [pscustomobject]@{
-            Applicable = $false
-            Passed     = $true
-            Reason     = 'DryRun'
-            Checks     = @()
-        }
+        return New-NetCleanNotApplicableResult -Reason 'DryRun'
     }
 
     $checks = [System.Collections.Generic.List[object]]::new()
@@ -307,15 +373,9 @@ function Test-NetCleanCleanupPostState {
             $null
         }
 
-        $checks.Add([pscustomobject]@{
-                Category         = 'VolatileCacheAction'
-                Target           = $operation.Name
-                VerificationType = 'CommandResult'
-                Expected         = 'Succeeded or explicitly skipped'
-                Actual           = if ($skippedByOption) { 'SkippedByOption' } elseif ($succeeded) { 'Succeeded' } else { 'Failed' }
-                Passed           = ($succeeded -or $skippedByOption)
-                Error            = $errorMessage
-            })
+        $actualCacheState = if ($skippedByOption) { 'SkippedByOption' } elseif ($succeeded) { 'Succeeded' } else { 'Failed' }
+        $checks.Add((New-NetCleanVerificationCheck -Category 'VolatileCacheAction' -Target $operation.Name -VerificationType 'CommandResult' `
+                    -Expected 'Succeeded or explicitly skipped' -Actual $actualCacheState -Passed ($succeeded -or $skippedByOption) -ErrorMessage $errorMessage))
     }
 
     if (
@@ -353,54 +413,28 @@ function Test-NetCleanCleanupPostState {
             )
 
             if ($protected) {
-                $checks.Add([pscustomobject]@{
-                        Category         = 'RegistryArtifact'
-                        Target           = $target
-                        VerificationType = 'ProtectionBoundary'
-                        Expected         = 'Preserved'
-                        Actual           = 'Protected'
-                        Passed           = $true
-                        Error            = $null
-                    })
+                $checks.Add((New-NetCleanVerificationCheck -Category 'RegistryArtifact' -Target $target -VerificationType 'ProtectionBoundary' `
+                            -Expected 'Preserved' -Actual 'Protected' -Passed $true -ErrorMessage $null))
                 continue
             }
 
             if ($shouldBeAbsent) {
                 try {
                     $exists = Test-RegistryPathExist -RegistryPath $target -ThrowOnError
-                    $checks.Add([pscustomobject]@{
-                            Category         = 'RegistryArtifact'
-                            Target           = $target
-                            VerificationType = 'IndependentState'
-                            Expected         = 'Absent'
-                            Actual           = if ($exists) { 'Present' } else { 'Absent' }
-                            Passed           = (-not $exists)
-                            Error            = $null
-                        })
+                    $checks.Add((New-NetCleanVerificationCheck -Category 'RegistryArtifact' -Target $target -VerificationType 'IndependentState' `
+                                -Expected 'Absent' -Actual $(if ($exists) { 'Present' } else { 'Absent' }) -Passed (-not $exists) -ErrorMessage $null))
                 }
                 catch {
-                    $checks.Add([pscustomobject]@{
-                            Category         = 'RegistryArtifact'
-                            Target           = $target
-                            VerificationType = 'IndependentState'
-                            Expected         = 'Absent'
-                            Actual           = 'Unknown'
-                            Passed           = $false
-                            Error            = $_.Exception.Message
-                        })
+                    $checks.Add((New-NetCleanVerificationCheck -Category 'RegistryArtifact' -Target $target -VerificationType 'IndependentState' `
+                                -Expected 'Absent' -Actual 'Unknown' -Passed $false -ErrorMessage $_.Exception.Message))
                 }
                 continue
             }
 
-            $checks.Add([pscustomobject]@{
-                    Category         = 'RegistryArtifact'
-                    Target           = $target
-                    VerificationType = 'CommandResult'
-                    Expected         = 'Removed, absent, or protected'
-                    Actual           = if ($reason) { $reason } else { 'Failed' }
-                    Passed           = $false
-                    Error            = if ($succeeded) { $null } else { $reason }
-                })
+            $registryActual = if ($reason) { $reason } else { 'Failed' }
+            $registryError = if ($succeeded) { $null } else { $reason }
+            $checks.Add((New-NetCleanVerificationCheck -Category 'RegistryArtifact' -Target $target -VerificationType 'CommandResult' `
+                        -Expected 'Removed, absent, or protected' -Actual $registryActual -Passed $false -ErrorMessage $registryError))
         }
     }
 
@@ -431,39 +465,20 @@ function Test-NetCleanCleanupPostState {
             if ($shouldBeAbsent) {
                 try {
                     $exists = Test-Path -LiteralPath $operation.Path -ErrorAction Stop
-                    $checks.Add([pscustomobject]@{
-                            Category         = 'UserArtifact'
-                            Target           = $operation.Path
-                            VerificationType = 'IndependentState'
-                            Expected         = 'Absent'
-                            Actual           = if ($exists) { 'Present' } else { 'Absent' }
-                            Passed           = (-not $exists)
-                            Error            = $null
-                        })
+                    $checks.Add((New-NetCleanVerificationCheck -Category 'UserArtifact' -Target $operation.Path -VerificationType 'IndependentState' `
+                                -Expected 'Absent' -Actual $(if ($exists) { 'Present' } else { 'Absent' }) -Passed (-not $exists) -ErrorMessage $null))
                 }
                 catch {
-                    $checks.Add([pscustomobject]@{
-                            Category         = 'UserArtifact'
-                            Target           = $operation.Path
-                            VerificationType = 'IndependentState'
-                            Expected         = 'Absent'
-                            Actual           = 'Unknown'
-                            Passed           = $false
-                            Error            = $_.Exception.Message
-                        })
+                    $checks.Add((New-NetCleanVerificationCheck -Category 'UserArtifact' -Target $operation.Path -VerificationType 'IndependentState' `
+                                -Expected 'Absent' -Actual 'Unknown' -Passed $false -ErrorMessage $_.Exception.Message))
                 }
                 continue
             }
 
-            $checks.Add([pscustomobject]@{
-                    Category         = 'UserArtifact'
-                    Target           = $operation.Path
-                    VerificationType = 'CommandResult'
-                    Expected         = 'Removed or absent'
-                    Actual           = if ($reason) { $reason } else { 'Failed' }
-                    Passed           = $false
-                    Error            = if ($succeeded) { $null } else { $reason }
-                })
+            $userArtifactActual = if ($reason) { $reason } else { 'Failed' }
+            $userArtifactError = if ($succeeded) { $null } else { $reason }
+            $checks.Add((New-NetCleanVerificationCheck -Category 'UserArtifact' -Target $operation.Path -VerificationType 'CommandResult' `
+                        -Expected 'Removed or absent' -Actual $userArtifactActual -Passed $false -ErrorMessage $userArtifactError))
         }
     }
 
@@ -499,27 +514,16 @@ function Test-NetCleanCleanupPostState {
                             -MaxEvents 1 `
                             -ErrorAction Stop
                     )
-                    $checks.Add([pscustomobject]@{
-                            Category         = 'EventLog'
-                            Target           = $operation.LogName
-                            VerificationType = 'IndependentState'
-                            Expected         = 'No events at or before cleanup completion'
-                            Actual           = if ($priorEvents.Count -eq 0) { 'Absent' } else { 'Present' }
-                            Passed           = ($priorEvents.Count -eq 0)
-                            Error            = $null
-                        })
+                    $checks.Add((New-NetCleanVerificationCheck -Category 'EventLog' -Target $operation.LogName -VerificationType 'IndependentState' `
+                                -Expected 'No events at or before cleanup completion' -Actual $(if ($priorEvents.Count -eq 0) { 'Absent' } else { 'Present' }) `
+                                -Passed ($priorEvents.Count -eq 0) -ErrorMessage $null))
                 }
                 catch {
                     $noEventsFound = $_.FullyQualifiedErrorId -like 'NoMatchingEventsFound*'
-                    $checks.Add([pscustomobject]@{
-                            Category         = 'EventLog'
-                            Target           = $operation.LogName
-                            VerificationType = 'IndependentState'
-                            Expected         = 'No events at or before cleanup completion'
-                            Actual           = if ($noEventsFound) { 'Absent' } else { 'Unknown' }
-                            Passed           = $noEventsFound
-                            Error            = if ($noEventsFound) { $null } else { $_.Exception.Message }
-                        })
+                    $eventLogError = if ($noEventsFound) { $null } else { $_.Exception.Message }
+                    $checks.Add((New-NetCleanVerificationCheck -Category 'EventLog' -Target $operation.LogName -VerificationType 'IndependentState' `
+                                -Expected 'No events at or before cleanup completion' -Actual $(if ($noEventsFound) { 'Absent' } else { 'Unknown' }) `
+                                -Passed $noEventsFound -ErrorMessage $eventLogError))
                 }
                 continue
             }
@@ -530,15 +534,10 @@ function Test-NetCleanCleanupPostState {
             else {
                 $null
             }
-            $checks.Add([pscustomobject]@{
-                    Category         = 'EventLog'
-                    Target           = if ($operation.PSObject.Properties.Name -contains 'LogName') { $operation.LogName } else { $operation.Name }
-                    VerificationType = 'CommandResult'
-                    Expected         = 'Cleared with completion timestamp'
-                    Actual           = if (-not $succeeded) { 'Failed' } elseif (-not $cleared) { 'NotCleared' } else { 'MissingCompletionTime' }
-                    Passed           = $false
-                    Error            = $errorMessage
-                })
+            $eventLogTarget = if ($operation.PSObject.Properties.Name -contains 'LogName') { $operation.LogName } else { $operation.Name }
+            $eventLogActual = if (-not $succeeded) { 'Failed' } elseif (-not $cleared) { 'NotCleared' } else { 'MissingCompletionTime' }
+            $checks.Add((New-NetCleanVerificationCheck -Category 'EventLog' -Target $eventLogTarget -VerificationType 'CommandResult' `
+                        -Expected 'Cleared with completion timestamp' -Actual $eventLogActual -Passed $false -ErrorMessage $errorMessage))
         }
     }
 
@@ -565,15 +564,8 @@ function Test-NetCleanCleanupPostState {
             else {
                 $null
             }
-            $checks.Add([pscustomobject]@{
-                    Category         = $operationGroup.Category
-                    Target           = $operation.Name
-                    VerificationType = 'CommandResult'
-                    Expected         = 'Succeeded'
-                    Actual           = if ($succeeded) { 'Succeeded' } else { 'Failed' }
-                    Passed           = $succeeded
-                    Error            = $errorMessage
-            })
+            $checks.Add((New-NetCleanVerificationCheck -Category $operationGroup.Category -Target $operation.Name -VerificationType 'CommandResult' `
+                        -Expected 'Succeeded' -Actual $(if ($succeeded) { 'Succeeded' } else { 'Failed' }) -Passed $succeeded -ErrorMessage $errorMessage))
         }
     }
 
@@ -629,29 +621,14 @@ function Test-NetCleanCleanupPostState {
 
             $connectedWired = @($wiredAdapters | Where-Object { $_.Status -eq 'Up' })
             $connectedWifi = @($wifiAdapters | Where-Object { $_.Status -eq 'Up' })
-            $checks.Add([pscustomobject]@{
-                    Category         = 'WiFiConnection'
-                    Target           = 'Physical Wi-Fi adapters'
-                    VerificationType = 'IndependentState'
-                    Applicable       = $true
-                    Expected         = 'Disconnected'
-                    Actual           = if ($connectedWifi.Count -eq 0) { 'Disconnected' } else { @($connectedWifi.Name) }
-                    Passed           = ($connectedWifi.Count -eq 0)
-                    Error            = $null
-                })
+            $wifiConnectionActual = if ($connectedWifi.Count -eq 0) { 'Disconnected' } else { @($connectedWifi.Name) }
+            $checks.Add((New-NetCleanVerificationCheck -Category 'WiFiConnection' -Target 'Physical Wi-Fi adapters' -VerificationType 'IndependentState' -Applicable $true `
+                        -Expected 'Disconnected' -Actual $wifiConnectionActual -Passed ($connectedWifi.Count -eq 0) -ErrorMessage $null))
 
             if ($connectedWired.Count -gt 0) {
                 foreach ($category in @('DnsCache', 'ArpCache')) {
-                    $checks.Add([pscustomobject]@{
-                            Category         = $category
-                            Target           = 'Local cache'
-                            VerificationType = 'ConditionalState'
-                            Applicable       = $false
-                            Expected         = 'Not evaluated while wired LAN is connected'
-                            Actual           = 'WiredLanConnected'
-                            Passed           = $true
-                            Error            = $null
-                        })
+                    $checks.Add((New-NetCleanVerificationCheck -Category $category -Target 'Local cache' -VerificationType 'ConditionalState' -Applicable $false `
+                                -Expected 'Not evaluated while wired LAN is connected' -Actual 'WiredLanConnected' -Passed $true -ErrorMessage $null))
                 }
             }
             else {
@@ -668,28 +645,12 @@ function Test-NetCleanCleanupPostState {
                 if ($dnsWasApplied) {
                     try {
                         $dnsEntries = @(Get-DnsClientCache -ErrorAction Stop)
-                        $checks.Add([pscustomobject]@{
-                                Category         = 'DnsCache'
-                                Target           = 'DNS client cache'
-                                VerificationType = 'ConditionalState'
-                                Applicable       = $true
-                                Expected         = 'Empty when no wired LAN is connected'
-                                Actual           = $dnsEntries.Count
-                                Passed           = ($dnsEntries.Count -eq 0)
-                                Error            = $null
-                            })
+                        $checks.Add((New-NetCleanVerificationCheck -Category 'DnsCache' -Target 'DNS client cache' -VerificationType 'ConditionalState' -Applicable $true `
+                                    -Expected 'Empty when no wired LAN is connected' -Actual $dnsEntries.Count -Passed ($dnsEntries.Count -eq 0) -ErrorMessage $null))
                     }
                     catch {
-                        $checks.Add([pscustomobject]@{
-                                Category         = 'DnsCache'
-                                Target           = 'DNS client cache'
-                                VerificationType = 'ConditionalState'
-                                Applicable       = $true
-                                Expected         = 'Empty when no wired LAN is connected'
-                                Actual           = 'Unknown'
-                                Passed           = $false
-                                Error            = $_.Exception.Message
-                            })
+                        $checks.Add((New-NetCleanVerificationCheck -Category 'DnsCache' -Target 'DNS client cache' -VerificationType 'ConditionalState' -Applicable $true `
+                                    -Expected 'Empty when no wired LAN is connected' -Actual 'Unknown' -Passed $false -ErrorMessage $_.Exception.Message))
                     }
                 }
 
@@ -727,43 +688,20 @@ function Test-NetCleanCleanupPostState {
                             )
                         }
                         $dynamicNeighborCount = @($dynamicNeighbors).Count
-                        $checks.Add([pscustomobject]@{
-                                Category         = 'ArpCache'
-                                Target           = 'Physical-adapter IPv4 neighbor cache'
-                                VerificationType = 'ConditionalState'
-                                Applicable       = $true
-                                Expected         = 'No dynamic entries when no wired LAN is connected'
-                                Actual           = @($dynamicNeighbors | ForEach-Object { $_.IPAddress })
-                                Passed           = ($dynamicNeighborCount -eq 0)
-                                Error            = $null
-                            })
+                        $checks.Add((New-NetCleanVerificationCheck -Category 'ArpCache' -Target 'Physical-adapter IPv4 neighbor cache' -VerificationType 'ConditionalState' -Applicable $true `
+                                    -Expected 'No dynamic entries when no wired LAN is connected' -Actual @($dynamicNeighbors | ForEach-Object { $_.IPAddress }) `
+                                    -Passed ($dynamicNeighborCount -eq 0) -ErrorMessage $null))
                     }
                     catch {
-                        $checks.Add([pscustomobject]@{
-                                Category         = 'ArpCache'
-                                Target           = 'Physical-adapter IPv4 neighbor cache'
-                                VerificationType = 'ConditionalState'
-                                Applicable       = $true
-                                Expected         = 'No dynamic entries when no wired LAN is connected'
-                                Actual           = 'Unknown'
-                                Passed           = $false
-                                Error            = $_.Exception.Message
-                            })
+                        $checks.Add((New-NetCleanVerificationCheck -Category 'ArpCache' -Target 'Physical-adapter IPv4 neighbor cache' -VerificationType 'ConditionalState' -Applicable $true `
+                                    -Expected 'No dynamic entries when no wired LAN is connected' -Actual 'Unknown' -Passed $false -ErrorMessage $_.Exception.Message))
                     }
                 }
             }
         }
         catch {
-            $checks.Add([pscustomobject]@{
-                    Category         = 'ConnectivityDetection'
-                    Target           = 'Physical network adapters'
-                    VerificationType = 'IndependentState'
-                    Applicable       = $true
-                    Expected         = 'Adapter state available'
-                    Actual           = 'Unknown'
-                    Passed           = $false
-                    Error            = $_.Exception.Message
-                })
+            $checks.Add((New-NetCleanVerificationCheck -Category 'ConnectivityDetection' -Target 'Physical network adapters' -VerificationType 'IndependentState' -Applicable $true `
+                        -Expected 'Adapter state available' -Actual 'Unknown' -Passed $false -ErrorMessage $_.Exception.Message))
         }
     }
 
@@ -816,24 +754,14 @@ function Test-NetCleanArtifactRemovalPostState {
         $Context.PSObject.Properties.Name -notcontains 'Clean' -or
         -not $Context.Clean
     ) {
-        return [pscustomobject]@{
-            Applicable = $false
-            Passed     = $true
-            Reason     = 'NoCleanupResults'
-            Checks     = @()
-        }
+        return New-NetCleanNotApplicableResult -Reason 'NoCleanupResults'
     }
 
     if (
         $Context.Clean.PSObject.Properties.Name -contains 'DryRun' -and
         $Context.Clean.DryRun
     ) {
-        return [pscustomobject]@{
-            Applicable = $false
-            Passed     = $true
-            Reason     = 'DryRun'
-            Checks     = @()
-        }
+        return New-NetCleanNotApplicableResult -Reason 'DryRun'
     }
 
     $checks = [System.Collections.Generic.List[object]]::new()
@@ -863,21 +791,9 @@ function Test-NetCleanArtifactRemovalPostState {
             $expectedRemoved = $decision.Decision -eq 'Remove'
             $verified = if ($expectedRemoved) { -not $stillPresent } else { $stillPresent }
 
-            $checks.Add([pscustomobject]@{
-                    ArtifactType = $decision.ArtifactType
-                    Name         = $decision.Name
-                    Decision     = $decision.Decision
-                    Verified     = $verified
-                    Detail       = if ($verified) {
-                        'Matches expected decision'
-                    }
-                    elseif ($expectedRemoved) {
-                        'Still present after cleanup'
-                    }
-                    else {
-                        'Missing after cleanup; expected to be preserved'
-                    }
-                })
+            $checks.Add((New-NetCleanArtifactDecisionCheck -ArtifactType $decision.ArtifactType -Name $decision.Name -Decision $decision.Decision `
+                        -Verified $verified -ExpectedRemoved $expectedRemoved `
+                        -StillPresentDetail 'Still present after cleanup' -MissingDetail 'Missing after cleanup; expected to be preserved'))
         }
     }
 
@@ -898,21 +814,9 @@ function Test-NetCleanArtifactRemovalPostState {
             $wasRemoved = $removedPaths.Contains($candidate.RegistryPath)
             $verified = if ($expectedRemoved) { $wasRemoved } else { -not $wasRemoved }
 
-            $checks.Add([pscustomobject]@{
-                    ArtifactType = $candidate.ArtifactType
-                    Name         = $candidate.RegistryPath
-                    Decision     = $candidate.Decision
-                    Verified     = $verified
-                    Detail       = if ($verified) {
-                        'Matches expected decision'
-                    }
-                    elseif ($expectedRemoved) {
-                        'Not confirmed removed by Phase 3'
-                    }
-                    else {
-                        'Unexpectedly removed despite Preserve decision'
-                    }
-                })
+            $checks.Add((New-NetCleanArtifactDecisionCheck -ArtifactType $candidate.ArtifactType -Name $candidate.RegistryPath -Decision $candidate.Decision `
+                        -Verified $verified -ExpectedRemoved $expectedRemoved `
+                        -StillPresentDetail 'Not confirmed removed by Phase 3' -MissingDetail 'Unexpectedly removed despite Preserve decision'))
         }
     }
 
