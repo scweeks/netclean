@@ -771,7 +771,18 @@ function Test-NetCleanArtifactRemovalPostState {
         $removedPaths = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
         if ($Context.Clean.PSObject.Properties.Name -contains 'RegistryArtifacts' -and $Context.Clean.RegistryArtifacts) {
             foreach ($regResult in @($Context.Clean.RegistryArtifacts.Results)) {
-                if ($regResult.Removed -and -not [string]::IsNullOrWhiteSpace($regResult.RegistryPath)) {
+                if ([string]::IsNullOrWhiteSpace($regResult.RegistryPath)) {
+                    continue
+                }
+
+                # Removing a parent key recursively removes its children too, so a child candidate's
+                # own removal attempt can find it already gone and record Skipped/NotFound rather than
+                # Removed - that still confirms the path is absent, so it counts the same as Removed.
+                $confirmedAbsent = (
+                    [bool]$regResult.Removed -or
+                    (Get-NetCleanSafeProperty -InputObject $regResult -Name 'Reason') -eq 'NotFound'
+                )
+                if ($confirmedAbsent) {
                     [void]$removedPaths.Add([string]$regResult.RegistryPath)
                 }
             }
@@ -998,6 +1009,7 @@ function Export-NetCleanVerificationReport {
         }
         AdapterVerification = $Verification.AdapterVerification
         CleanupVerification = $Verification.CleanupVerification
+        ArtifactVerification = Get-NetCleanSafeProperty -InputObject $Verification -Name 'ArtifactVerification'
     }
 
     $json = $report | ConvertTo-Json -Depth 10
@@ -1031,6 +1043,7 @@ function Invoke-NetCleanPhase4Verify {
     Write-NetCleanLog -Level INFO -Message 'Invoke-NetCleanPhase4Verify: starting verification.'
 
     $verification = Test-NetCleanPostState -Context $Context
+    $artifactVerification = Get-NetCleanSafeProperty -InputObject $verification -Name 'ArtifactVerification'
     $verificationReport = $null
     if (
         $Context.PSObject.Properties.Name -contains 'BackupPath' -and
@@ -1057,6 +1070,7 @@ function Invoke-NetCleanPhase4Verify {
             RemainingNetworkProfiles = $verification.RemainingNetworkProfiles
             AdapterVerification = $verification.AdapterVerification
             CleanupVerification = $verification.CleanupVerification
+            ArtifactVerification = $artifactVerification
             VerificationReport = $verificationReport
             Summary           = [pscustomobject]@{
                 MissingVendorsCount         = @($verification.VendorComparison.Missing).Count
@@ -1071,6 +1085,10 @@ function Invoke-NetCleanPhase4Verify {
                 CleanupCheckFailureCount    = @(
                     $verification.CleanupVerification.Checks |
                         Where-Object { -not $_.Passed }
+                ).Count
+                ArtifactCheckFailureCount  = @(
+                    $(if ($artifactVerification) { @($artifactVerification.Checks) } else { @() }) |
+                        Where-Object { -not $_.Verified }
                 ).Count
                 Passed                      = $verification.Passed
             }
@@ -1156,8 +1174,20 @@ function Invoke-NetCleanPhase4Verify {
         Write-NetCleanLog -Level $level -Message $message
     }
 
+    $artifactChecks = if ($artifactVerification) { @($artifactVerification.Checks) } else { @() }
+    foreach ($check in $artifactChecks) {
+        $level = if ($check.Verified) { 'INFO' } else { 'WARN' }
+        $message = 'Verification: {0} Name={1} Decision={2} Verified={3} Detail={4}' -f `
+            $check.ArtifactType,
+            $check.Name,
+            $check.Decision,
+            $check.Verified,
+            $check.Detail
+        Write-NetCleanLog -Level $level -Message $message
+    }
+
     # Console summary for verification
-    Write-Information (("Phase 4 verify: Passed={0} MissingVendors={1} MissingGuids={2} MissingServices={3} RemainingWiFi={4} RemainingNetworkProfiles={5} AdapterCheckFailures={6} CleanupCheckFailures={7}" -f `
+    Write-Information (("Phase 4 verify: Passed={0} MissingVendors={1} MissingGuids={2} MissingServices={3} RemainingWiFi={4} RemainingNetworkProfiles={5} AdapterCheckFailures={6} CleanupCheckFailures={7} ArtifactCheckFailures={8}" -f `
                 $verification.Passed,
                 @($verification.VendorComparison.Missing).Count,
                 @($verification.GuidComparison.Missing).Count,
@@ -1165,7 +1195,8 @@ function Invoke-NetCleanPhase4Verify {
                 @($verification.RemainingWiFiProfiles).Count,
                 @($verification.RemainingNetworkProfiles).Count,
                 @($verification.AdapterVerification.Checks | Where-Object { -not $_.Passed }).Count,
-                @($verification.CleanupVerification.Checks | Where-Object { -not $_.Passed }).Count)) -InformationAction Continue
+                @($verification.CleanupVerification.Checks | Where-Object { -not $_.Passed }).Count,
+                @($artifactChecks | Where-Object { -not $_.Verified }).Count)) -InformationAction Continue
 
     return $newContext
 }

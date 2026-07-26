@@ -859,6 +859,41 @@ Describe 'NetClean Phase 4 unit tests' {
                 $result.Checks[0].Verified | Should -BeFalse
             }
 
+            It 'verifies a Remove-decision registry candidate whose parent key removal already took it with it (Skipped/NotFound, not Removed)' {
+                # Deleting a parent registry key recursively removes its child keys too. When Phase 3
+                # then tries to individually remove a child candidate, it finds the child already gone
+                # and records Skipped=true/Reason=NotFound rather than Removed=true - but the removal
+                # goal (this path is absent) was still genuinely achieved.
+                $script:artifactContext.CandidateArtifacts = @(
+                    [pscustomobject]@{ ArtifactType = 'NetworkList'; RegistryPath = 'HKLM\SOFTWARE\...\Signatures\Managed'; Decision = 'Remove' }
+                )
+                $script:artifactContext.Clean.RegistryArtifacts.Results = @(
+                    [pscustomobject]@{ RegistryPath = 'HKLM\SOFTWARE\...\Signatures\Managed'; Removed = $false; Skipped = $true; Reason = 'NotFound' }
+                )
+
+                $result = Test-NetCleanArtifactRemovalPostState -Context $script:artifactContext
+
+                $result.Passed | Should -BeTrue
+                $result.Checks[0].Verified | Should -BeTrue
+            }
+
+            It 'still flags a Preserve-decision registry candidate as unexpectedly removed when Phase 3 recorded it as NotFound' {
+                # A NotFound skip should only ever count in favor of a Remove decision, never make a
+                # Preserve decision look correct - if a protected/preserved path is unexpectedly gone,
+                # that is still a real failure regardless of how Phase 3's ledger explains the absence.
+                $script:artifactContext.CandidateArtifacts = @(
+                    [pscustomobject]@{ ArtifactType = 'TcpipInterface'; RegistryPath = 'HKLM\SYSTEM\...\Tcpip\{GUID}'; Decision = 'Preserve' }
+                )
+                $script:artifactContext.Clean.RegistryArtifacts.Results = @(
+                    [pscustomobject]@{ RegistryPath = 'HKLM\SYSTEM\...\Tcpip\{GUID}'; Removed = $false; Skipped = $true; Reason = 'NotFound' }
+                )
+
+                $result = Test-NetCleanArtifactRemovalPostState -Context $script:artifactContext
+
+                $result.Passed | Should -BeFalse
+                $result.Checks[0].Verified | Should -BeFalse
+            }
+
             It 'verifies a Preserve-decision registry candidate that Phase 3 left untouched' {
                 $script:artifactContext.CandidateArtifacts = @(
                     [pscustomobject]@{ ArtifactType = 'TcpipInterface'; RegistryPath = 'HKLM\SYSTEM\...\Tcpip\{GUID}'; Decision = 'Preserve' }
@@ -1252,6 +1287,45 @@ Describe 'NetClean Phase 4 unit tests' {
                     $Encoding.WebName -eq 'utf-8'
                 }
             }
+
+            It 'includes artifact verification details in the report when present' {
+                Mock New-DirectoryIfNotExist {}
+                Mock Set-NetCleanPrivateDirectoryAcl {}
+                Mock WriteAllText {}
+
+                $verification = [pscustomobject]@{
+                    Passed = $false
+                    VerificationMode = 'Observed'
+                    VendorComparison = [pscustomobject]@{ Missing = @() }
+                    GuidComparison = [pscustomobject]@{ Missing = @() }
+                    ServiceComparison = [pscustomobject]@{ Missing = @() }
+                    RemainingWiFiProfiles = @()
+                    RemainingNetworkProfiles = @()
+                    AdapterVerification = [pscustomobject]@{ Passed = $true; Checks = @() }
+                    CleanupVerification = [pscustomobject]@{ Passed = $true; Checks = @() }
+                    ArtifactVerification = [pscustomobject]@{
+                        Passed = $false
+                        Checks = @(
+                            [pscustomobject]@{
+                                ArtifactType = 'NetworkList'
+                                Name         = 'HKLM\SOFTWARE\...\Signatures\Managed'
+                                Decision     = 'Remove'
+                                Verified     = $false
+                                Detail       = 'Not confirmed removed by Phase 3'
+                            }
+                        )
+                    }
+                }
+
+                $result = Export-NetCleanVerificationReport `
+                    -Dest 'C:\backup' `
+                    -Verification $verification
+
+                Should -Invoke WriteAllText -Times 1 -Exactly -ParameterFilter {
+                    $Path -eq $result -and
+                    $Contents -match 'Not confirmed removed by Phase 3'
+                }
+            }
         }
 
         Context 'Invoke-NetCleanPhase4Verify' {
@@ -1400,6 +1474,43 @@ Describe 'NetClean Phase 4 unit tests' {
                 Should -Invoke Write-NetCleanLog -ParameterFilter { $Level -eq 'WARN' -and $Message -match 'Remaining Wi-Fi profiles: ConferenceWiFi' }
                 Should -Invoke Write-NetCleanLog -ParameterFilter { $Level -eq 'WARN' -and $Message -match 'DnsServers.*Error=mismatch' }
                 Should -Invoke Write-NetCleanLog -ParameterFilter { $Level -eq 'WARN' -and $Message -match 'DnsCache.*Error=entry remained' }
+            }
+
+            It 'surfaces artifact-decision verification failures in the summary, context, and log' {
+                Mock Test-NetCleanPostState {
+                    [pscustomobject]@{
+                        Passed                   = $false
+                        VerificationMode         = 'Observed'
+                        VendorComparison         = [pscustomobject]@{ Missing = @() }
+                        GuidComparison           = [pscustomobject]@{ Missing = @() }
+                        ServiceComparison        = [pscustomobject]@{ Missing = @() }
+                        RemainingWiFiProfiles    = @()
+                        RemainingNetworkProfiles = @()
+                        AdapterVerification      = [pscustomobject]@{ Passed = $true; Checks = @() }
+                        CleanupVerification      = [pscustomobject]@{ Passed = $true; Checks = @() }
+                        ArtifactVerification     = [pscustomobject]@{
+                            Passed = $false
+                            Checks = @(
+                                [pscustomobject]@{
+                                    ArtifactType = 'NetworkList'
+                                    Name         = 'HKLM\SOFTWARE\...\Signatures\Managed'
+                                    Decision     = 'Remove'
+                                    Verified     = $false
+                                    Detail       = 'Not confirmed removed by Phase 3'
+                                }
+                            )
+                        }
+                    }
+                }
+
+                $result = Invoke-NetCleanPhase4Verify -Context $script:context
+
+                $result.Verify.Passed | Should -BeFalse
+                $result.Verify.ArtifactVerification.Passed | Should -BeFalse
+                $result.Verify.Summary.ArtifactCheckFailureCount | Should -Be 1
+                Should -Invoke Write-NetCleanLog -ParameterFilter {
+                    $Level -eq 'WARN' -and $Message -match 'NetworkList' -and $Message -match 'Not confirmed removed by Phase 3'
+                }
             }
         }
     }
