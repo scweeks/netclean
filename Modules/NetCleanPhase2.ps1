@@ -550,7 +550,7 @@ function Export-NetCleanJsonArtifact {
         return $file
     }
 
-    $json = $Data | ConvertTo-Json -Depth 8
+    $json = ConvertTo-Json -InputObject $Data -Depth 8
     WriteAllText -Path $file -Contents $json -Encoding $script:Utf8NoBom
 
     Write-NetCleanLog -Level INFO -Message ("Exported {0} to: {1}" -f $LogNoun, $file)

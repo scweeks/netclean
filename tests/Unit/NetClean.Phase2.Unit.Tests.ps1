@@ -546,6 +546,22 @@ Describe 'NetClean Phase 2 unit tests' {
                     $Encoding.WebName -eq 'utf-8'
                 }
             }
+
+            It 'writes a valid empty JSON array instead of failing when there are no sanitizable artifacts' {
+                # ConvertTo-Json piping an empty array produces zero pipeline output (not even "[]"),
+                # so a downstream Set-Content/WriteAllText call never runs when the array is empty via
+                # the pipe form. Export-NetCleanJsonArtifact must use -InputObject, not the pipe, so an
+                # empty result (e.g. an already-cleaned system with nothing left to sanitize) still
+                # writes valid JSON instead of throwing a parameter-binding error.
+                Mock Get-SanitizableNetworkArtifact { @() }
+                Mock WriteAllText {}
+
+                { Export-SanitizableNetworkArtifact -Inventory @() -Dest $TestDrive } | Should -Not -Throw
+
+                Should -Invoke WriteAllText -Times 1 -Exactly -ParameterFilter {
+                    $Contents -eq '[]'
+                }
+            }
         }
 
         Context 'Export-FirewallPolicy' {
