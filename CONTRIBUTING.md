@@ -36,3 +36,11 @@ The repository's registry System tests are safe for normal local and CI runs: Pe
 - [ ] No generated output, secrets, credentials, or host-specific inventory is included.
 
 Contributions are licensed under the repository's GPLv3 license.
+
+## Cutting a release
+
+1. Bump `ModuleVersion` in `NetClean.psd1` to the new version.
+2. Move `## Unreleased` entries in `CHANGELOG.md` into a new `## X.Y.Z - YYYY-MM-DD` section (create a fresh empty `## Unreleased` above it).
+3. Merge that change to `main`, then tag the merge commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. Pushing the tag triggers `.github/workflows/release.yml`, which re-validates the manifest version against the tag, re-runs PSScriptAnalyzer and the full Pester suite as a release gate, and publishes a GitHub Release using the matching `CHANGELOG.md` section as its notes.
+5. The release workflow does not publish to the PowerShell Gallery; that remains a manual/separate step until a maintainer decides to wire it up.

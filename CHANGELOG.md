@@ -4,7 +4,7 @@ All notable changes to this project should be documented in this file.
 
 ## Unreleased
 
-## 1.0.0 - 2026-07-24
+## 1.0.0 - 2026-07-26
 
 - Add conference-preparation adapter reset and verification: IPv4 DHCP, Quad9 IPv4/IPv6 DNS, DNS over HTTPS without plaintext fallback where supported, IPv6 retained with IPv4 preferred, protected/managed-adapter boundaries, private adapter backups, and a machine-readable verification ledger.
 - Add conditional post-cleanup evidence for Wi-Fi disconnection and DNS/ARP caches; cache state is evaluated only when no physical wired LAN is connected.
@@ -58,6 +58,10 @@ All notable changes to this project should be documented in this file.
 	- Add unit tests and ensure Pester tests pass locally.
   
 These changes were made to improve safety, testability, and to ensure CI fails fast on analyzer or test regressions.
+
+- Consolidate duplicated code across all four phase modules: a shared `New-NetCleanEvidenceRecord` constructor for Phase 1's evidence-record shape, a shared `Get-NetCleanSafeProperty` helper for the optional-property-read pattern used throughout the registry/CIM evidence code, a shared `Invoke-NetCleanSingleCommandSafe` helper for Phase 3's single-command wrappers, and three shared constructors (`New-NetCleanNotApplicableResult`, `New-NetCleanVerificationCheck`, `New-NetCleanArtifactDecisionCheck`) for Phase 4's verification-check objects. Remove the dead `$canLog` capability check (and an inline equivalent) from all four phase modules and `NetClean.psm1`, since `Write-NetCleanLog` is always resolvable by the time these functions run.
+- Fix Phase 4 verification reporting a successful cleanup as failed with no indication why: deleting a parent registry key recursively removes its children too, but Phase 3's per-item ledger recorded the already-gone children as `Skipped`/`NotFound` rather than `Removed`, and Phase 4's artifact-verification check only trusted `Removed`. Also surface `ArtifactVerification` throughout `Invoke-NetCleanPhase4Verify`'s output (summary count, per-check logging, and the exported JSON report) - it was computed and silently factored into the overall pass/fail result, but never actually shown to the caller. Found via live testing against a real Hyper-V VM.
+- Fix `Export-NetCleanJsonArtifact` (backing the sanitizable-artifact, protection-inventory, and protection-registry-map backups) throwing instead of writing a valid empty JSON array when its data collection has zero elements - `ConvertTo-Json` piping an empty array produces no pipeline output at all. Found via live testing on a system with nothing left to sanitize.
 
 ## 0.1.0 - 2026-03-07
 
