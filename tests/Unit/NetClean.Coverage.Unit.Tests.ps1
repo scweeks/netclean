@@ -39,6 +39,17 @@ Describe 'NetClean coverage runner' {
         $script:ciText | Should -Match 'min-coverage-overall:\s+94'
     }
 
+    It 'computes the coverage badge percentage from the report-level aggregate counter' {
+        # A bare "//counter" XPath match's every nested per-package/per-sourcefile/
+        # per-class/per-method LINE counter too, not just the overall total - taking
+        # the first match in document order silently reports whichever function
+        # happens to appear first in the report (observed live: 46.43% instead of
+        # the real ~96%). The counter must be selected as a direct child of the
+        # root <report> element.
+        $script:ciText | Should -Match '\$doc\.SelectSingleNode\(''/report/counter\[@type="LINE"\]''\)'
+        $script:ciText | Should -Not -Match '\$doc\.SelectNodes\(''//counter''\)'
+    }
+
     It 'pins workflow actions and Pages deployment steps' {
         $script:ciText | Should -Match 'actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8\s+# v6\.0\.1'
         $script:ciText | Should -Match 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a\s+# v7\.0\.1'

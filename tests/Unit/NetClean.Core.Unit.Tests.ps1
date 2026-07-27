@@ -338,6 +338,96 @@ Describe 'NetClean core/shared helper unit tests' {
                 $result.JoinType | Should -Be 'DomainJoined'
                 @($result.Warnings).Count | Should -BeGreaterThan 0
             }
+
+            It 'warns and continues when the dsregcmd capture itself throws' {
+                Mock Invoke-NetCleanNativeCapture { throw 'dsregcmd.exe not found' }
+                Mock Get-CimInstance {
+                    [pscustomobject]@{ PartOfDomain = $false }
+                } -ParameterFilter { $ClassName -eq 'Win32_ComputerSystem' }
+                Mock Get-ScheduledTask { @() }
+
+                $result = Get-NetCleanDeviceManagementState
+
+                $result.JoinType | Should -Be 'Workgroup'
+                @($result.Warnings) | Should -Contain 'Microsoft Entra join-state detection was unavailable.'
+            }
+
+            It 'warns and continues when both dsregcmd and the domain fallback are unavailable' {
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{ Succeeded = $false; Output = @(); Error = 'dsregcmd failed' }
+                }
+                Mock Get-CimInstance { throw 'WMI unavailable' } -ParameterFilter { $ClassName -eq 'Win32_ComputerSystem' }
+                Mock Get-ScheduledTask { @() }
+
+                $result = Get-NetCleanDeviceManagementState
+
+                $result.IsManaged | Should -BeFalse
+                $result.JoinType | Should -Be 'Workgroup'
+                @($result.Warnings) | Should -Contain 'Active Directory domain-state fallback was unavailable.'
+            }
+
+            It 'warns and continues when MDM enrollment-task detection throws' {
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Succeeded = $true
+                        Output    = @(
+                            ' AzureAdJoined : NO',
+                            ' DomainJoined : NO',
+                            ' EnterpriseJoined : NO',
+                            ' WorkplaceJoined : NO'
+                        )
+                        Error     = $null
+                    }
+                }
+                Mock Get-ScheduledTask { throw 'access denied' }
+
+                $result = Get-NetCleanDeviceManagementState
+
+                $result.MdmEnrolled | Should -BeFalse
+                @($result.Warnings) | Should -Contain 'MDM enrollment-task detection was unavailable.'
+            }
+
+            It 'classifies an Entra-only join (not hybrid) with the Entra join type' {
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Succeeded = $true
+                        Output    = @(
+                            ' AzureAdJoined : YES',
+                            ' DomainJoined : NO',
+                            ' EnterpriseJoined : NO',
+                            ' WorkplaceJoined : NO'
+                        )
+                        Error     = $null
+                    }
+                }
+                Mock Get-ScheduledTask { @() }
+
+                $result = Get-NetCleanDeviceManagementState
+
+                $result.IsManaged | Should -BeTrue
+                $result.JoinType | Should -Be 'MicrosoftEntraJoined'
+            }
+
+            It 'classifies an enterprise-joined device with the enterprise join type' {
+                Mock Invoke-NetCleanNativeCapture {
+                    [pscustomobject]@{
+                        Succeeded = $true
+                        Output    = @(
+                            ' AzureAdJoined : NO',
+                            ' DomainJoined : NO',
+                            ' EnterpriseJoined : YES',
+                            ' WorkplaceJoined : NO'
+                        )
+                        Error     = $null
+                    }
+                }
+                Mock Get-ScheduledTask { @() }
+
+                $result = Get-NetCleanDeviceManagementState
+
+                $result.IsManaged | Should -BeTrue
+                $result.JoinType | Should -Be 'EnterpriseJoined'
+            }
         }
 
         Context 'Invoke-InParallel' {
@@ -375,6 +465,27 @@ Describe 'NetClean core/shared helper unit tests' {
                 {
                     Invoke-InParallel -ScriptBlock { param($item) $item } -InputObjects @(1) -ThrottleLimit 0
                 } | Should -Throw
+            }
+
+            It 'runs a single input item without a runspace pool' {
+                $result = @(
+                    Invoke-InParallel -ScriptBlock {
+                        param($item)
+                        $item * 2
+                    } -InputObjects @(5)
+                )
+
+                $result | Should -Be @(10)
+            }
+
+            It 'returns an empty collection when the single input item throws' {
+                $result = @(
+                    Invoke-InParallel -ScriptBlock {
+                        throw 'single worker failed'
+                    } -InputObjects @(1)
+                )
+
+                $result.Count | Should -Be 0
             }
         }
 
