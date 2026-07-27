@@ -161,9 +161,14 @@ jobs:
           }
 
           [xml]$doc = Get-Content -LiteralPath $coverageXmlPath
-          $lineCounter = $doc.SelectNodes('//counter') | Where-Object { $_.GetAttribute('type') -eq 'LINE' } | Select-Object -First 1
+          # Must be the <counter> that is a direct child of the root <report> element -
+          # the report-level aggregate. A plain "//counter" search matches every nested
+          # per-package/per-sourcefile/per-class/per-method counter too, and picking the
+          # first LINE-type match in document order silently reports whichever function
+          # happens to appear first in the report instead of the overall total.
+          $lineCounter = $doc.SelectSingleNode('/report/counter[@type="LINE"]')
           if (-not $lineCounter) {
-            throw 'No LINE counter found in coverage XML.'
+            throw 'No report-level LINE counter found in coverage XML.'
           }
 
           $missed = [int]$lineCounter.GetAttribute('missed')
