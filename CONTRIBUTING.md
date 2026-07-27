@@ -1,35 +1,46 @@
 # Contributing
 
-Thanks for considering contributing to `netclean` — your help improves the tool for everyone.
+Contributions should be small, focused, and based on the latest `main` branch unless a maintainer specifies another base.
 
-Please follow these guidelines for a smooth collaboration:
+## Engineering expectations
 
-- Fork the repository and open a feature branch from `main`.
-- Keep commits small and focused; use clear commit messages.
-- Run `PSScriptAnalyzer` locally and fix warnings where practical.
+- Use red-green-refactor: add or correct a focused Pester 6 test, observe the intended failure, apply the smallest production change, then refactor with the suite green.
+- Preserve dry-run, `ShouldProcess`, protected-artifact, and backup behavior for state-changing operations.
+- Keep functions compact and single-purpose; isolate native commands and filesystem/registry access behind testable helpers.
+- Do not weaken security checks, analyzer rules, test assertions, the 94% overall coverage ratchet, or the 95% changed-file target to make CI pass. Current total coverage exceeds 95%; preserve that result and raise the enforced ratchet only when durable margin permits.
+- Treat network performance tuning as tabled. Do not expose it in the interactive menu or expand that code without explicit maintainer direction.
+- Update public help, README, and CHANGELOG entries when behavior or interfaces change.
 
-Suggested checks before opening a pull request:
+## Local validation
 
 ```powershell
-Install-Module -Name PSScriptAnalyzer -Scope CurrentUser -Force
-Invoke-ScriptAnalyzer -Path . -Recurse
+Install-Module Pester -Scope CurrentUser -RequiredVersion 6.0.1 -Force -SkipPublisherCheck
+Install-Module PSScriptAnalyzer -Scope CurrentUser -RequiredVersion 1.25.0 -Force
+
+.\tests\Invoke-NetCleanAnalyzer.ps1
+
+Invoke-Pester -Path .\tests
+.\tests\Run-NetClean-Coverage.ps1
 ```
 
-Pull request checklist
+Run the complete Pester suite under PowerShell 7.4 or later before submitting changes. The authoritative coverage run is intentionally sequential.
 
-- [ ] Code changes include tests or verification steps (if applicable).
-- [ ] README and CHANGELOG updated if behavior or interface changed.
-- [ ] CI passes (GitHub Actions will lint and run safe dry-runs).
+The repository's registry System tests are safe for normal local and CI runs: Pester creates a random, container-scoped `TestRegistry:` key under HKCU, and the suite populates it only with synthetic data. Run tests that change real adapters, Wi-Fi state, caches, event logs, or restart behavior only on a disposable Windows system you control. Never commit generated test results, coverage reports, logs, exported registry data, Wi-Fi profiles, credentials, or other machine inventory.
 
-Code style and tests
+## Pull request checklist
 
-- Use clear, descriptive names for functions and parameters.
-- Keep scripts idempotent where possible and add checks for required privileges.
+- [ ] A focused test demonstrated the defect or missing behavior before the implementation change.
+- [ ] Pester 6.0.1 tests pass under PowerShell 7.4 or later.
+- [ ] PSScriptAnalyzer reports no warnings or errors.
+- [ ] Documentation and change notes match the implementation.
+- [ ] No generated output, secrets, credentials, or host-specific inventory is included.
 
-Reporting issues
+Contributions are licensed under the repository's GPLv3 license.
 
-- Use the repository's Issues to report bugs or request features. Provide reproduction steps and environment details.
+## Cutting a release
 
-License
-
-By contributing you agree that your contributions will be licensed under the project's license.
+1. Bump `ModuleVersion` in `NetClean.psd1` to the new version.
+2. Move `## Unreleased` entries in `CHANGELOG.md` into a new `## X.Y.Z - YYYY-MM-DD` section (create a fresh empty `## Unreleased` above it).
+3. Merge that change to `main`, then tag the merge commit: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+4. Pushing the tag triggers `.github/workflows/release.yml`, which re-validates the manifest version against the tag, re-runs PSScriptAnalyzer and the full Pester suite as a release gate, and publishes a GitHub Release using the matching `CHANGELOG.md` section as its notes.
+5. The release workflow does not publish to the PowerShell Gallery; that remains a manual/separate step until a maintainer decides to wire it up.

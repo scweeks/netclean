@@ -1,6 +1,11 @@
 # Ignore common AI/chat artifacts and local assistant data
 # Adjust these patterns to match your editor/assistant storage locations
 
+# Ignore common AI/chat artifacts and local assistant data
+# Adjust these patterns to match your editor/assistant storage locations
+.ai/
+**/.ai/
+
 # Copilot / assistant caches
 .copilot/
 .copilot/*
@@ -22,3 +27,12 @@ ai_outputs/
 
 # Node/npm lockfiles or others you might not want to commit (optional)
 # package-lock.json
+
+# Generated test and coverage output
+tests/TestResults/
+coverage*.xml
+
+# Real-machine registry/system fixtures captured locally for higher-fidelity
+# testing (see tests/LocalFixtures/). Contains real machine-specific data and
+# must never be committed - only the capture/harness tooling is versioned.
+tests/LocalFixtures/data/

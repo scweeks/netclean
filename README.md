@@ -1,190 +1,171 @@
-# netclean
+# NetClean
 
-[![CI](https://github.com/scweeks/netclean/actions/workflows/powershell-check.yml/badge.svg)](https://github.com/scweeks/netclean/actions/workflows/powershell-check.yml) [![License](https://img.shields.io/badge/license-See%20LICENSE-lightgrey.svg)](LICENSE)
+## Badges
 
-netclean is an aggressive-but-safe Windows network and log cleaner designed to prepare a Windows system for attending a conference, workshop, or participating in a Capture The Flag (CTF) event. The script helps remove identifying network traces (Wi‑Fi profiles, NetworkList entries, logs, caches) while providing safe backups and protections for security products and virtual adapters.
+[![CI](https://github.com/scweeks/netclean/actions/workflows/ci.yml/badge.svg)](https://github.com/scweeks/netclean/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/endpoint?url=https://scweeks.github.io/netclean/coverage.json)](https://scweeks.github.io/netclean/coverage.json)
+[![Analyzer](https://img.shields.io/badge/style-PSScriptAnalyzer-00aaff)](https://github.com/scweeks/netclean/actions/workflows/ci.yml)
+[![Coverage target](https://img.shields.io/badge/coverage_target-94%25-green)](https://github.com/scweeks/netclean/actions/workflows/ci.yml)
+[![PowerShell 7.4+](https://img.shields.io/badge/PowerShell-7.4%2B-blue)](https://learn.microsoft.com/powershell/)
+[![Windows](https://img.shields.io/badge/platform-Windows-blue)](https://github.com/scweeks/netclean)
+[![License](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
-> Warning: Run this script only on systems you control. It makes potentially destructive changes to networking state and event logs. Use `-DryRun` first to preview actions.
+The coverage badge is served from GitHub Pages at `https://scweeks.github.io/netclean/coverage.json`. It updates from the CI pipeline after a successful push to `main` and requires GitHub Pages to be enabled for the repository.
 
-## Features
+NetClean is a Windows PowerShell tool for detecting, backing up, cleaning, and verifying selected network-history artifacts before using a system at a conference, workshop, or security event. It uses an inventory of security products, services, drivers, and network adapters to avoid modifying identified protected artifacts.
 
-- Back up `NetworkList` and Wi‑Fi profiles to a protected folder.
-- Remove all Wi‑Fi profiles (optionally exported for restore).
-- Reset network state: Winsock, IPv4/IPv6 stacks, flush DNS, clear ARP.
-- Clear NLA probing keys and selected networking event logs.
-- Detect and preserve common AV/EDR and hypervisor artifacts (services, drivers, registry paths).
-- Interactive prompts when run without switches; fully scriptable with command-line switches.
+> [!WARNING]
+> Run NetClean only on systems you own or administer. Cleanup modes can remove Wi-Fi profiles, registry data, event logs, and user history. Start with `Preview` or `-DryRun`, review the backup, and keep a separate recovery path.
 
-## Summary of actions
+## Overview
 
-- Export the `NetworkList` registry key and Wi‑Fi profiles (XML) to backups.
-- Build protection lists for AV/EDR and hypervisor adapters to avoid modifying them.
-- Optionally delete DHCP/WLAN cache files and WLAN logs (skipped when endpoint protection detected unless `-Force`).
-- Stop and restart a small set of networking services (`WlanSvc`, `Dnscache`, `Dhcp`, `NlaSvc`, etc.).
-- Remove non-VM `NetworkList` profiles and signatures, and clear selected event logs.
-- Optionally reboot the system when complete.
+NetClean helps prepare Windows systems for use in semi-public or untrusted environments by:
 
-## What it does NOT do
+- Detecting security products, virtual adapters, and protected registry paths.
+- Exporting an access-restricted backup of evidence and configuration.
+- Performing targeted cleanup of network-history artifacts according to a chosen mode.
+- Preserving protected inventory and avoiding modification of protected artifacts.
+- Producing a JSON verification ledger and detailed logs for auditability.
 
-- Modify Windows Firewall rules.
-- Uninstall or remove AV/EDR products.
-- Intentionally edit protections for Bitdefender, VMware, or other commonly detected vendor drivers/services.
+The tool is designed to be safe by default, auditable, and reversible when used with the provided backup artifacts.
 
 ## Requirements
 
-- Windows 10 / Windows 11 with PowerShell.
-- Must be run as Administrator. The script will prompt to relaunch elevated if needed.
+- Windows 10 or Windows 11.
+- PowerShell 7.4 or later.
+- Administrator privileges are required for full detection, backup, cleanup, and verification.
 
-## Quick start
+## Quick Start
 
-Preview what will happen (safe):
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File netclean.ps1 -DryRun -CreateLog
-```
-
-Run the full cleanup (creates log):
+Preview without making changes:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File netclean.ps1 -CreateLog
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\NetClean.ps1 -Mode Preview -CreateLog
 ```
 
-Create backups only and exit:
+Run the standard workflow as a dry run:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File netclean.ps1 -OnlyBackup -CreateLog
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\NetClean.ps1 -Mode SafeConferencePrep -DryRun -CreateLog
 ```
 
-Force deletions that are otherwise skipped due to detected AV/EDR:
+Run the standard workflow after reviewing the preview and backup plan:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File netclean.ps1 -Force -CreateLog
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\NetClean.ps1 -Mode SafeConferencePrep -CreateLog
 ```
 
-Run and reboot automatically:
+## Modes
+
+| Mode | Behavior |
+|---|---|
+| `Menu` | Interactive mode selection. |
+| `Preview` | Detects and simulates protection and backup planning without cleanup. |
+| `SafeConferencePrep` | Detects, backs up, performs the standard cleanup, and verifies protected inventory. |
+| `AdvancedRepair` | Adds network-stack repair actions to the standard workflow. |
+| `PerformanceTune` | Direct invocation only; applies a performance profile to the standard workflow. |
+
+Performance tuning is intentionally omitted from the interactive menu while that work is tabled; use `-Mode PerformanceTune` explicitly.
+
+## Launcher Parameters
+
+| Parameter | Description |
+|---|---|
+| `-Mode <name>` | Selects `Menu`, `Preview`, `SafeConferencePrep`, `AdvancedRepair`, or `PerformanceTune`. |
+| `-DryRun` | Simulates state-changing operations. `Preview` always behaves as a dry run. |
+| `-Force` | Bypasses launcher confirmation prompts. It does not disable protected-artifact checks. |
+| `-CreateLog` | Starts a timestamped log in `LogPath`. Explicit non-menu modes also initialize logging. |
+| `-BackupPath <path>` | Backup destination. Default: `%ProgramData%\NetClean\Backups`. |
+| `-LogPath <path>` | Log destination. Default: `%ProgramData%\NetClean\Logs`. |
+| `-SkipWifi` | Skips Wi-Fi profile removal. |
+| `-SkipDnsFlush` | Skips DNS cache flushing. |
+| `-SkipEventLogs` | Skips network event-log cleanup. |
+| `-SkipUserArtifacts` | Skips user-history cleanup. |
+| `-SkipFirewallBackup` | Skips firewall-policy export during protection. |
+| `-PerformanceProfile <name>` | Selects `Conservative`, `Optimal`, `Gaming`, or `Default` for `PerformanceTune`. |
+| `-RebootNow` | Selects restart as the post-run action without prompting. In dry-run mode, the restart is logged but not performed. |
+
+## Workflow and Safety Model
+
+1. Detect security products, services, drivers, adapters, protected registry paths, and candidate network artifacts.
+2. Export the protection inventory, adapter IP and DNS state, registry map, sanitizable-artifact list, NetworkList data, Wi-Fi profiles, firewall policy, and protected registry keys into an access-restricted backup directory.
+3. Perform only the operations selected by the mode and skip switches. Standard conference preparation removes saved Wi-Fi profiles and network-history artifacts, resets eligible unmanaged adapters to IPv4 DHCP, configures the Quad9 Secure IPv4/IPv6 resolver set and DNS over HTTPS where supported, and keeps IPv6 enabled while preferring IPv4 after restart. `ShouldProcess`, `-WhatIf`, and `-DryRun` are honored by state-changing helpers.
+4. Re-read protected inventory, Wi-Fi and NetworkList state, adapter DHCP and DNS state, the IPv4-preference registry value, encrypted-DNS configuration, removed registry and user artifacts, and cleared event logs. A private JSON verification ledger and detailed log record each applicable check.
+
+Protection detection is best effort and cannot guarantee recognition of every security or virtual-network product. Always review the preview and inventory before cleanup.
+
+## Backup Confidentiality
+
+Wi-Fi export uses Windows `netsh` with `key=clear`, so exported XML files can contain plaintext Wi-Fi credentials. NetClean restricts both default and custom backup and log directories to administrators, SYSTEM, and the initiating user, but those principals can still read the files. Avoid syncing backups to untrusted services and securely remove backups when they are no longer needed.
+
+## Verification Limits
+
+Wi-Fi verification requires physical Wi-Fi adapters to be disconnected.
+
+DNS and dynamic IPv4 neighbor or ARP caches require an empty network context for reliable verification; when a wired LAN is connected these checks may be recorded as not applicable.
+
+Stack repair and performance-tuning commands can require a restart or lack an immediate read-back signal; their outcomes are recorded in the evidence ledger.
+
+## Restore Examples
+
+Restore an exported registry file from an elevated shell:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File netclean.ps1 -RebootNow -CreateLog
+reg.exe import "C:\path\to\backup.reg"
 ```
 
-## Command-line switches
-
-| Switch | Description |
-|--------|-------------|
-| `-DryRun` | Show what would be done without making destructive changes. |
-| `-Force` | Bypass some interactive confirmations and override AV/EDR safety checks for file deletions. Use with caution. |
-| `-OnlyBackup` | Perform backups (NetworkList, Wi‑Fi profiles, protected registry keys) then exit. |
-| `-CreateLog` | Create a timestamped log file under the log path. |
-| `-BackupPath <path>` | Path to store backups (default: `%ProgramData%\NetworkCleaner\Backups`). |
-| `-LogPath <path>` | Path to store logs (default: `%ProgramData%\NetworkCleaner\Logs`). |
-| `-RebootNow` | Reboot the machine automatically after the script completes. |
-
-## Backups & restore
-
-- Backups are saved to the configured `BackupPath`.
-
-Restore the exported `NetworkList` registry key (as Administrator):
+Restore a Wi-Fi profile:
 
 ```powershell
-reg import "<path-to>/NetworkList_YYYYMMDD_HHMMSS.reg"
+netsh.exe wlan add profile filename="C:\path\to\Wi-Fi-profile.xml"
 ```
 
-Restore Wi‑Fi profiles (for each exported XML):
+Restore a firewall policy:
 
 ```powershell
-netsh wlan add profile filename="<path-to>/WiFiProfile_<name>.xml"
+netsh.exe advfirewall import "C:\path\to\FirewallPolicy.wfw"
 ```
 
-Restore protected registry exports:
+The `examples` directory contains reusable launcher, Wi-Fi restore, and scheduled-task examples.
+
+## Development and CI
+
+Test framework: Pester 6.0.1.
+
+Static analysis: PSScriptAnalyzer 1.25.0.
+
+The authoritative coverage run is intentionally sequential. Pester 6's file-level parallel execution remains experimental, so CI keeps coverage collection on the sequential path. The CI job validates the module manifest, treats analyzer findings as failures, runs Pester with JaCoCo coverage, publishes a GitHub Pages coverage badge payload, and uploads test artifacts. A dedicated `tests/Security` suite exercises command-injection resistance and backup-directory access-control guarantees for the tool's high-privilege operations.
+
+Run tests locally:
 
 ```powershell
-reg import "<path-to>/reg_backup_... .reg"
+Install-Module Pester -Scope CurrentUser -RequiredVersion 6.0.1 -Force -SkipPublisherCheck
+Install-Module PSScriptAnalyzer -Scope CurrentUser -RequiredVersion 1.25.0 -Force
+Invoke-Pester -Path .\tests
+.\tests\Run-NetClean-Coverage.ps1
 ```
 
-## Tables & outputs
+Coverage and gates:
 
-Key directories (defaults):
+CI enforces an overall coverage gate of 94 percent. Pull-request reporting includes a changed-file target of 95 percent.
 
-| Purpose | Default path |
-|---------|--------------|
-| Backups | `%ProgramData%\NetworkCleaner\Backups` |
-| Logs | `%ProgramData%\NetworkCleaner\Logs` |
+The coverage runner rejects source paths beneath `tests/` so test code cannot inflate results. Coverage output is written to `tests/TestResults` or the configured output path and is ignored by Git.
 
-Log files are timestamped like `netclean_YYYYMMDD_HHMMSS.log` and contain the full sequence of actions and restore instructions for exported registry keys and Wi‑Fi profiles.
+Module cache refresh:
 
-## CI / Scheduled task examples
+The CI workflow exposes a `workflow_dispatch` input named `force-module-refresh` so maintainers can clear the module cache and force fresh installs from the Actions UI. Use this after merging dependency updates, before a release, or when debugging CI module issues.
 
-This repository includes a lightweight GitHub Actions workflow that lints PowerShell with `PSScriptAnalyzer` and runs the wrapper in `-DryRun` mode. The workflow file is:
+## Contributing
 
-- `.github/workflows/powershell-check.yml`
+See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines, testing expectations, and the preferred PR workflow.
 
-Example scheduled-task registration script is under `examples/register-scheduledtask.ps1` (creates an idempotent task to run the wrapper at startup).
+In brief:
 
-## Examples: PowerShell wrapper scripts
+- Follow red-green-refactor: add focused regression coverage for any behavior you change.
+- Keep changes small and reviewable.
+- Ensure PSScriptAnalyzer passes and Pester tests, including the coverage gate, succeed locally before opening a PR.
+- When opening a PR, include a short description of the change, the tests added or updated, and any manual verification steps required.
 
-Below are two example wrappers that make running and restoring easier. They are provided as guidance — you can copy them into `examples/` and customize paths as needed.
+## License
 
-1) Simple runner that creates backups, logs, and performs the cleanup non-interactively:
-
-```powershell
-# examples/run-netclean.ps1
-param(
-    [switch]$DryRun,
-    [switch]$Force,
-    [string]$BackupPath = "$env:ProgramData\NetworkCleaner\Backups",
-    [string]$LogPath = "$env:ProgramData\NetworkCleaner\Logs"
-)
-
-$script = Join-Path $PSScriptRoot "..\netclean.ps1"
-if (-not (Test-Path $script)) { Write-Error "netclean.ps1 not found at $script"; exit 1 }
-
-$args = @('-NoProfile','-ExecutionPolicy','Bypass','-File',$script)
-if ($DryRun) { $args += '-DryRun' }
-if ($Force) { $args += '-Force' }
-$args += '-CreateLog','-BackupPath',$BackupPath,'-LogPath',$LogPath
-
-Write-Host "Launching netclean with args: $($args -join ' ')" -ForegroundColor Cyan
-Start-Process -FilePath (Get-Command powershell).Source -ArgumentList $args -NoNewWindow -Wait
-Write-Host "netclean run completed. Check logs under $LogPath" -ForegroundColor Green
-```
-
-2) Restore Wi‑Fi profiles from a backup folder (imports each XML):
-
-```powershell
-# examples/restore-wifi-profiles.ps1
-param(
-    [string]$BackupPath = "$env:ProgramData\NetworkCleaner\Backups"
-)
-
-if (-not (Test-Path $BackupPath)) { Write-Error "Backup path not found: $BackupPath"; exit 1 }
-
-$xmlFiles = Get-ChildItem -Path $BackupPath -Filter 'WiFiProfile_*.xml' -File -ErrorAction SilentlyContinue
-if (-not $xmlFiles) { Write-Host "No Wi‑Fi profile exports found in $BackupPath"; exit 0 }
-
-foreach ($f in $xmlFiles) {
-    Write-Host "Importing profile: $($f.Name)"
-    try { netsh wlan add profile filename="$($f.FullName)" | Out-Null; Write-Host "Imported: $($f.Name)" -ForegroundColor Green } catch { Write-Warning "Failed to import $($f.Name): $_" }
-}
-
-Write-Host "Wi‑Fi restore complete." -ForegroundColor Green
-```
-
-## Recommended workflow
-
-1. Preview with `-DryRun` and `-CreateLog`.
-2. Create backups with `-OnlyBackup` and verify exported files under the backups folder.
-3. Run the full cleanup when satisfied.
-
-## Troubleshooting & logs
-
-- Review the timestamped log in `LogPath` for details about protected registry paths, exported files, and skipped actions.
-- If the script skips DHCP/WLAN file deletions because AV/EDR was detected, use `-Force` only after confirming backups and understanding risks.
-
-## Contributing & license
-
-- Contributions welcome for improving detection rules, safeguards, or cross-version compatibility; please open a pull request with tests and notes.
-- See the `LICENSE` file for license details.
-
----
-
-If you'd like, I can also commit the workflow and examples to the repository. Tell me to proceed and I'll make a git commit.
+NetClean is released under the GPLv3. See [LICENSE](LICENSE) for full terms.

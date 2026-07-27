@@ -1,628 +1,943 @@
-<#
-    Aggressive-but-safe Windows 11 network cleanup for conference/CTF.
+﻿<#
+.SYNOPSIS
+    NetClean launcher / UX shell.
 
-    - Run as Administrator
-    - Does NOT touch:
-        * Bitdefender services, drivers, or firewall rules
-        * Windows Firewall rules
-        * VMware Workstation services or virtual adapters
-    - Does:
-        * Remove all Wi-Fi profiles
-        * Reset Winsock + TCP/IP (IPv4/IPv6)
+.DESCRIPTION
+    Thin orchestration layer for NetClean.psm1.
+
+    Responsibilities of this script:
+    - parameter handling
+    - admin check
+    - menu / UX
+    - logging
+    - calling module phase/workflow functions
+    - displaying summaries
+    - optional reboot prompt
+
+    Responsibilities of NetClean.psm1:
+    - detect
+    - protect
+    - clean
+    - verify
+    - backup/export
+    - repair/tuning helpers
 #>
+
+[CmdletBinding(SupportsShouldProcess = $true)]
 param(
-            [switch]$DryRun,
-            [switch]$Force,
-            [switch]$OnlyBackup,
-            [switch]$CreateLog,
-            [string]$BackupPath = "$env:ProgramData\NetworkCleaner\Backups",
-            [string]$LogPath = "$env:ProgramData\NetworkCleaner\Logs",
-            [switch]$RebootNow
-        )
+    [ValidateSet('Menu', 'Preview', 'SafeConferencePrep', 'AdvancedRepair', 'PerformanceTune')]
+    [string]$Mode = 'Menu',
+    [switch]$DryRun,
+    [switch]$Force,
+    [switch]$CreateLog,
+    [ValidateNotNullOrEmpty()]
+    [string]$BackupPath = "$env:ProgramData\NetClean\Backups",
+    [ValidateNotNullOrEmpty()]
+    [string]$LogPath = "$env:ProgramData\NetClean\Logs",
+    [switch]$SkipWifi,
+    [switch]$SkipDnsFlush,
+    [switch]$SkipEventLogs,
+    [switch]$SkipUserArtifacts,
+    [switch]$SkipFirewallBackup,
+    [ValidateSet('Conservative', 'Optimal', 'Gaming', 'Default')]
+    [string]$PerformanceProfile = 'Default',
+    [switch]$RebootNow
+)
 
-# Import module with core helpers
-Import-Module -Name (Join-Path $PSScriptRoot 'Netclean.psm1') -Force -ErrorAction Stop
+# Set test mode variables to default to false
+if (-not (Get-Variable NetCleanTestMode -Scope Script -ErrorAction SilentlyContinue)) {
+    $script:NetCleanTestMode = $false
+}
 
-        # Logging helpers
-        $script:LogFile = $null
-        function Start-Log {
-            param($logDir)
-            if (-not $logDir) { $logDir = "$env:ProgramData\NetworkCleaner\Logs" }
-            if (-not (Test-Path $logDir)) { New-Item -Path $logDir -ItemType Directory -Force | Out-Null }
-            $script:LogFile = Join-Path $logDir "netclean_$(Get-Date -Format yyyyMMdd_HHmmss).log"
-            "$((Get-Date).ToString('s')) - INFO - Log started" | Out-File -FilePath $script:LogFile -Encoding UTF8
-        }
-        function Write-NetcleanLog {
-            param(
-                [string]$Level = 'INFO',
-                [string]$Message
-            )
-            $line = "$(Get-Date -Format s) - $Level - $Message"
-            if ($script:LogFile) { $line | Out-File -FilePath $script:LogFile -Encoding UTF8 -Append }
-            # Also write a short host message for interactive feedback
-            # Only show WARN and ERROR on the console to reduce duplicate/info clutter; INFO goes to the log file.
-            if ($Level -in @('ERROR','WARN')) {
-                switch ($Level) {
-                    'ERROR' { Write-Host $Message -ForegroundColor Red }
-                    'WARN'  { Write-Host $Message -ForegroundColor Yellow }
-                }
-            }
-        }
+# Normalize default paths using Join-Path when the caller did not provide overrides
+if (-not $PSBoundParameters.ContainsKey('BackupPath')) {
+    $BackupPath = Join-Path $env:ProgramData 'NetClean\Backups'
+}
 
-        function Ensure-Admin {
-            $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
-                [Security.Principal.WindowsBuiltInRole] "Administrator")
-            if (-not $isAdmin) {
-                $ans = Read-Host "This script must be run as Administrator. Elevate now? (Y/N)"
-                if ($ans -match '^[Yy]') {
-                    # Rebuild argument list from supplied bound parameters
-                    $scriptPath = $PSCommandPath
-                    $argList = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`""
-                    if ($PSBoundParameters) {
-                        foreach ($k in $PSBoundParameters.Keys) {
-                            $v = $PSBoundParameters[$k]
-                            if ($v -is [System.Management.Automation.SwitchParameter]) {
-                                if ($v.IsPresent -and $v) { $argList += " -$k" }
-                            } else {
-                                $escaped = $v.ToString().Replace('"','\"')
-                                $argList += " -$k `"$escaped`""
-                            }
-                        }
-                    }
-                    Write-Host "Relaunching elevated: powershell $argList" -ForegroundColor Gray
-                    Start-Process -FilePath (Get-Command powershell).Source -ArgumentList $argList -Verb RunAs -Wait
-                    Exit 0
-                } else {
-                    Write-Host "This script must be run as Administrator. Exiting." -ForegroundColor Red
-                    Exit 1
-                }
-            }
-        }
+if (-not $PSBoundParameters.ContainsKey('LogPath')) {
+    $LogPath = Join-Path $env:ProgramData 'NetClean\Logs'
+}
 
-        function New-ProtectedBackupPath($path) {
-            if (-not (Test-Path $path)) {
-                New-Item -Path $path -ItemType Directory -Force | Out-Null
-            }
-            # Restrict backups to Administrators and SYSTEM
-            try {
-                $icaclsArgs = @($path,'/inheritance:r','/grant','Administrators:(OI)(CI)F','/grant','SYSTEM:(OI)(CI)F','/C')
-                if ($DryRun) { Write-Host "DRYRUN: icacls $($icaclsArgs -join ' ')" -ForegroundColor Gray }
-                else {
-                    try { Start-Process -FilePath 'icacls' -ArgumentList $icaclsArgs -NoNewWindow -Wait -ErrorAction Stop | Out-Null } catch { throw }
-                }
-            } catch {
-                    Write-Warning ("Failed to set ACL on backup folder: " + $_)
-            }
-            Write-NetcleanLog 'INFO' "Backup folder prepared: $path"
-        }
+# Tracks whether the caller explicitly chose a tuning profile, as opposed to
+# receiving the ValidateSet default - PerformanceTune must still ask which
+# profile is wanted even under -Force when no explicit choice was made.
+$script:PerformanceProfileExplicitlySet = $PSBoundParameters.ContainsKey('PerformanceProfile')
 
-        function Prompt-YesNo($msg, $defaultNo=$true) {
-            while ($true) {
-                $ans = Read-Host "$msg (Y/N)"
-                if ($ans -match '^[Yy]') { return $true }
-                if ($ans -match '^[Nn]') { return $false }
-                Write-Host "Please answer Y or N." -ForegroundColor Yellow
-            }
-        }
+if ($false) {
+    $null = $Mode
+    $null = $DryRun
+    $null = $Force
+    $null = $CreateLog
+    $null = $BackupPath
+    $null = $LogPath
+    $null = $SkipWifi
+    $null = $SkipDnsFlush
+    $null = $SkipEventLogs
+    $null = $SkipUserArtifacts
+    $null = $SkipFirewallBackup
+    $null = $PerformanceProfile
+    $null = $RebootNow
+}
 
-        function Normalize-Guid($g) {
-            if (-not $g) { return $null }
-            return ($g -replace '[{}]','').ToLower()
-        }
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
 
-        function Get-HypervisorGuids {
-            # Detect virtual network adapters from common hypervisors and return their normalized GUIDs.
-            $adapters = @()
-            try {
-                $adapters = Get-NetAdapter -ErrorAction SilentlyContinue |
-                    Where-Object {
-                        ($_.InterfaceDescription -match 'VMware|VirtualBox|Hyper-V|HyperV|Parallels|Virtual Adapter|Virtual Ethernet|vEthernet|VirtualBox') -or
-                        ($_.Name -match 'VMware|VMnet|vbox|VMSwitch|vEthernet')
-                    }
-                $wlanArgs = @('wlan','export','profile','name='+$p,'key=clear','folder='+$dest)
-                if ($DryRun) { Write-NetcleanLog 'INFO' "DRYRUN: netsh $($wlanArgs -join ' ')"; $exported += $file }
-                else {
-                    try {
-                        Start-Process -FilePath 'netsh' -ArgumentList $wlanArgs -NoNewWindow -Wait -ErrorAction Stop
-                        Write-NetcleanLog 'INFO' "Exported Wi-Fi profile $p -> $file"
-                        $exported += $file
-                    } catch {
-                        Write-NetcleanLog 'WARN' ("Failed to export wifi profile " + $p + ": " + $_)
-                    }
-                }
-        function Get-VMwareGuids { return Get-HypervisorGuids }
+# Record script start time for runtime reporting
+$script:RunStart = Get-Date
 
-        function Get-DetectedHypervisors {
-            $found = @()
-            # WMI: Hypervisor present
-            try {
-                $cs = Get-CimInstance -ClassName Win32_ComputerSystem -ErrorAction SilentlyContinue
-                if ($cs -and $cs.HypervisorPresent) { $found += 'HypervisorPresent' }
-            } catch {}
-            # Network adapters
-            try {
-                $adapters = Get-NetAdapter -ErrorAction SilentlyContinue
-                foreach ($a in $adapters) {
-                    $d = $a.InterfaceDescription
-                    if ($d -match 'VMware') { if (-not ($found -contains 'VMware')) { $found += 'VMware' } }
-                    if ($d -match 'VirtualBox') { if (-not ($found -contains 'VirtualBox')) { $found += 'VirtualBox' } }
-                    if ($d -match 'Hyper-V|HyperV|vEthernet') { if (-not ($found -contains 'Hyper-V')) { $found += 'Hyper-V' } }
-                    if ($d -match 'Parallels') { if (-not ($found -contains 'Parallels')) { $found += 'Parallels' } }
-                }
-            } catch {}
-            # Services/processes
-            $svcChecks = @{ 'VBoxService'='VirtualBox'; 'vmtools'='VMware'; 'vmware'='VMware'; 'vmms'='Hyper-V'; 'vmcompute'='Hyper-V' }
-            foreach ($k in $svcChecks.Keys) {
-                try { if (Get-Service -Name $k -ErrorAction SilentlyContinue) { if (-not ($found -contains $svcChecks[$k])) { $found += $svcChecks[$k] } } } catch {}
-            }
-            return $found | Sort-Object -Unique
-        }
+# ---------------------------------------------------------------------------
+# Module import
+# ---------------------------------------------------------------------------
 
-        function Get-InstalledAV {
-            $found = @()
-            try {
-                $wmi = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntivirusProduct -ErrorAction SilentlyContinue
-                if ($wmi) { $found += $wmi.displayName }
-            } catch {
-                    Write-Verbose ("SecurityCenter query failed: " + $_)
-            }
-            # Fallback: look for common AV services/processes
-            $common = @('MsMpSvc','WinDefend','vsserv','BDService','CSFalconService','SentinelAgent','sophos','savservice')
-            foreach ($s in $common) {
-                try {
-                    if (Get-Service -Name $s -ErrorAction SilentlyContinue) { $found += $s }
-                } catch {}
-            }
-            return ($found | Sort-Object -Unique)
+Import-Module (Join-Path $PSScriptRoot 'Netclean.psd1') -Force
+
+# ---------------------------------------------------------------------------
+# Script state
+# ---------------------------------------------------------------------------
+
+# $script:LogFile = $null
+
+# Maximum items to show in lists; remaining count will be summarized.
+$script:SummaryListLimit = 20
+
+function Show-TruncatedList {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [AllowNull()]
+        [AllowEmptyCollection()]
+        [object[]]$Items,
+        [Parameter(Mandatory = $false)]
+        [string]$Heading = 'Items',
+        [Parameter(Mandatory = $false)]
+        [int]$Limit
+    )
+    if (-not $Limit) { $Limit = $script:SummaryListLimit }
+    Write-Information '' -InformationAction Continue
+    Write-Information $Heading -InformationAction Continue
+    if ($Items -and $Items.Count -gt 0) {
+        $count = $Items.Count
+        $toShow = $Items[0..([Math]::Min($Limit - 1, $count - 1))]
+        foreach ($i in $toShow) { Write-Information "  - $i" -InformationAction Continue }
+        if ($count -gt $Limit) { Write-Information "  - ...and $($count - $Limit) more" -InformationAction Continue }
+    }
+    else { Write-Information '  - (none)' -InformationAction Continue }
+}
+
+# ---------------------------------------------------------------------------
+# UX helpers
+# ---------------------------------------------------------------------------
+
+<#
+.SYNOPSIS
+    Tests if the current user is an administrator.
+.DESCRIPTION
+    This function checks if the current user has administrator privileges.
+.EXAMPLE
+    Test-NetCleanAdministrator
+.NOTES
+    The function throws an error if the user is not an administrator.
+#>
+function Test-NetCleanAdministrator {
+    [CmdletBinding()]
+    param()
+
+    $principal = [Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()
+    $isAdmin = $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+    if (-not $isAdmin) {
+        throw 'NetClean must be run as Administrator.'
+    }
+}
+
+<#
+.SYNOPSIS
+    Prompts the user for a yes/no response.
+.DESCRIPTION
+    This function displays a prompt and waits for the user to enter 'y' or 'n'.
+.PARAMETER Prompt
+    The prompt message to display.
+.PARAMETER DefaultNo
+    Indicates whether the default response is no.
+.EXAMPLE
+    Read-YesNo -Prompt "Do you want to continue?"
+.OUTPUTS
+    System.Boolean - The user's response.
+.NOTES
+    The function uses the Convert-RegToProviderPath function to normalize the input path.
+#>
+function Read-YesNo {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Prompt,
+
+        [bool]$DefaultNo = $true
+    )
+
+    if ($script:Force) {
+        return $true
+    }
+
+    while ($true) {
+        $suffix = if ($DefaultNo) { '[y/N]' } else { '[Y/n]' }
+        $answer = Read-Host "$Prompt $suffix"
+
+        if ([string]::IsNullOrWhiteSpace($answer)) {
+            return (-not $DefaultNo)
         }
 
-        function Derive-AVServicePatterns($avList) {
-            $patterns = @()
-            $map = @{
-                'bitdefender' = @('vsserv','BDService')
-                'crowdstrike' = @('CSFalconService','csagent','falcon')
-                'sentinelone' = @('SentinelAgent','SentinelCtl','Sentinel')
-                'carbon'      = @('Cb','cb')
-                'symantec'    = @('Symantec','Smc')
-                'sophos'      = @('SAVService','Sophos')
-                'windows'     = @('WinDefend','MsMpSvc')
-            }
-            foreach ($a in $avList) {
-                $an = $a.ToString().ToLower()
-                foreach ($k in $map.Keys) {
-                    if ($an -like "*$k*") { $patterns += $map[$k] }
-                }
-            }
-            return ($patterns | Sort-Object -Unique)
-        }
+        if ($answer -match '^[Yy]') { return $true }
+        if ($answer -match '^[Nn]') { return $false }
 
-        function Build-ProtectionLists {
-            # Returns hashtable with keys: Services, Drivers, Adapters, Registry
-            $detected = Get-InstalledAV
-            $svcPatterns = @()
-            $driverPatterns = @()
-            $adapterPatterns = @()
-            $registryPaths = @()
+        Write-Verbose 'Please enter Y or N.'
+    }
+}
 
-            # Per-vendor canonical mappings (services, drivers, adapter name fragments, registry locations)
-            $vendorMap = @{
-                'bitdefender' = @{ Services=@('vsserv','bdservice'); Drivers=@('npf','bd*cpt'); Adapters=@('vmware','bd'); Reg=@('SOFTWARE\\Bitdefender') }
-                'malwarebytes' = @{ Services=@('MBAMService','MBAMProtector'); Drivers=@('mbam*'); Adapters=@('Malwarebytes'); Reg=@('SOFTWARE\\Malwarebytes') }
-                'crowdstrike' = @{ Services=@('CSFalconService'); Drivers=@('cs*'); Adapters=@('CrowdStrike'); Reg=@('') }
-                'sentinelone' = @{ Services=@('SentinelAgent'); Drivers=@('Sentinel'); Adapters=@('SentinelOne'); Reg=@('') }
-                'sophos' = @{ Services=@('SAVService'); Drivers=@('SAV*'); Adapters=@('Sophos'); Reg=@('SOFTWARE\\SOPHOS') }
-                'microsoft' = @{ Services=@('MsMpSvc','WinDefend'); Drivers=@('wd*'); Adapters=@('vEthernet','Hyper-V'); Reg=@('SOFTWARE\\Microsoft\\Windows Defender') }
-            }
+<#
+.SYNOPSIS
+    Shows the NetClean banner.
+.DESCRIPTION
+    This function displays the NetClean banner with version information.
+.EXAMPLE
+    Show-NetCleanBanner
+#>
+function Show-NetCleanBanner {
+    [CmdletBinding()]
+    param()
 
-            foreach ($d in $detected) {
-                $dn = $d.ToString().ToLower()
-                foreach ($k in $vendorMap.Keys) {
-                    if ($dn -like "*$k*") {
-                        $entry = $vendorMap[$k]
-                        $svcPatterns += $entry.Services
-                        $driverPatterns += $entry.Drivers
-                        $adapterPatterns += $entry.Adapters
-                        $registryPaths += $entry.Reg
-                    }
-                }
-            }
+    Write-Information '' -InformationAction Continue
+    Write-Information '==========================================' -InformationAction Continue
+    Write-Information ' NetClean - Conference / CTF Prep Tool' -InformationAction Continue
+    Write-Information '==========================================' -InformationAction Continue
+    Write-Information '' -InformationAction Continue
+    Write-Information 'This tool helps remove network history and metadata while preserving' -InformationAction Continue
+    Write-Information 'security products, firewalls, hypervisors, and protected adapters.' -InformationAction Continue
+    Write-Information '' -InformationAction Continue
+}
 
-            # Always protect common hypervisor adapters/services
-            $adapterPatterns += @('VMware','VMnet','vboxnet','vEthernet','Hyper-V','VirtualBox','Parallels')
-            $svcPatterns += @('vmnat','vmnetbridge','VMWareHostd','VBoxService')
+<#
+.SYNOPSIS
+    Shows the NetClean menu.
+.DESCRIPTION
+    This function displays the main NetClean menu options.
+.EXAMPLE
+    Show-NetCleanMenu
+#>
+function Show-NetCleanMenu {
+    [CmdletBinding()]
+    param()
 
-            return @{ Services=($svcPatterns|Sort-Object -Unique); Drivers=($driverPatterns|Sort-Object -Unique); Adapters=($adapterPatterns|Sort-Object -Unique); Registry=($registryPaths|Sort-Object -Unique) }
-        }
+    Show-NetCleanBanner
 
-        function Get-ServiceRegistryInfo($svcName) {
-            $res = @{}
-            $key = "HKLM:\SYSTEM\CurrentControlSet\Services\$svcName"
-            if (-not (Test-Path $key)) { return $null }
-            try {
-                $props = Get-ItemProperty -Path $key -ErrorAction Stop
-                $res.Path = $key
-                $res.DisplayName = $props.DisplayName
-                $res.ImagePath = $props.ImagePath
-                $res.DependOnService = $props.DependOnService
-                $res.Start = $props.Start
-            } catch { return $null }
-            return $res
-        }
+    Write-Information '1. Preview only' -InformationAction Continue
+    Write-Information '   Detect and show what would be cleaned. No changes made.' -InformationAction Continue
+    Write-Information '' -InformationAction Continue
+    Write-Information '2. Safe conference prep' -InformationAction Continue
+    Write-Information '   Backup, remove network history, preserve security and virtualization tools.' -InformationAction Continue
+    Write-Information '' -InformationAction Continue
+    Write-Information '3. Advanced repair' -InformationAction Continue
+    Write-Information '   Includes deeper network reset actions. May affect installed software.' -InformationAction Continue
+    Write-Information '' -InformationAction Continue
+    # PerformanceTune remains available to direct callers but is intentionally
+    # omitted from the interactive menu while network-optimization work is tabled.
+    # Write-Information '4. Performance tuning' -InformationAction Continue
+    # Write-Information '   Apply conservative network performance tuning.' -InformationAction Continue
+    # Write-Information '' -InformationAction Continue
+    Write-Information '4. Exit' -InformationAction Continue
+    Write-Information '' -InformationAction Continue
+}
 
-        function Inspect-ServiceDependencies($serviceList) {
-            $regPaths = @()
-            $driverFiles = @()
-            foreach ($s in $serviceList | Sort-Object -Unique) {
-                if (-not $s) { continue }
-                $info = Get-ServiceRegistryInfo $s
-                if ($info) {
-                    $regPaths += $info.Path
-                    if ($info.ImagePath) {
-                        $img = $info.ImagePath -replace '"',''
-                        # If it references a .sys driver, capture the filename
-                        if ($img -match '\\([^\\]+\.sys)') { $driverFiles += $Matches[1] }
-                    }
-                    if ($info.DependOnService) {
-                        foreach ($d in @($info.DependOnService)) {
-                            $regPaths += "HKLM:\\SYSTEM\\CurrentControlSet\\Services\\$d"
-                        }
-                    }
-                }
-            }
-            return @{ Registry=$regPaths|Sort-Object -Unique; Drivers=$driverFiles|Sort-Object -Unique }
-        }
+<#
+.SYNOPSIS
+    Reads the menu selection for the NetClean process.
+.DESCRIPTION
+    This function prompts the user to select an option from the NetClean menu.
+.EXAMPLE
+    Read-NetCleanMenuSelection
+.OUTPUTS
+    System.String - The selected menu option.
+.NOTES
+    The function uses the Convert-RegToProviderPath function to normalize the input path.
+#>
+function Read-NetCleanMenuSelection {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
 
-        function Is-RegistryPathProtected($path) {
-            if (-not $global:ProtectedRegistryPaths) { return $false }
-            foreach ($p in $global:ProtectedRegistryPaths) {
-                if (-not $p) { continue }
-                if ($path -like "$p*" -or $p -like "$path*") { return $true }
-            }
-            return $false
-        }
+    while ($true) {
+        Show-NetCleanMenu
+        $choice = Read-Host 'Select an option (1-4)'
 
-        # The registry and Wi-Fi backup helpers are provided by the Netclean module
-        # Backup-ProtectedRegistryKeys, Backup-NetworkList, and Backup-WiFiProfiles
-
-        function Remove-WiFiProfilesSafe {
-            Write-Host "Preparing to remove Wi-Fi profiles (preview)..." -ForegroundColor Yellow
-            Write-Log 'INFO' "Preparing to remove Wi-Fi profiles (preview)"
-            $profiles = netsh wlan show profiles | Select-String 'All User Profile' | ForEach-Object { ($_ -split ':')[1].Trim() }
-            if (-not $profiles) { Write-Host "No Wi-Fi profiles found." -ForegroundColor Gray; return }
-            $profiles | ForEach-Object { Write-Host "  - $_" -ForegroundColor DarkGray; Write-Log 'INFO' "Found Wi-Fi profile: $_" }
-            if (-not $Force) {
-                if (-not (Prompt-YesNo "Delete all above Wi-Fi profiles?")) { Write-Host "Skipping Wi-Fi deletion." -ForegroundColor Yellow; return }
-            }
-                foreach ($p in $profiles) {
-                    $delArgs = @('wlan','delete','profile','name="' + $p + '"')
-                    if ($DryRun) { Write-Host "DRYRUN: netsh $($delArgs -join ' ')" } else {
-                        try {
-                            Start-Process -FilePath 'netsh' -ArgumentList $delArgs -NoNewWindow -Wait -ErrorAction Stop
-                            Write-Host "Deleted profile: $p" -ForegroundColor Gray
-                            Write-NetcleanLog 'INFO' "Deleted Wi-Fi profile: $p"
-                        } catch {
-                            Write-Warning ("Failed to delete " + ${p} + ": " + $_)
-                            Write-NetcleanLog 'ERROR' ("Failed to delete Wi-Fi profile: " + $p + " - " + $_)
-                        }
-                    }
-                }
-        }
-
-        function Safe-RemoveNetworkListProfiles($vmwareGuids, $dest) {
-            $base = 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\NetworkList'
-            $protection = Build-ProtectionLists
-            $adapterPatterns = $protection.Adapters
-            $profilesPath = Join-Path $base 'Profiles'
-            if (-not (Test-Path $profilesPath)) { Write-Host "No NetworkList Profiles key found." -ForegroundColor Gray; return }
-            $toRemove = @()
-            Get-ChildItem $profilesPath | ForEach-Object {
-                $p = $_
-                try {
-                    $item = Get-ItemProperty -Path $p.PSPath -ErrorAction Stop
-                    $profileName = $item.ProfileName
-                    $description = $item.Description
-                    $isVm = $false
-                    if ($description) {
-                        foreach ($pat in $adapterPatterns) { if ($description -match $pat) { $isVm = $true; break } }
-                    }
-                    if (-not $isVm -and $profileName) {
-                        foreach ($pat in $adapterPatterns) { if ($profileName -match $pat) { $isVm = $true; break } }
-                    }
-                    if (-not $isVm) { $toRemove += @{ Path=$p.PSPath; Name=$profileName } }
-                    else { Write-Host "Preserving VM profile: $profileName" -ForegroundColor DarkGray }
-                } catch { Write-Warning ("Failed reading profile key " + $_ + ": " + $_) }
-            }
-            if (-not $toRemove) { Write-Host "No non-VM NetworkList profiles to remove." -ForegroundColor Gray; return }
-            Write-Host "Profiles to remove:" -ForegroundColor Yellow
-            $toRemove | ForEach-Object { Write-Host "  - $($_.Name) : $($_.Path)" -ForegroundColor DarkGray; Write-Log 'INFO' "Planned NetworkList removal: $($_.Name) -> $($_.Path)" }
-            if (-not $Force) { if (-not (Prompt-YesNo "Remove listed NetworkList profiles?")) { Write-Host "Skipping NetworkList removals." -ForegroundColor Yellow; return } }
-            foreach ($r in $toRemove) {
-                if (Is-RegistryPathProtected $r.Path) { Write-Host "Skipping removal of protected registry path: $($r.Path)" -ForegroundColor DarkGray; Write-Log 'WARN' "Skipped protected NetworkList profile: $($r.Path)"; continue }
-                if ($DryRun) { Write-Host "DRYRUN: Remove-Item -Path $($r.Path) -Recurse -Force" -ForegroundColor Gray; Write-Log 'INFO' "DRYRUN: would remove $($r.Path)" }
-                else { try { Remove-Item -Path $r.Path -Recurse -Force -ErrorAction Stop; Write-Host "Removed: $($r.Name)" -ForegroundColor Gray; Write-Log 'INFO' "Removed NetworkList profile: $($r.Name) at $($r.Path)" } catch { Write-Warning ("Failed remove " + $($r.Path) + ": " + $_); Write-Log 'ERROR' ("Failed to remove NetworkList profile: " + $($r.Path) + " - " + $_) } }
-            }
-            # Signatures removal (map to interface GUIDs) - be conservative
-            $sigSubs = @('Signatures\\Unmanaged','Signatures\\Managed')
-            foreach ($sub in $sigSubs) {
-                $sigPath = Join-Path $base $sub
-                if (-not (Test-Path $sigPath)) { continue }
-                Get-ChildItem $sigPath | ForEach-Object {
-                    $name = $_.PSChildName
-                    $norm = Normalize-Guid($name)
-                    if ($vmwareGuids -contains $norm) { Write-Host "Preserving signature $name (VM)" -ForegroundColor DarkGray; return }
-                    # inspect properties to detect adapter/driver ties
-                    try {
-                        $sig = Get-ItemProperty -Path $_.PsPath -ErrorAction SilentlyContinue
-                        $dnsSuffix = $sig.DnsSuffix
-                        $defaultGatewayMac = $sig.DefaultGatewayMac
-                        $preserve = $false
-                        foreach ($pat in $adapterPatterns) {
-                            if ($dnsSuffix -and ($dnsSuffix -match $pat)) { $preserve = $true; break }
-                            if ($defaultGatewayMac -and ($defaultGatewayMac -match $pat)) { $preserve = $true; break }
-                        }
-                        if ($preserve) { Write-Host "Preserving signature $name (matches protected adapter/AV)" -ForegroundColor DarkGray; return }
-                    } catch {}
-                    # else remove
-                    if ($DryRun) { Write-Host "DRYRUN: Remove signature $name" -ForegroundColor Gray }
-                    else { try { Remove-Item -Path $_.PsPath -Recurse -Force -ErrorAction Stop; Write-Host "Removed signature: $name" -ForegroundColor Gray } catch { Write-Warning ("Failed remove signature " + ${name} + ": " + $_) } }
-                }
+        switch ($choice) {
+            '1' { return 'Preview' }
+            '2' { return 'SafeConferencePrep' }
+            '3' { return 'AdvancedRepair' }
+            # '4' { return 'PerformanceTune' } # Tabled for interactive use.
+            '4' { return 'Exit' }
+            default {
+                Write-Information '' -InformationAction Continue
+                Write-Information 'Invalid selection. Please choose 1 through 4.' -InformationAction Continue
+                Write-Information '' -InformationAction Continue
             }
         }
+    }
+}
 
-        function Reset-Networking {
-            $cmds = @( 
-                @{Name='Flush DNS'; Cmd='ipconfig /flushdns'},
-                @{Name='Clear ARP'; Cmd='arp -d *'},
-                @{Name='Reset Winsock'; Cmd='netsh winsock reset'},
-                @{Name='Reset IPv4'; Cmd='netsh int ip reset'},
-                @{Name='Reset IPv6'; Cmd='netsh int ipv6 reset'}
-            )
-            foreach ($c in $cmds) {
-                Write-Host "$($c.Name)..." -ForegroundColor Yellow
-                Write-Log 'INFO' "$($c.Name) - Command: $($c.Cmd)"
-                if ($DryRun) { Write-Host "DRYRUN: $($c.Cmd)" -ForegroundColor Gray } else {
-                    try { iex $c.Cmd | Out-Null; Write-Host "$($c.Name) done" -ForegroundColor Gray; Write-Log 'INFO' "$($c.Name) completed" } catch { Write-Warning ("$($c.Name) failed: " + $_); Write-Log 'ERROR' ("$($c.Name) failed: " + $_) }
-                }
+<#
+.SYNOPSIS
+    Shows the explanation for the selected NetClean mode.
+.DESCRIPTION
+    This function displays the explanation for the selected NetClean mode.
+.PARAMETER SelectedMode
+    The mode selected by the user.
+.EXAMPLE
+    Show-ModeExplanation -SelectedMode 'Preview'
+#>
+function Show-ModeExplanation {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Preview', 'SafeConferencePrep', 'AdvancedRepair', 'PerformanceTune')]
+        [string]$SelectedMode
+    )
+
+    Write-Information '' -InformationAction Continue
+    switch ($SelectedMode) {
+        'Preview' {
+            Write-Information 'You selected: Preview' -InformationAction Continue
+            Write-Information '' -InformationAction Continue
+            Write-Information 'This will:' -InformationAction Continue
+            Write-Information '  - detect protection software and protected adapters' -InformationAction Continue
+            Write-Information '  - build a protected registry map' -InformationAction Continue
+            Write-Information '  - export backup/restore metadata' -InformationAction Continue
+            Write-Information '  - make no cleanup changes' -InformationAction Continue
+        }
+        'SafeConferencePrep' {
+            Write-Information 'You selected: Safe conference prep' -InformationAction Continue
+            Write-Information '' -InformationAction Continue
+            Write-Information 'This will:' -InformationAction Continue
+            Write-Information '  - detect protection software and protected adapters' -InformationAction Continue
+            Write-Information '  - back up protected registry, firewall policy, and Wi-Fi profiles' -InformationAction Continue
+            Write-Information '  - remove saved Wi-Fi profiles' -InformationAction Continue
+            Write-Information '  - reset eligible adapters to IPv4 DHCP' -InformationAction Continue
+            Write-Information '  - set Quad9 Secure DNS for IPv4 and IPv6' -InformationAction Continue
+            Write-Information '  - keep IPv6 enabled and prefer IPv4 after restart' -InformationAction Continue
+            Write-Information '  - flush DNS cache' -InformationAction Continue
+            Write-Information '  - remove non-protected network history and metadata' -InformationAction Continue
+            Write-Information '  - verify protected products remain present' -InformationAction Continue
+            Write-Information '  - require a restart for the IPv4 preference to take full effect' -InformationAction Continue
+        }
+        'AdvancedRepair' {
+            Write-Information 'You selected: Advanced repair' -InformationAction Continue
+            Write-Information '' -InformationAction Continue
+            Write-Information 'This will do everything in Safe conference prep, plus:' -InformationAction Continue
+            Write-Information '  - run advanced network repair/reset actions' -InformationAction Continue
+            Write-Information '  - this may affect installed networking/security software' -InformationAction Continue
+        }
+        'PerformanceTune' {
+            Write-Information 'You selected: Performance tuning' -InformationAction Continue
+            Write-Information '' -InformationAction Continue
+            Write-Information 'This will do Safe conference prep, plus:' -InformationAction Continue
+            Write-Information '  - apply conservative, Microsoft-supported TCP tuning actions' -InformationAction Continue
+            Write-Information '  - no third-party code or proprietary settings are used' -InformationAction Continue
+        }
+    }
+    Write-Information '' -InformationAction Continue
+}
+
+<#
+.SYNOPSIS
+    Reads the options for the NetClean process.
+.DESCRIPTION
+    This function prompts the user to select options for the NetClean process.
+.PARAMETER SelectedMode
+    The mode selected by the user.
+.EXAMPLE
+    Read-NetCleanOption -SelectedMode 'Preview'
+.OUTPUTS
+    System.Object - The selected options.
+.NOTES
+    The function uses the Convert-RegToProviderPath function to normalize the input path.
+#>
+function Read-NetCleanOption {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SelectedMode,
+
+        [switch]$DryRun,
+        [switch]$SkipWifi,
+        [switch]$SkipDnsFlush,
+        [switch]$SkipEventLogs,
+        [switch]$SkipUserArtifacts,
+        [switch]$SkipFirewallBackup,
+
+        [ValidateSet('Conservative', 'Optimal', 'Gaming', 'Default')]
+        [string]$PerformanceProfile
+    )
+
+    if ($SelectedMode -eq 'PerformanceTune' -and [string]::IsNullOrWhiteSpace($PerformanceProfile)) {
+        throw "PerformanceProfile is required when SelectedMode is 'PerformanceTune'."
+    }
+
+    if ($SelectedMode -eq 'Preview') {
+        $DryRun = $true
+    }
+
+    return [pscustomobject]@{
+        SelectedMode       = $SelectedMode
+        DryRun             = [bool]$DryRun
+        SkipWifi           = [bool]$SkipWifi
+        SkipDnsFlush       = [bool]$SkipDnsFlush
+        SkipEventLogs      = [bool]$SkipEventLogs
+        SkipUserArtifacts  = [bool]$SkipUserArtifacts
+        SkipFirewallBackup = [bool]$SkipFirewallBackup
+        PerformanceProfile = $PerformanceProfile
+    }
+}
+
+<#
+.SYNOPSIS
+Displays device registration and organization-management status.
+.PARAMETER ManagementState
+The management-state result returned by Get-NetCleanDeviceManagementState.
+#>
+function Show-NetCleanManagementStatus {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$ManagementState
+    )
+
+    if ($ManagementState.JoinType -eq 'WorkplaceRegistered') {
+        Write-Information "Device registration: $($ManagementState.JoinType)" -InformationAction Continue
+    }
+    else {
+        Write-Information "Device management: $($ManagementState.JoinType)" -InformationAction Continue
+    }
+
+    $isWorkplaceOnly = $ManagementState.JoinType -eq 'WorkplaceRegistered'
+    if ($isWorkplaceOnly) {
+        foreach ($propertyName in @('DomainJoined', 'EntraJoined', 'EnterpriseJoined', 'MdmEnrolled')) {
+            if ($ManagementState.PSObject.Properties.Name -contains $propertyName -and $ManagementState.$propertyName) {
+                $isWorkplaceOnly = $false
+                break
+            }
+        }
+    }
+
+    $isOrganizationManaged = [bool]$ManagementState.IsManaged -and -not $isWorkplaceOnly
+
+    if ($isOrganizationManaged) {
+        Write-Information 'Organization-managed network configuration will be preserved.' -InformationAction Continue
+    }
+    elseif ($ManagementState.JoinType -eq 'WorkplaceRegistered') {
+        Write-Information 'A work or school account is registered for SSO and will be preserved; no organization management was detected.' -InformationAction Continue
+    }
+    else {
+        Write-Information 'No organization management was detected.' -InformationAction Continue
+    }
+}
+
+<#
+.SYNOPSIS
+    Shows the summary for the NetClean process.
+.DESCRIPTION
+    This function displays a summary of the actions that will be taken by the NetClean process.
+.PARAMETER Result
+    The result object containing the summary information.
+.PARAMETER SelectedMode
+    The mode selected by the user.
+.EXAMPLE
+    Show-NetCleanSummary -Result $result -SelectedMode 'Preview'
+#>
+function Show-NetCleanSummary {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Result,
+
+        [Parameter(Mandatory = $true)]
+        [string]$SelectedMode
+    )
+
+    Write-Information '' -InformationAction Continue
+    Write-Information 'NetClean Summary' -InformationAction Continue
+    Write-Information '----------------' -InformationAction Continue
+    Write-Information "Mode: $SelectedMode" -InformationAction Continue
+
+    if ($Result.PSObject.Properties.Name -contains 'ManagementState') {
+        Show-NetCleanManagementStatus -ManagementState $Result.ManagementState
+    }
+
+    if ($Result.PSObject.Properties.Name -contains 'Summary') {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Phase 1 - Detect' -InformationAction Continue
+        Write-Information "  Protected vendors detected: $($Result.Summary.ProtectedVendorsCount)" -InformationAction Continue
+        Write-Information "  Protected interface GUIDs: $($Result.Summary.ProtectedInterfaceGuidCount)" -InformationAction Continue
+        Write-Information "  Candidate artifacts: $($Result.Summary.CandidateArtifactCount)" -InformationAction Continue
+        Write-Information "  Sanitizable artifacts: $($Result.Summary.SanitizableArtifactCount)" -InformationAction Continue
+    }
+
+    if ($Result.PSObject.Properties.Name -contains 'Protect') {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Phase 2 - Protect' -InformationAction Continue
+        Write-Information "  Protected registry paths: $($Result.Protect.Summary.ProtectedRegistryPathCount)" -InformationAction Continue
+        Write-Information "  Wi-Fi backup items: $($Result.Protect.Summary.WiFiBackupCount)" -InformationAction Continue
+        Write-Information "  Protected registry backups: $($Result.Protect.Summary.ProtectedRegistryBackupCount)" -InformationAction Continue
+    }
+
+    if ($Result.PSObject.Properties.Name -contains 'Clean') {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Phase 3 - Clean' -InformationAction Continue
+        Write-Information "  Wi-Fi profiles removed: $($Result.Clean.Summary.WiFiProfilesRemoved)" -InformationAction Continue
+        Write-Information "  Registry artifacts removed: $($Result.Clean.Summary.RegistryArtifactsRemoved)" -InformationAction Continue
+        Write-Information "  Event logs touched: $($Result.Clean.Summary.EventLogsTouched)" -InformationAction Continue
+        Write-Information "  User artifacts touched: $($Result.Clean.Summary.UserArtifactsTouched)" -InformationAction Continue
+        if ($Result.Clean.Summary.PSObject.Properties.Name -contains 'AdaptersConfigured') {
+            Write-Information "  Adapters reset to IPv4 DHCP: $($Result.Clean.Summary.AdaptersConfigured)" -InformationAction Continue
+            Write-Information "  Adapters preserved: $($Result.Clean.Summary.AdaptersSkipped)" -InformationAction Continue
+            Write-Information "  Adapter reset failures: $($Result.Clean.Summary.AdapterFailures)" -InformationAction Continue
+        }
+        if ($Result.Clean.PSObject.Properties.Name -contains 'AdapterConfiguration') {
+            $adapterConfiguration = $Result.Clean.AdapterConfiguration
+            Write-Information "  DNS provider: $($adapterConfiguration.Provider)" -InformationAction Continue
+            Write-Information "  DNS servers: $(@($adapterConfiguration.DnsServers) -join ', ')" -InformationAction Continue
+        }
+        if (
+            $Result.Clean.Summary.PSObject.Properties.Name -contains 'PreferIPv4' -and
+            $Result.Clean.Summary.PreferIPv4
+        ) {
+            Write-Information '  IPv6 remains enabled; IPv4 will be preferred after restart.' -InformationAction Continue
+        }
+        Write-Information "  Advanced repair actions: $($Result.Clean.Summary.AdvancedRepairActions)" -InformationAction Continue
+        Write-Information "  Performance tuning actions: $($Result.Clean.Summary.PerformanceTuningActions)" -InformationAction Continue
+    }
+
+    # Detailed lists: Wi-Fi & network profile details and removed artifacts
+    # Wi-Fi found: sourced from the Phase 1 collection snapshot, which is
+    # populated the same way for dry-run and real runs - unlike
+    # Protect.Manifest.WiFiExports, whose "PROFILE:<name>" markers are only
+    # emitted in the dry-run export path.
+    if ($Result.PSObject.Properties.Name -contains 'CollectionSnapshot' -and
+        $Result.CollectionSnapshot.PSObject.Properties.Name -contains 'WiFiProfiles') {
+        $found = @($Result.CollectionSnapshot.WiFiProfiles | ForEach-Object Name | Where-Object { $_ })
+        if ($found.Count -gt 0) {
+            Show-TruncatedList -Items $found -Heading 'Wi-Fi Profiles - Found'
+        }
+    }
+
+    if ($Result.PSObject.Properties.Name -contains 'Protect' -and
+        $Result.Protect.Manifest -and
+        $Result.Protect.Manifest.NetworkListBackup) {
+        Write-Information '' -InformationAction Continue
+        Write-Information "Network list backup: $($Result.Protect.Manifest.NetworkListBackup)" -InformationAction Continue
+    }
+
+    # If Clean phase ran, show removed items and remaining Wi-Fi profiles
+    if ($Result.PSObject.Properties.Name -contains 'Clean') {
+        $clean = $Result.Clean
+
+        # Removed Wi-Fi profiles (names)
+        if ($clean.WiFi -and $clean.WiFi.Profiles) {
+            Show-TruncatedList -Items @($clean.WiFi.Profiles) -Heading 'Wi-Fi Profiles - Removed'
+
+            # Remaining comes from Phase 4's independent post-cleanup
+            # verification rather than being re-derived from the found list.
+            $remaining = @()
+            if ($Result.PSObject.Properties.Name -contains 'Verify' -and
+                $Result.Verify.PSObject.Properties.Name -contains 'RemainingWiFiProfiles') {
+                $remaining = @($Result.Verify.RemainingWiFiProfiles)
+            }
+            if ($remaining.Count -gt 0) { Show-TruncatedList -Items $remaining -Heading 'Wi-Fi Profiles - Remaining After Cleanup' }
+            else { Write-Information '' -InformationAction Continue; Write-Information 'Wi-Fi Profiles - Remaining After Cleanup' -InformationAction Continue; Write-Information '  - (none)' -InformationAction Continue }
+        }
+
+        # Registry keys removed
+        if ($clean.RegistryArtifacts -and $clean.RegistryArtifacts.Results) {
+            $removedKeys = @($clean.RegistryArtifacts.Results | Where-Object { $_.Removed } | ForEach-Object { $_.RegistryPath })
+            if ($removedKeys.Count -gt 0) {
+                Write-Information '' -InformationAction Continue
+                Write-Information ("Registry keys removed: {0}" -f $removedKeys.Count) -InformationAction Continue
+                Show-TruncatedList -Items $removedKeys -Heading 'Registry keys removed'
             }
         }
 
-        function Clear-NLAProbing {
-            $nlaInternetPath = 'HKLM:\\SYSTEM\\CurrentControlSet\\Services\\NlaSvc\\Parameters\\Internet'
-            if (Test-Path $nlaInternetPath) {
-                $props = 'ActiveDnsProbeContent','ActiveDnsProbeHost','ActiveWebProbeContent','ActiveWebProbeHost'
-                foreach ($p in $props) {
-                        if ($DryRun) { Write-Host "DRYRUN: Remove-ItemProperty $nlaInternetPath -Name $p" -ForegroundColor Gray; Write-Log 'INFO' "DRYRUN: would remove NLA property $p" }
-                        else { try { Remove-ItemProperty -Path $nlaInternetPath -Name $p -ErrorAction Stop; Write-Host "Removed NLA property: $p" -ForegroundColor Gray; Write-Log 'INFO' "Removed NLA property: $p" } catch { Write-Verbose ("Property " + $p + " not present or failed: " + $_); Write-Log 'WARN' ("NLA property " + $p + " missing or failed: " + $_) } }
-                }
+        # Event logs cleared (names)
+        if ($clean.EventLogs) {
+            $logs = @($clean.EventLogs | ForEach-Object { if ($_.Name) { $_.Name } elseif ($_.LogName) { $_.LogName } else { $_ } })
+            if ($logs.Count -gt 0) {
+                Write-Information '' -InformationAction Continue
+                Write-Information ("Event logs touched: {0}" -f $logs.Count) -InformationAction Continue
+                Show-TruncatedList -Items $logs -Heading 'Event logs touched'
             }
         }
+    }
 
-        function Clear-EventLogs {
-            $logs = @("Microsoft-Windows-WLAN-AutoConfig/Operational","Microsoft-Windows-NetworkProfile/Operational","Microsoft-Windows-DHCP-Client/Operational")
-            foreach ($l in $logs) {
-                Write-Host "Clearing event log: $l" -ForegroundColor Yellow
-                if ($DryRun) { Write-Host "DRYRUN: wevtutil cl `"$l`"" -ForegroundColor Gray }
-                else { try { wevtutil cl "$l" 2>$null; Write-Host "Cleared $l" -ForegroundColor Gray } catch { Write-Warning ("Failed clearing " + ${l} + ": " + $_) } }
+    if ($Result.PSObject.Properties.Name -contains 'Verify') {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Phase 4 - Verify' -InformationAction Continue
+        Write-Information "  Verification passed: $($Result.Verify.Summary.Passed)" -InformationAction Continue
+        Write-Information "  Missing vendors: $($Result.Verify.Summary.MissingVendorsCount)" -InformationAction Continue
+        Write-Information "  Missing protected GUIDs: $($Result.Verify.Summary.MissingGuidCount)" -InformationAction Continue
+        Write-Information "  Missing services: $($Result.Verify.Summary.MissingServiceCount)" -InformationAction Continue
+
+        if (@($Result.Verify.VendorComparison.Missing).Count -gt 0) {
+            Write-Information ("  Missing vendor names: " + ($Result.Verify.VendorComparison.Missing -join ', ')) -InformationAction Continue
+        }
+    }
+
+    if ($Result.PSObject.Properties.Name -contains 'BackupPath') {
+        Write-Information '' -InformationAction Continue
+        Write-Information "Backup Path: $($Result.BackupPath)" -InformationAction Continue
+    }
+
+    $logFile = Get-NetCleanLogFile
+    if ($logFile) {
+        Write-Information "Log File: $logFile" -InformationAction Continue
+    }
+
+    Write-Information '' -InformationAction Continue
+
+    # Show total runtime (if start time recorded)
+    if ($script:RunStart) {
+        $elapsed = (Get-Date) - $script:RunStart
+        Write-Information ("Total runtime: {0}" -f $elapsed.ToString()) -InformationAction Continue
+    }
+
+    # Per-phase timings (if available)
+    if ($Result.PSObject.Properties.Name -contains 'Timings') {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Phase runtimes' -InformationAction Continue
+        foreach ($phase in $Result.Timings.PSObject.Properties.Name) {
+            $t = $Result.Timings.$phase
+            if ($t -and $t.Duration) {
+                Write-Information ("  {0}: {1}" -f $phase, $t.Duration.ToString()) -InformationAction Continue
             }
         }
+    }
+}
 
-        function Main {
-            Write-Host "=== Network cleanup starting ===" -ForegroundColor Cyan
-            Ensure-Admin
+<#
+.SYNOPSIS
+    Shows the preview summary for the NetClean process.
+.DESCRIPTION
+    This function displays a preview of the actions that will be taken by the NetClean process.
+.PARAMETER Result
+    The result object containing the preview information.
+.EXAMPLE
+    Show-PreviewSummary -Result $result
+#>
+function Show-PreviewSummary {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [pscustomobject]$Result
+    )
 
-            # Detect installed AV/EDR and hypervisors early so user can make an informed choice
-            $detectedAV = Get-InstalledAV
-            if ($detectedAV -and $detectedAV.Count -gt 0) {
-                Write-Host "Detected potentially impacted software:" -ForegroundColor Yellow
-                $detectedAV | ForEach-Object { Write-Host "  - $_" -ForegroundColor DarkGray }
-            } else { Write-Host "No endpoint protection detected by quick checks." -ForegroundColor DarkGray }
+    Write-Information '' -InformationAction Continue
+    Write-Information 'Preview Summary' -InformationAction Continue
+    Write-Information '---------------' -InformationAction Continue
 
-            $detectedHypervisors = Get-DetectedHypervisors
-            if ($detectedHypervisors -and $detectedHypervisors.Count -gt 0) {
-                Write-Host "Detected hypervisors/virtualization:" -ForegroundColor Yellow
-                $detectedHypervisors | ForEach-Object { Write-Host "  - $_" -ForegroundColor DarkGray }
-            } else { Write-Host "No hypervisors detected by quick checks." -ForegroundColor DarkGray }
+    if ($Result.PSObject.Properties.Name -contains 'ManagementState') {
+        Show-NetCleanManagementStatus -ManagementState $Result.ManagementState
+    }
 
-            $interactive = ($PSBoundParameters.Count -eq 0)
+    Write-Information "Protected vendors detected: $($Result.Summary.ProtectedVendorsCount)" -InformationAction Continue
+    Write-Information "Protected interface GUIDs: $($Result.Summary.ProtectedInterfaceGuidCount)" -InformationAction Continue
+    Write-Information "Candidate artifacts: $($Result.Summary.CandidateArtifactCount)" -InformationAction Continue
+    Write-Information "Sanitizable artifacts: $($Result.Summary.SanitizableArtifactCount)" -InformationAction Continue
+    Write-Information '' -InformationAction Continue
+    Write-Information "Backup Path: $($Result.BackupPath)" -InformationAction Continue
 
-            if ($interactive) {
-                # Interactive prompts when no switches provided
-                $DryRun = Prompt-YesNo "Run in DRY RUN mode?"
-                $CreateLog = Prompt-YesNo "Create a full log file for this run?"
+    $logFile = Get-NetCleanLogFile
+    if ($logFile) {
+        Write-Information "Log File: $logFile" -InformationAction Continue
+    }
 
-                # If detection missed AV/EDR, ask the user to confirm and optionally provide product names
-                if ((-not $detectedAV) -or ($detectedAV.Count -eq 0)) {
-                    $hasAV = Prompt-YesNo "No endpoint protection was detected automatically. Do you have endpoint protection (AV/EDR/XDR) installed?"
-                    if ($hasAV) {
-                        $entered = Read-Host "If known, enter comma-separated names of installed products (or press Enter to skip)"
-                        if ($entered) { $detectedAV = ($entered -split ',') | ForEach-Object { $_.Trim() } }
-                    } else { $detectedAV = @() }
-                } else { $hasAV = $true }
+    # Show Wi-Fi profiles found, sourced from the Phase 1 collection snapshot
+    # (populated for both dry-run and real runs, unlike the dry-run-only
+    # "PROFILE:<name>" markers in Protect.Manifest.WiFiExports)
+    if ($Result.PSObject.Properties.Name -contains 'CollectionSnapshot' -and
+        $Result.CollectionSnapshot.PSObject.Properties.Name -contains 'WiFiProfiles') {
+        $found = @($Result.CollectionSnapshot.WiFiProfiles | ForEach-Object Name | Where-Object { $_ })
+        if ($found.Count -gt 0) {
+            Write-Information '' -InformationAction Continue
+            Write-Information 'Wi-Fi Profiles - Found' -InformationAction Continue
+            foreach ($p in $found) { Write-Information "  - $p" -InformationAction Continue }
+        }
+    }
 
-                # If detection missed hypervisors, ask the user to confirm
-                if ((-not $detectedHypervisors) -or ($detectedHypervisors.Count -eq 0)) {
-                    $hasVM = Prompt-YesNo "No hypervisor was detected automatically. Do you use VMware/VirtualBox/Hyper-V or other virtualization?"
-                    if ($hasVM) { $vmwareGuids = Get-HypervisorGuids } else { $vmwareGuids = @() }
-                } else {
-                    $hasVM = $true
-                    $vmwareGuids = Get-HypervisorGuids
-                }
+    if ($Result.PSObject.Properties.Name -contains 'Protect' -and
+        $Result.Protect.Manifest -and
+        $Result.Protect.Manifest.NetworkListBackup) {
+        Write-Information '' -InformationAction Continue
+        Write-Information "Network list backup: $($Result.Protect.Manifest.NetworkListBackup)" -InformationAction Continue
+    }
 
-                $performBackups = Prompt-YesNo "Create backups and protected registry exports now?"
-                if ($performBackups) { $OnlyBackup = $true }
-            } else {
-                # Respect provided switches
-                $performBackups = [bool]$OnlyBackup
-                # Populate vmwareGuids based on detectedHypervisors if not interactive
-                $vmwareGuids = Get-HypervisorGuids
-                $hasVM = ($vmwareGuids -and $vmwareGuids.Count -gt 0)
-                if (-not $detectedAV) { $detectedAV = Get-InstalledAV }
+    if ($Result.PSObject.Properties.Name -contains 'NetworkProfileDecisions' -and
+        @($Result.NetworkProfileDecisions).Count -gt 0) {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Wi-Fi and LAN/history decisions' -InformationAction Continue
+        foreach ($decision in @($Result.NetworkProfileDecisions)) {
+            Write-Information ("  - {0} [{1}] {2} | {3}" -f $decision.Decision, $decision.NetworkType, $decision.Name, $decision.Reason) -InformationAction Continue
+        }
+    }
+
+    if ($Result.PSObject.Properties.Name -contains 'CandidateArtifacts' -and
+        @($Result.CandidateArtifacts).Count -gt 0) {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Registry and adapter-path decisions' -InformationAction Continue
+        foreach ($artifact in @($Result.CandidateArtifacts)) {
+            $target = if ($artifact.RegistryPath) { $artifact.RegistryPath } elseif ($artifact.Name) { $artifact.Name } else { '(unnamed)' }
+            Write-Information ("  - {0} [{1}] {2} | {3}" -f $artifact.Decision, $artifact.ArtifactType, $target, $artifact.Reason) -InformationAction Continue
+        }
+    }
+
+    # Show sanitizable registry artifacts (preview of what would be removed)
+    if ($Result.PSObject.Properties.Name -contains 'SanitizableArtifacts' -and $Result.SanitizableArtifacts.Count -gt 0) {
+        Write-Information '' -InformationAction Continue
+        Write-Information "Sanitizable registry artifacts (candidates): $($Result.SanitizableArtifacts.Count)" -InformationAction Continue
+        foreach ($a in $Result.SanitizableArtifacts) {
+            if ($a.PSObject.Properties.Name -contains 'RegistryPath' -and $a.RegistryPath) {
+                Write-Information "  - $($a.RegistryPath)" -InformationAction Continue
             }
+        }
+    }
+    Write-Information '' -InformationAction Continue
 
-            # If logging requested or backups will be created, initialize the log.
-            if ($CreateLog -or $performBackups) { Start-Log $LogPath; Write-Log 'INFO' ("Network cleanup starting. DryRun=$DryRun; Force=$Force; OnlyBackup=$OnlyBackup") }
-            if ($DryRun) { Write-Log 'WARN' "Running in DRY RUN mode. No destructive actions will be performed." }
+    # Show total runtime (if start time recorded)
+    if ($script:RunStart) {
+        $elapsed = (Get-Date) - $script:RunStart
+        Write-Information ("Total runtime: {0}" -f $elapsed.ToString()) -InformationAction Continue
+    }
 
-            # If backups requested, perform them and optionally exit (backup-only)
-            if ($performBackups) {
-                Write-Host "Preparing backup path: $BackupPath" -ForegroundColor Yellow
-                Write-Log 'INFO' "Preparing backup path: $BackupPath"
-                New-ProtectedBackupPath $BackupPath
-                Backup-NetworkList $BackupPath
-                Backup-WiFiProfiles $BackupPath
-
-                # Build protection lists and export protected registry keys
-                $protection = Build-ProtectionLists
-                $deps = Inspect-ServiceDependencies(($protection.Services + $detectedAV) | Sort-Object -Unique)
-                $global:ProtectedRegistryPaths = @()
-                if ($protection.Registry) { $global:ProtectedRegistryPaths += $protection.Registry }
-                if ($deps.Registry) { $global:ProtectedRegistryPaths += $deps.Registry }
-                $global:ProtectedRegistryPaths = $global:ProtectedRegistryPaths | Sort-Object -Unique
-                if ($global:ProtectedRegistryPaths) { Write-Host ("Protected registry paths: " + ($global:ProtectedRegistryPaths -join ', ')) -ForegroundColor Gray; Write-Log 'INFO' ("Protected registry paths: " + ($global:ProtectedRegistryPaths -join ', ')) }
-
-                $regBackups = Backup-ProtectedRegistryKeys $global:ProtectedRegistryPaths $BackupPath
-                if ($regBackups) { Write-Log 'INFO' ("Protected registry keys exported: " + ($regBackups -join ', ')) }
-
-                # Append clear restore instructions at the bottom of the log (always create log for backups)
-                Write-Log 'INFO' "Backups are located at: $BackupPath"
-                $netlist = Get-ChildItem -Path $BackupPath -Filter 'NetworkList_*.reg' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName -First 1
-                Write-Log 'INFO' "NetworkList registry backup: $netlist"
-                Write-Log 'INFO' "Exported Wi-Fi profiles (XMLs) are in: $BackupPath"
-                if ($regBackups) {
-                    Write-Log 'INFO' "Protected registry backup files:"
-                    foreach ($rb in $regBackups) { Write-Log 'INFO' ("  $rb") }
-                    Write-Log 'INFO' "To restore protected registry keys, run each of the following (as Administrator):"
-                    foreach ($rb in $regBackups) { $line = '  reg import "' + $rb + '"'; Write-Log 'INFO' $line }
-                }
-                if ($netlist) { $line = 'To restore NetworkList registry: reg import "' + $netlist + '" (run as Administrator).'; Write-Log 'INFO' $line }
-                Write-Log 'INFO' ("To restore Wi-Fi profiles: for each exported XML in $BackupPath run: netsh wlan add profile filename='<path>'")
-
-                if ($OnlyBackup) { Write-Host "Backup-only requested; exiting after backups." -ForegroundColor Yellow; return }
+    if ($Result.PSObject.Properties.Name -contains 'Timings') {
+        Write-Information '' -InformationAction Continue
+        Write-Information 'Phase runtimes' -InformationAction Continue
+        foreach ($phase in $Result.Timings.PSObject.Properties.Name) {
+            $t = $Result.Timings.$phase
+            if ($t -and $t.Duration) {
+                Write-Information ("  {0}: {1}" -f $phase, $t.Duration.ToString()) -InformationAction Continue
             }
+        }
+    }
+}
 
-            # Continue with full cleanup
-            # Detect hypervisors and prompt only if none detected
-            $detectedHypervisors = Get-DetectedHypervisors
-            if ($detectedHypervisors -and $detectedHypervisors.Count -gt 0) {
-                Write-Host "Detected hypervisors/virtualization: " -ForegroundColor Yellow
-                $detectedHypervisors | ForEach-Object { Write-Host "  - $_" -ForegroundColor DarkGray }
-                $hasVM = $true
-                $vmwareGuids = Get-HypervisorGuids
-            } else {
-                $hasVM = Prompt-YesNo "Do you use VMware/VirtualBox or other virtualization on this machine?"
-                $vmwareGuids = @()
-                if ($hasVM) { $vmwareGuids = Get-HypervisorGuids }
+function Read-PostRunAction {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    if ($script:RebootNow) {
+        return 'Restart'
+    }
+
+    while ($true) {
+        $choice = Read-Host 'Choose post-run action: [R]estart / [S]hutdown / [N]o action'
+        switch ($choice.ToUpperInvariant()) {
+            'R' { return 'Restart' }
+            'S' { return 'Shutdown' }
+            'N' { return 'None' }
+            default {
+                Write-Information 'Please enter R, S, or N.' -InformationAction Continue
             }
+        }
+    }
+}
 
-            # Stop services where appropriate. Protect AV/EDR services discovered.
-            $services = @('WlanSvc','Dnscache','Dhcp','NlaSvc','lmhosts')
-            if ($detectedAV) { Write-Host ("Detected AV/EDR: " + ($detectedAV -join ', ')) -ForegroundColor Gray; Write-Log 'INFO' ("Detected AV/EDR: " + ($detectedAV -join ', ')) }
-            $protection = Build-ProtectionLists
-            $protectedServices = $protection.Services
-            $protectedAdapters = $protection.Adapters
-            # Inspect service registry dependencies and add to protected registry paths
-            $deps = Inspect-ServiceDependencies(($protectedServices + $detectedAV) | Sort-Object -Unique)
-            $global:ProtectedRegistryPaths = @()
-            if ($protection.Registry) { $global:ProtectedRegistryPaths += $protection.Registry }
-            if ($deps.Registry) { $global:ProtectedRegistryPaths += $deps.Registry }
-            $global:ProtectedRegistryPaths = $global:ProtectedRegistryPaths | Sort-Object -Unique
-            if ($global:ProtectedRegistryPaths) { Write-Host ("Protected registry paths: " + ($global:ProtectedRegistryPaths -join ', ')) -ForegroundColor Gray; Write-Log 'INFO' ("Protected registry paths: " + ($global:ProtectedRegistryPaths -join ', ')) }
-            if ($protectedServices) { Write-Host ("Protected service patterns: " + ($protectedServices -join ', ')) -ForegroundColor Gray; Write-Log 'INFO' ("Protected service patterns: " + ($protectedServices -join ', ')) }
-            # Backup protected registry keys if not already done
-            if (-not $regBackups) { $regBackups = Backup-ProtectedRegistryKeys $global:ProtectedRegistryPaths $BackupPath; if ($regBackups) { Write-Log 'INFO' ("Protected registry keys exported: " + ($regBackups -join ', ')) } }
+<#
+.SYNOPSIS
+    Invokes the post-run action.
+.DESCRIPTION
+    This function performs the selected post-run action (restart, shutdown, or no action).
+.PARAMETER Action
+    The post-run action to perform.
+.PARAMETER DryRunMode
+    Indicates whether to run in dry-run mode.
+.EXAMPLE
+    Invoke-PostRunAction -Action 'Restart' -DryRunMode:$false
+.NOTES
+    The function uses the Convert-RegToProviderPath function to normalize the input path.
+#>
+function Invoke-PostRunAction {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [ValidateSet('Restart', 'Shutdown', 'None')]
+        [string]$Action,
 
-            foreach ($s in $services) {
-                $skip = $false
-                foreach ($pat in $protectedServices) { if ($s.ToLower().Contains($pat.ToLower())) { $skip = $true; break } }
-                if ($skip) { Write-Host "Preserving service due to protection match: $s" -ForegroundColor DarkGray; continue }
-                Write-Host "Stopping service: $s" -ForegroundColor Yellow
-                Write-Log 'INFO' "Stopping service: $s"
-                if ($DryRun) { Write-Host "DRYRUN: Stop-Service -Name $s -Force" -ForegroundColor Gray; Write-Log 'INFO' "DRYRUN: Stop-Service -Name $s -Force" }
-                else { try { Stop-Service -Name $s -Force -ErrorAction Stop; Write-Host "Stopped $s" -ForegroundColor Gray; Write-Log 'INFO' "Stopped service: $s" } catch { Write-Warning ("Failed to stop " + ${s} + ": " + $_); Write-Log 'ERROR' ("Failed to stop service " + $s + ": " + $_) } }
+        [switch]$DryRunMode
+    )
+
+    switch ($Action) {
+        'Restart' {
+            if ($DryRunMode) {
+                Write-NetCleanLog -Level INFO -Message 'DRYRUN: Restart-Computer -Force'
             }
-
-            # Wi-Fi profiles
-            Remove-WiFiProfilesSafe
-
-            # Reset networking
-            Reset-Networking
-
-            # NLA probing
-            Clear-NLAProbing
-
-            # NetworkList cleaning
-            Safe-RemoveNetworkListProfiles $vmwareGuids $BackupPath
-
-            # DHCP/WLAN file cleanup - skip if AV present unless forced
-            $hasAV = ($detectedAV -and $detectedAV.Count -gt 0)
-            if ($hasAV -and -not $Force) { Write-Host "Skipping DHCP/WLAN file deletions due to AV presence (use -Force to override)." -ForegroundColor Yellow }
             else {
-                $dhcpPath = "$env:SystemRoot\\System32\\dhcp"
-                if (Test-Path $dhcpPath) {
-                    $files = Get-ChildItem $dhcpPath -File -ErrorAction SilentlyContinue
-                    if ($files) {
-                        Write-Host "DHCP files to remove:" -ForegroundColor Yellow
-                        $files | ForEach-Object { Write-Host "  - $($_.FullName)" -ForegroundColor DarkGray }
-                        if ($Force -or (Prompt-YesNo "Delete the above DHCP files?")) {
-                            foreach ($f in $files) {
-                                if ($DryRun) { Write-Host "DRYRUN: Remove-Item $($f.FullName)" -ForegroundColor Gray } else { try { Remove-Item $f.FullName -Force -ErrorAction Stop; Write-Host "Removed $($f.Name)" -ForegroundColor Gray } catch { Write-Warning ("Failed remove " + $($f.FullName) + ": " + $_) } }
-                            }
-                        }
-                    }
-                }
-                $wlanLogPath = "$env:ProgramData\\Microsoft\\Wlansvc\\Logs"
-                if (Test-Path $wlanLogPath) {
-                    if ($Force -or (Prompt-YesNo "Remove WLAN logs under $wlanLogPath?")) {
-                        if ($DryRun) { Write-Host "DRYRUN: Remove logs under $wlanLogPath" -ForegroundColor Gray }
-                        else { try { Get-ChildItem $wlanLogPath -Recurse -File -ErrorAction Stop | ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction Stop } ; Write-Host "Cleared WLAN logs" -ForegroundColor Gray } catch { Write-Warning ("Failed clearing WLAN logs: " + $_) } }
-                    }
-                }
-            }
-
-            # Event logs
-            Clear-EventLogs
-
-            # Restart services
-            foreach ($s in $services) {
-                Write-Host "Starting service: $s" -ForegroundColor Yellow
-                Write-Log 'INFO' "Starting service: $s"
-                if ($DryRun) { Write-Host "DRYRUN: Start-Service -Name $s" -ForegroundColor Gray; Write-Log 'INFO' "DRYRUN: Start-Service -Name $s" }
-                else { try { Start-Service -Name $s -ErrorAction Stop; Write-Host "Started $s" -ForegroundColor Gray; Write-Log 'INFO' "Started service: $s" } catch { Write-Warning ("Failed to start " + ${s} + ": " + $_); Write-Log 'ERROR' ("Failed to start service " + $s + ": " + $_) } }
-            }
-
-            Write-Host "=== Network cleanup complete ===" -ForegroundColor Green
-            Write-Log 'INFO' "Network cleanup complete"
-
-            # Final summary and restore instructions appended to log bottom
-            Write-Log 'INFO' "Backups are located at: $BackupPath"
-            $netlist = Get-ChildItem -Path $BackupPath -Filter 'NetworkList_*.reg' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName -First 1
-            Write-Log 'INFO' "NetworkList registry backup: $netlist"
-            Write-Log 'INFO' "Exported Wi-Fi profiles (XMLs) are in: $BackupPath"
-            if ($regBackups) {
-                Write-Log 'INFO' "Protected registry backup files:"
-                foreach ($rb in $regBackups) { Write-Log 'INFO' ("  $rb") }
-            }
-            Write-Log 'INFO' "To restore protected registry keys, run each of the following (as Administrator):"
-            if ($regBackups) { foreach ($rb in $regBackups) { $line = '  reg import "' + $rb + '"'; Write-Log 'INFO' $line } }
-            if ($netlist) { $line = 'To restore NetworkList registry: reg import "' + $netlist + '" (run as Administrator).'; Write-Log 'INFO' $line }
-            Write-Log 'INFO' ("To restore Wi-Fi profiles: for each exported XML in $BackupPath run: netsh wlan add profile filename='<path>'")
-            Write-Log 'INFO' "If you need help restoring drivers or services, review the log and protected registry paths listed above before making changes."
-
-            # Reboot/shutdown options
-            if ($RebootNow) {
-                if ($DryRun) { Write-Host "DRYRUN: Restart-Computer" } else { Restart-Computer -Force }
-            } else {
-                while ($true) {
-                    $choice = Read-Host "Choose post-run action: [R]estart / [S]hutdown / [N]o action"
-                    switch ($choice.ToUpper()) {
-                        'R' { if ($DryRun) { Write-Host "DRYRUN: Restart-Computer" } else { Restart-Computer -Force }; break }
-                        'S' { if ($DryRun) { Write-Host "DRYRUN: Stop-Computer" } else { Stop-Computer -Force }; break }
-                        'N' { Write-Host "Please reboot or shutdown later to apply changes." -ForegroundColor Yellow; break }
-                        default { Write-Host "Enter R, S, or N." -ForegroundColor Yellow; continue }
-                    }
-                    break
-                }
+                Restart-Computer -Force
             }
         }
+        'Shutdown' {
+            if ($DryRunMode) {
+                Write-NetCleanLog -Level INFO -Message 'DRYRUN: Stop-Computer -Force'
+            }
+            else {
+                Stop-Computer -Force
+            }
+        }
+        'None' {
+            Write-NetCleanLog -Level INFO -Message 'No post-run power action selected.'
+        }
+    }
+}
 
-        Main
+# ---------------------------------------------------------------------------
+# Main orchestration
+# ---------------------------------------------------------------------------
+
+<#
+.SYNOPSIS
+    Invokes the NetClean launcher.
+.DESCRIPTION
+    This function starts the NetClean process with the specified options.
+.EXAMPLE
+    Invoke-NetCleanLauncher
+.OUTPUTS
+    System.Void
+.NOTES
+    The function tests for administrator privileges before proceeding.
+#>
+function Invoke-NetCleanLauncher {
+    [CmdletBinding()]
+    [OutputType([void])]
+    param()
+
+    try {
+        Test-NetCleanAdministrator
+    }
+    catch {
+        Write-Information $_.Exception.Message -InformationAction Continue
+        return
+    }
+
+    $selectedMode = $script:Mode
+    if ($selectedMode -eq 'Menu') {
+        $selectedMode = Read-NetCleanMenuSelection
+        if ($selectedMode -eq 'Exit') {
+            return
+        }
+    }
+
+    $selectedPerformanceProfile = $null
+
+    if ($selectedMode -eq 'PerformanceTune') {
+        if ($script:PerformanceProfileExplicitlySet) {
+            $selectedPerformanceProfile = $script:PerformanceProfile
+        }
+        else {
+            $selectedPerformanceProfile = Read-NetCleanPerformanceProfileSelection
+        }
+
+        if ($selectedPerformanceProfile -eq 'Cancel') {
+            Write-Information 'Performance tuning cancelled.' -InformationAction Continue
+            return
+        }
+    }
+
+    Show-ModeExplanation -SelectedMode $selectedMode
+
+    $optionParameters = @{
+        SelectedMode       = $selectedMode
+        DryRun             = [bool]$script:DryRun
+        SkipWifi           = [bool]$script:SkipWifi
+        SkipDnsFlush       = [bool]$script:SkipDnsFlush
+        SkipEventLogs      = [bool]$script:SkipEventLogs
+        SkipUserArtifacts  = [bool]$script:SkipUserArtifacts
+        SkipFirewallBackup = [bool]$script:SkipFirewallBackup
+    }
+
+    if ($selectedMode -eq 'PerformanceTune') {
+        $optionParameters.PerformanceProfile = $selectedPerformanceProfile
+    }
+
+    $options = Read-NetCleanOption @optionParameters
+
+    if (-not $script:Force) {
+        if (-not (Read-YesNo -Prompt 'Proceed with the selected NetClean operation?' -DefaultNo $true)) {
+            Write-Information 'Operation cancelled.' -InformationAction Continue
+            return
+        }
+    }
+
+    if ($script:CreateLog -or $selectedMode -ne 'Menu') {
+        try {
+            Start-NetCleanLog -Directory $script:LogPath
+        }
+        catch {
+            Write-Information ("Unable to initialize logging at '{0}': {1}" -f $script:LogPath, $_.Exception.Message) -InformationAction Continue
+            Write-Information 'Aborting: check that the log path does not already exist as a file, and that you have permission to create directories there.' -InformationAction Continue
+            return
+        }
+    }
+
+    if ($selectedMode -eq 'PerformanceTune' -and $selectedPerformanceProfile) {
+        Write-NetCleanLog -Level INFO -Message ("NetClean starting. Mode={0} DryRun={1} PerformanceProfile={2}" -f $selectedMode, $options.DryRun, $selectedPerformanceProfile)
+    }
+    else {
+        Write-NetCleanLog -Level INFO -Message ("NetClean starting. Mode={0} DryRun={1}" -f $selectedMode, $options.DryRun)
+    }
+
+    if (-not $options.DryRun -and -not (Test-Path -LiteralPath $script:BackupPath)) {
+        try {
+            New-Item -Path $script:BackupPath -ItemType Directory -Force -ErrorAction Stop | Out-Null
+        }
+        catch {
+            Write-Information ("Unable to create backup directory '{0}': {1}" -f $script:BackupPath, $_.Exception.Message) -InformationAction Continue
+            Write-Information 'Aborting: a usable backup directory is required before making any changes.' -InformationAction Continue
+            return
+        }
+    }
+
+    if ($selectedMode -eq 'Preview') {
+        $ctx = Invoke-NetCleanPhase1Detect
+        $ctx = Invoke-NetCleanPhase2Protect `
+            -Context $ctx `
+            -BackupPath $script:BackupPath `
+            -DryRun:$true `
+            -SkipFirewallBackup:$options.SkipFirewallBackup
+
+        Show-PreviewSummary -Result $ctx
+        return
+    }
+
+    $workflowParameters = @{
+        Mode               = $selectedMode
+        BackupPath         = $script:BackupPath
+        DryRun             = [bool]$options.DryRun
+        SkipWifi           = [bool]$options.SkipWifi
+        SkipDnsFlush       = [bool]$options.SkipDnsFlush
+        SkipEventLogs      = [bool]$options.SkipEventLogs
+        SkipUserArtifacts  = [bool]$options.SkipUserArtifacts
+        SkipFirewallBackup = [bool]$options.SkipFirewallBackup
+    }
+
+    if ($selectedMode -eq 'PerformanceTune') {
+        $workflowParameters.PerformanceProfile = $options.PerformanceProfile
+    }
+
+    $result = Invoke-NetCleanWorkflow @workflowParameters
+
+    Show-NetCleanSummary -Result $result -SelectedMode $selectedMode
+
+    $postRunAction = Read-PostRunAction
+    Invoke-PostRunAction -Action $postRunAction -DryRunMode:$options.DryRun
+}
+
+if (-not $script:NetCleanTestMode -and $MyInvocation.InvocationName -ne '.') {
+    Invoke-NetCleanLauncher
+}
